@@ -1,5 +1,5 @@
 // ── chart.js  ── Canvas K-line renderer (v2)
-
+ 
 const CHART = {
   currentData: [],
   currentPeriod: '3mo',
@@ -7,7 +7,7 @@ const CHART = {
   chartInstance: null,
   macdInstance: null,
   kdInstance: null,
-
+ 
   init() {
     const tabs = document.getElementById('period-tabs');
     if (tabs) {
@@ -30,7 +30,7 @@ const CHART = {
       });
     });
   },
-
+ 
   async load(symbol, period) {
     this.currentPeriod = period;
     const loadEl = document.getElementById('chart-loading');
@@ -41,12 +41,12 @@ const CHART = {
     this.draw();
     if (data.length >= 15) ANALYSIS.run(data, symbol);
   },
-
+ 
   draw() {
     this._drawMain();
     this._drawVol();
   },
-
+ 
   _drawMain() {
     const canvas = document.getElementById('mainChart');
     if (!canvas || !this.currentData.length) return;
@@ -58,34 +58,34 @@ const CHART = {
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
-
+ 
     const isDark = !document.body.classList.contains('light-mode');
     const clr = {
       up: '#E24B4A', dn: '#1D9E75', grid: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
       text: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)',
       ma5:'#EF9F27', ma20:'#378ADD', ma60:'#D4537E',
     };
-
+ 
     const data = this.currentData;
     const n = data.length;
     const PAD = { l:6, r:52, t:16, b:28 };
     const chartW = W - PAD.l - PAD.r;
     const barW = Math.max(1, Math.min(12, Math.floor(chartW / n) - 1));
     const gap = (chartW - barW * n) / (n - 1 || 1);
-
+ 
     const closes = data.map(d => d.c);
     const ma5 = this._ma(closes, 5);
     const ma20 = this._ma(closes, 20);
     const ma60 = this._ma(closes, 60);
-
+ 
     const allPrices = data.flatMap(d => [d.h, d.l]);
     const minP = Math.min(...allPrices) * 0.998;
     const maxP = Math.max(...allPrices) * 1.002;
     const priceRange = maxP - minP || 1;
-
+ 
     const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
     const yOf = p => PAD.t + (1 - (p - minP) / priceRange) * (H - PAD.t - PAD.b);
-
+ 
     // Grid lines
     ctx.strokeStyle = clr.grid; ctx.lineWidth = 1;
     [0.25, 0.5, 0.75].forEach(r => {
@@ -95,7 +95,7 @@ const CHART = {
       ctx.fillStyle = clr.text; ctx.font = '10px monospace';
       ctx.textAlign = 'left'; ctx.fillText(p.toFixed(1), W - PAD.r + 3, y + 3);
     });
-
+ 
     if (this.currentType === 'line') {
       // Line chart
       ctx.beginPath(); ctx.strokeStyle = clr.up; ctx.lineWidth = 1.5;
@@ -119,7 +119,7 @@ const CHART = {
         if (!isUp) { ctx.strokeRect(x - barW/2, top, barW, bodyH); }
       });
     }
-
+ 
     // MA lines
     const drawMA = (ma, color) => {
       ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.2;
@@ -132,7 +132,7 @@ const CHART = {
       ctx.stroke();
     };
     drawMA(ma5, clr.ma5); drawMA(ma20, clr.ma20); drawMA(ma60, clr.ma60);
-
+ 
     // X-axis dates
     ctx.fillStyle = clr.text; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
     const step = Math.ceil(n / 6);
@@ -141,11 +141,11 @@ const CHART = {
       const label = new Date(d.t).toLocaleDateString('zh-TW', { month:'2-digit', day:'2-digit' });
       ctx.fillText(label, xOf(i), H - 6);
     }
-
+ 
     // Crosshair on hover
     this._setupCrosshair(canvas, data, xOf, yOf, PAD, W, H, barW, gap);
   },
-
+ 
   _drawVol() {
     const canvas = document.getElementById('volChart');
     if (!canvas || !this.currentData.length) return;
@@ -157,7 +157,7 @@ const CHART = {
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
-
+ 
     const data = this.currentData;
     const n = data.length;
     const PAD = { l:6, r:52, t:4, b:4 };
@@ -165,7 +165,7 @@ const CHART = {
     const barW = Math.max(1, Math.min(12, Math.floor(chartW / n) - 1));
     const gap = (chartW - barW * n) / (n - 1 || 1);
     const maxV = Math.max(...data.map(d => d.v)) || 1;
-
+ 
     const isDark = !document.body.classList.contains('light-mode');
     data.forEach((d, i) => {
       const x = PAD.l + i * (barW + gap);
@@ -175,7 +175,7 @@ const CHART = {
       ctx.fillRect(x, H - PAD.b - bh, barW, bh);
     });
   },
-
+ 
   drawMACD(data) {
     const canvas = document.getElementById('macdChart');
     if (!canvas || !data.length) return;
@@ -186,7 +186,7 @@ const CHART = {
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
-
+ 
     const closes = data.map(d => d.c);
     const n = closes.length;
     const ema12 = ANALYSIS._ema(closes, 12);
@@ -195,11 +195,11 @@ const CHART = {
     const sigArr = ANALYSIS._ema(macdArr, 9);
     const hists = macdArr.map((v, i) => v - (sigArr[i] || 0));
     const start = 25;
-
+ 
     const isDark = !document.body.classList.contains('light-mode');
     const grid = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
     const textC = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
-
+ 
     const PAD = { l:6, r:52, t:14, b:20 };
     const chartW = W - PAD.l - PAD.r;
     const visN = hists.length;
@@ -208,13 +208,13 @@ const CHART = {
     const absMax = Math.max(...hists.map(Math.abs), 0.001) * 1.1;
     const mid = PAD.t + (H - PAD.t - PAD.b) / 2;
     const yOf = v => mid - (v / absMax) * ((H - PAD.t - PAD.b) / 2);
-
+ 
     // Grid
     ctx.strokeStyle = grid; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(PAD.l, mid); ctx.lineTo(W - PAD.r, mid); ctx.stroke();
     ctx.fillStyle = textC; ctx.font = '9px monospace'; ctx.textAlign = 'left';
     ctx.fillText('MACD', W - PAD.r + 3, PAD.t + 8);
-
+ 
     // Histogram bars
     hists.forEach((h, i) => {
       const x = PAD.l + i * (barW + gap);
@@ -223,7 +223,7 @@ const CHART = {
       ctx.fillStyle = h >= 0 ? 'rgba(226,75,74,0.7)' : 'rgba(29,158,117,0.7)';
       ctx.fillRect(x, Math.min(y, mid), barW, Math.max(1, bh));
     });
-
+ 
     // MACD & Signal lines
     const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
     const drawLine = (arr, color) => {
@@ -234,7 +234,7 @@ const CHART = {
     drawLine(macdArr, '#378ADD');
     drawLine(sigArr, '#EF9F27');
   },
-
+ 
   drawKD(data) {
     const canvas = document.getElementById('kdChart');
     if (!canvas || !data.length) return;
@@ -245,11 +245,11 @@ const CHART = {
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
-
+ 
     const isDark = !document.body.classList.contains('light-mode');
     const grid = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
     const textC = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
-
+ 
     const period = 9;
     const Ks = [], Ds = [];
     let K = 50, D = 50;
@@ -262,7 +262,7 @@ const CHART = {
       D = 2/3 * D + 1/3 * K;
       Ks.push(K); Ds.push(D);
     }
-
+ 
     const PAD = { l:6, r:52, t:14, b:20 };
     const chartW = W - PAD.l - PAD.r;
     const n = Ks.length;
@@ -270,7 +270,7 @@ const CHART = {
     const gap = (chartW - barW * n) / (n - 1 || 1);
     const yOf = v => PAD.t + (1 - v / 100) * (H - PAD.t - PAD.b);
     const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
-
+ 
     // Grid lines at 20/50/80
     [20, 50, 80].forEach(v => {
       ctx.strokeStyle = grid; ctx.lineWidth = 1;
@@ -279,7 +279,7 @@ const CHART = {
       ctx.fillText(v, W - PAD.r + 3, yOf(v) + 3);
     });
     ctx.fillStyle = textC; ctx.fillText('KD', W - PAD.r + 3, PAD.t + 8);
-
+ 
     const drawLine = (arr, color) => {
       ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.4;
       arr.forEach((v, i) => { i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)); });
@@ -288,7 +288,7 @@ const CHART = {
     drawLine(Ks, '#E24B4A');
     drawLine(Ds, '#378ADD');
   },
-
+ 
   _setupCrosshair(canvas, data, xOf, yOf, PAD, W, H, barW, gap) {
     const tt = document.getElementById('chart-tt');
     const cv = document.getElementById('cv');
@@ -316,7 +316,7 @@ const CHART = {
       if (tt) tt.style.opacity = '0';
     };
   },
-
+ 
   _ma(arr, period) {
     return arr.map((_, i) => {
       if (i < period - 1) return null;
