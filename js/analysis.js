@@ -1,10 +1,10 @@
 // ── analysis.js  ── Technical analysis, AI signals, sell engine (v2)
- 
+
 const ANALYSIS = {
   lastData: [],
   lastSymbol: '',
   lastInd: null,
- 
+
   run(candles, symbol) {
     if (!candles || candles.length < 15) {
       const el = document.getElementById('reasoning-text');
@@ -13,7 +13,7 @@ const ANALYSIS = {
     }
     this.lastData = candles;
     if (symbol) this.lastSymbol = symbol;
- 
+
     const ind = this._calcIndicators(candles);
     this.lastInd = ind;
     this._updateIndicatorCards(ind);
@@ -24,15 +24,15 @@ const ANALYSIS = {
     CHART.drawKD(candles);
     ORDER.calcPortfolio();
   },
- 
+
   _calcIndicators(data) {
     const closes = data.map(d => d.c);
     const n = closes.length;
     const last = data[n - 1];
     const prev = data[n - 2] ?? last;
- 
+
     const rsi = this._rsi(closes, 14);
- 
+
     const ema12 = this._ema(closes, 12);
     const ema26 = this._ema(closes, 26);
     const macdVal = +(ema12[n-1] - ema26[n-1]).toFixed(3);
@@ -43,12 +43,12 @@ const ANALYSIS = {
     const prevHist = macdArr.length > 2 ? macdArr[macdArr.length-2] - sigArr[sigArr.length-2] : 0;
     const macdGolden = hist > 0 && prevHist <= 0;
     const macdDead   = hist < 0 && prevHist >= 0;
- 
+
     const { K, D } = this._kd(data, 9);
     const prev_kd = this._kd(data.slice(0, -1), 9);
     const kdGolden = K > D && prev_kd.K <= prev_kd.D;
     const kdDead   = K < D && prev_kd.K >= prev_kd.D;
- 
+
     const slice20 = closes.slice(-20);
     const mean = slice20.reduce((a, b) => a + b) / 20;
     const std  = Math.sqrt(slice20.reduce((a, b) => a + (b - mean) ** 2, 0) / 20);
@@ -56,24 +56,24 @@ const ANALYSIS = {
     const bbDn  = +(mean - 2 * std).toFixed(2);
     const bbMid = +mean.toFixed(2);
     const bbPos = last.c > bbUp ? 'overbought' : last.c < bbDn ? 'oversold' : 'normal';
- 
+
     const ma5  = closes.slice(-5).reduce((a,b)=>a+b)/5;
     const ma20v = closes.slice(-20).reduce((a,b)=>a+b)/20;
     const ma60v = n >= 60 ? closes.slice(-60).reduce((a,b)=>a+b)/60 : null;
     const maBull = ma5 > ma20v && (ma60v === null || ma20v > ma60v);
- 
+
     const avgVol = data.slice(-10, -1).reduce((a, d) => a + d.v, 0) / 9;
     const volRatio = last.v / (avgVol || 1);
     const volSurge = volRatio > 1.5;
- 
+
     const trend = last.c > ma20v ? 'up' : last.c < ma20v ? 'down' : 'flat';
     const chg = +(last.c - prev.c).toFixed(2);
     const chgPct = +((chg / prev.c) * 100).toFixed(2);
- 
+
     const recent = data.slice(-20);
     const support = +Math.min(...recent.map(d => d.l)).toFixed(2);
     const resistance = +Math.max(...recent.map(d => d.h)).toFixed(2);
- 
+
     return {
       rsi, macdVal, macdGolden, macdDead, hist,
       K: +K.toFixed(2), D: +D.toFixed(2), kdGolden, kdDead,
@@ -83,7 +83,7 @@ const ANALYSIS = {
       last, chg, chgPct, support, resistance,
     };
   },
- 
+
   _calcScore(ind) {
     let score = 0;
     if (ind.rsi < 30) score += 2;
@@ -103,7 +103,7 @@ const ANALYSIS = {
     if (ind.volSurge && ind.chg > 0) score += 0.5;
     return Math.max(-5, Math.min(5, score));
   },
- 
+
   _updateIndicatorCards(ind) {
     const row = document.getElementById('ind-row');
     if (!row) return;
@@ -122,7 +122,7 @@ const ANALYSIS = {
         <span class="ind-signal ${it.signal.cls}">${it.signal.label}</span>
       </div>`).join('');
   },
- 
+
   _updateSignals(ind, data) {
     const score = this._calcScore(ind);
     const pct = Math.round(((score + 5) / 10) * 100);
@@ -136,34 +136,34 @@ const ANALYSIS = {
     const tpMulti = score >= 2 ? 1.12 : 1.08;
     const tp = +(curPrice * tpMulti).toFixed(1);
     const sl = +(curPrice * 0.94).toFixed(1);
- 
+
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
     set('sig-action', action); set('sig-action-desc', actionDesc);
     set('sig-entry', `$${suggestEntry}`); set('sig-entry-desc', `支撐${ind.support}，進場區間 ${(curPrice*0.96).toFixed(1)}~${(curPrice*1.002).toFixed(1)}`);
     set('sig-tp', `$${tp}`); set('sig-tp-desc', `目標+${((tpMulti-1)*100).toFixed(0)}%，壓力${ind.resistance}`);
     set('sig-sl', `$${sl}`); set('sig-sl-desc', '嚴格停損 -6%');
- 
+
     const chip = document.getElementById('conf-chip');
     if (chip) { chip.textContent = `${confidence} ${pct}%`; chip.className = `confidence-chip ${confClass}`; }
     const bar = document.getElementById('meter-bar');
     if (bar) { bar.style.width = pct + '%'; bar.style.background = score>=2?'var(--red)':score<=-2?'var(--green-l)':'var(--amber)'; }
     const mv = document.getElementById('meter-value');
     if (mv) mv.textContent = `${pct}% / 100`;
- 
+
     this._updateInfoGrid(ind);
     ORDER.suggestEntry = suggestEntry;
     ORDER.suggestSL = sl;
     ORDER.suggestTP = tp;
     ORDER.score = score;
   },
- 
+
   _updateSellEngine(ind) {
     const stock = APP.getActiveStock();
     const currentPrice = ind.last.c;
     const result = SELL.evaluate({ techInd: ind, stock, currentPrice });
     if (result) renderSellSignals(result);
   },
- 
+
   _updatePatterns(ind, data) {
     const patterns = [];
     const n = data.length;
@@ -179,10 +179,10 @@ const ANALYSIS = {
     if (ind.bbPos === 'oversold') patterns.push({ label:'布林帶下軌支撐', strength:'match' });
     if (ind.last.c > ind.support * 1.02 && ind.last.c < ind.support * 1.05) patterns.push({ label:'近期支撐反彈', strength:'match' });
     ['波動收斂','籌碼集中','底部放量'].forEach(p => patterns.push({ label:p, strength:'neutral' }));
- 
+
     const tagsEl = document.getElementById('pattern-tags');
     if (tagsEl) tagsEl.innerHTML = patterns.map(p => `<span class="ptag ${p.strength}">${p.label}</span>`).join('');
- 
+
     const strongP = patterns.filter(p=>p.strength==='strong').map(p=>p.label);
     const matchP  = patterns.filter(p=>p.strength==='match').map(p=>p.label);
     let reason = '';
@@ -196,7 +196,7 @@ const ANALYSIS = {
     const rt = document.getElementById('reasoning-text');
     if (rt) rt.textContent = reason;
   },
- 
+
   _updateInfoGrid(ind) {
     const grid = document.getElementById('info-grid');
     if (!grid) return;
@@ -219,7 +219,7 @@ const ANALYSIS = {
     ];
     grid.innerHTML = items.map(it => `<div class="info-item"><div class="info-label">${it.label}</div><div class="info-value">${it.value}</div></div>`).join('');
   },
- 
+
   // ── Math helpers ──
   _ema(arr, period) {
     const k = 2 / (period + 1);
@@ -230,7 +230,7 @@ const ANALYSIS = {
     for (let i = period; i < arr.length; i++) res[i] = arr[i] * k + res[i-1] * (1-k);
     return res;
   },
- 
+
   _rsi(closes, period = 14) {
     if (closes.length < period + 1) return 50;
     let gains = 0, losses = 0;
@@ -242,7 +242,7 @@ const ANALYSIS = {
     const rs = gains / losses;
     return +((100 - 100 / (1 + rs)).toFixed(1));
   },
- 
+
   _kd(data, period = 9) {
     const n = data.length;
     if (n < period) return { K: 50, D: 50 };
@@ -258,14 +258,14 @@ const ANALYSIS = {
     return { K, D };
   },
 };
- 
+
 // ── SELL module ──────────────────────────────────────────
 const SELL = {
   evaluate({ techInd, stock, currentPrice }) {
     if (!techInd || !currentPrice) return null;
     const signals = [];
     let urgency = 'none';
- 
+
     if (stock) {
       const gainPct = (currentPrice - stock.cost) / stock.cost * 100;
       if (gainPct >= 30) {
@@ -280,7 +280,7 @@ const SELL = {
         urgency = this._esc(urgency, 'urgent');
       }
     }
- 
+
     if (techInd.rsi > 80) { signals.push({ label:`RSI超買${techInd.rsi}`, desc:'極端超買，回壓風險高', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
     else if (techInd.rsi > 72) { signals.push({ label:`RSI${techInd.rsi}超買區`, desc:'RSI進入超買，建議輕倉', urgency:'watch' }); urgency = this._esc(urgency,'watch'); }
     if (techInd.macdDead) { signals.push({ label:'MACD死亡交叉', desc:'動能轉弱，建議減碼', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
@@ -288,26 +288,26 @@ const SELL = {
     if (currentPrice < techInd.ma20 * 0.97 && !techInd.maBull) { signals.push({ label:'跌破MA20且空頭排列', desc:'中線趨勢向下', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
     if (currentPrice < techInd.support * 0.98) { signals.push({ label:'跌破近期支撐', desc:`跌破支撐$${techInd.support}`, urgency:'urgent' }); urgency = this._esc(urgency,'urgent'); }
     if (techInd.volSurge && techInd.chg < 0) { signals.push({ label:'爆量下跌（主力出貨）', desc:'量增價跌為出貨訊號', urgency:'urgent' }); urgency = this._esc(urgency,'urgent'); }
- 
+
     const plan = this._buildPlan(urgency, currentPrice, stock, techInd);
     return { signals, urgency, plan };
   },
- 
+
   _esc(cur, next) {
     const o = ['none','watch','sell','urgent','emergency'];
     return o.indexOf(next) > o.indexOf(cur) ? next : cur;
   },
- 
+
   _buildPlan(urgency, price, stock, ind) {
     if (urgency === 'none') return null;
     const shares = stock?.shares ?? 1;
     const gainPct = stock ? ((price - stock.cost) / stock.cost * 100) : 0;
- 
+
     // 智慧顯示：1000股以上才說「張」
     const sharesDisp = n => n >= 1000
       ? `${(n/1000).toFixed(n%1000===0?0:1)}張`
       : `${Math.ceil(n)}股`;
- 
+
     if (urgency === 'urgent') return {
       title:'緊急減碼計畫', color:'urgent',
       rows:[
@@ -337,4 +337,3 @@ const SELL = {
     };
   },
 };
- 
