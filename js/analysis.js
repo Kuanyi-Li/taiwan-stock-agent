@@ -302,22 +302,29 @@ const SELL = {
     if (urgency === 'none') return null;
     const shares = stock?.shares ?? 1;
     const gainPct = stock ? ((price - stock.cost) / stock.cost * 100) : 0;
+
+    // 智慧顯示：1000股以上才說「張」
+    const sharesDisp = n => n >= 1000
+      ? `${(n/1000).toFixed(n%1000===0?0:1)}張`
+      : `${Math.ceil(n)}股`;
+
     if (urgency === 'urgent') return {
       title:'緊急減碼計畫', color:'urgent',
       rows:[
-        { batch:'今日盤中', action:`先出${Math.ceil(shares*0.5)}張（50%）`, desc:`建議賣價$${(price*0.995).toFixed(1)}附近` },
-        { batch:'明日開盤', action:`再視情況出${Math.ceil(shares*0.3)}張`, desc:'若繼續下跌則全出' },
-        { batch:'剩餘部位', action:`${Math.floor(shares*0.2)}張設停損`, desc:`停損線$${ind?.support?.toFixed(1)??'—'}` },
+        { batch:'今日盤中', action:`先出${sharesDisp(shares*0.5)}（50%）`, desc:`建議賣價$${(price*0.995).toFixed(1)}附近` },
+        { batch:'明日開盤', action:`再視情況出${sharesDisp(shares*0.3)}`, desc:'若繼續下跌則全出' },
+        { batch:'剩餘部位', action:`${sharesDisp(shares*0.2)}設停損`, desc:`停損線$${ind?.support?.toFixed(1)??'—'}` },
       ],
       note:`已獲利${gainPct>=0?'+':''}${gainPct.toFixed(1)}%，優先保護獲利`,
     };
     if (urgency === 'sell') {
-      const first = gainPct >= 20 ? Math.ceil(shares*0.4) : Math.ceil(shares*0.25);
+      const firstPct = gainPct >= 20 ? 0.4 : 0.25;
+      const firstShares = shares * firstPct;
       return {
         title:'分批獲利了結計畫', color:'sell',
         rows:[
-          { batch:'第一批', action:`出${first}張（${Math.round(first/shares*100)}%）`, desc:`鎖住部分獲利` },
-          { batch:'第二批', action:`出${Math.ceil(shares*0.3)}張`, desc:`若跌破MA20$${ind?.ma20?.toFixed(1)??'—'}執行` },
+          { batch:'第一批', action:`出${sharesDisp(firstShares)}（${Math.round(firstPct*100)}%）`, desc:'鎖住部分獲利' },
+          { batch:'第二批', action:`出${sharesDisp(shares*0.3)}`, desc:`跌破MA20$${ind?.ma20?.toFixed(1)??'—'}執行` },
           { batch:'剩餘部位', action:'持有觀察', desc:`停損$${ind?.support?.toFixed(1)??'—'}` },
         ],
         note:`建議先實現${gainPct>=0?gainPct.toFixed(1)+'%':'部分'}獲利`,
