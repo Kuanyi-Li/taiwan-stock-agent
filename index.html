@@ -262,30 +262,9 @@
             <div class="reasoning-text" id="reasoning-text">請先選擇持股或自選股，系統將自動執行技術分析與型態比對。</div>
           </div>
 
-          <!-- Per-stock Order Plan -->
-          <div class="order-section">
-            <div class="order-title">個股下單計劃</div>
-            <div class="budget-input-row">
-              <label class="budget-label">預算</label>
-              <div class="budget-input-wrap">
-                <span class="budget-prefix">NT$</span>
-                <input type="number" id="budget" class="budget-input" value="200000" min="0" step="10000" oninput="calcOrder()">
-              </div>
-              <select id="strategy-select" class="strategy-select" onchange="calcOrder()">
-                <option value="auto">自動策略</option>
-                <option value="single">單次進場</option>
-                <option value="batch2">2 次分批</option>
-                <option value="batch3">3 次分批</option>
-                <option value="batch4">4 次分批</option>
-              </select>
-            </div>
-            <div class="order-table-wrap">
-              <table class="order-table">
-                <thead><tr><th>批次</th><th>建議價</th><th>股數</th><th>金額</th><th>手續費</th><th>佔比</th></tr></thead>
-                <tbody id="order-tbody"></tbody>
-              </table>
-            </div>
-            <div class="order-footer" id="order-footer"></div>
+          <!-- Per-stock Order Plan - 移至「資金分配」tab，此處僅保留快捷進場參考 -->
+          <div class="order-section" style="background:var(--bg-3);border-color:var(--border-md)">
+            <div style="font-size:11px;color:var(--text-3)">💡 個股進場計算已整合至「資金分配」tab，可在那裡輸入總預算，一次得到所有持股的分配建議。</div>
           </div>
 
           <div class="notify-section">
@@ -439,13 +418,13 @@
       <div class="main-tab-pane" id="mtab-alloc">
         <div style="padding:14px 16px">
           <div class="portfolio-alloc">
-            <div class="pa-title">跨股資金配置 AI 分析</div>
-            <div class="pa-subtitle">根據各股技術評分，自動分配預算到最值得加碼的標的</div>
+            <div class="pa-title">📊 跨股資金配置分析</div>
+            <div class="pa-subtitle">根據各股評分自動分配預算，一次看所有持股的建議加碼量</div>
             <div class="pa-input-row">
               <label class="budget-label">可用總預算</label>
               <div class="budget-input-wrap">
                 <span class="budget-prefix">NT$</span>
-                <input type="number" id="portfolio-budget" class="budget-input" value="500000" min="0" step="10000" style="width:120px">
+                <input type="number" id="portfolio-budget" class="budget-input" value="500000" min="0" step="10000" style="width:130px">
               </div>
               <button class="analyze-btn" onclick="calcPortfolio()">計算分配</button>
             </div>
@@ -453,11 +432,40 @@
               <div class="alloc-empty">輸入預算後點「計算分配」</div>
             </div>
           </div>
-          <div style="font-size:11px;color:var(--text-3);line-height:1.6;background:var(--bg-2);border-radius:var(--radius-sm);padding:10px">
-            ⚠️ 基於技術面評分計算，建議保留10-20%現金作備援。
+
+          <!-- 個股精算 -->
+          <div class="order-section" style="margin-top:12px">
+            <div class="order-title">🎯 個股精算下單（選定個股用）</div>
+            <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">點選左側持股並執行「重新分析」後，此處顯示該股的精確分批建議</div>
+            <div class="budget-input-row">
+              <label class="budget-label">個股預算</label>
+              <div class="budget-input-wrap">
+                <span class="budget-prefix">NT$</span>
+                <input type="number" id="budget" class="budget-input" value="200000" min="0" step="10000" oninput="calcOrder()">
+              </div>
+              <select id="strategy-select" class="strategy-select" onchange="calcOrder()">
+                <option value="auto">自動策略</option>
+                <option value="single">單次進場</option>
+                <option value="batch2">2 次分批</option>
+                <option value="batch3">3 次分批</option>
+                <option value="batch4">4 次分批</option>
+              </select>
+            </div>
+            <div class="order-table-wrap">
+              <table class="order-table">
+                <thead><tr><th>批次</th><th>建議價</th><th>股數</th><th>金額</th><th>手續費</th><th>佔比</th></tr></thead>
+                <tbody id="order-tbody"></tbody>
+              </table>
+            </div>
+            <div class="order-footer" id="order-footer"></div>
+          </div>
+
+          <div style="font-size:11px;color:var(--text-3);line-height:1.6;background:var(--bg-2);border-radius:var(--radius-sm);padding:10px;margin-top:10px">
+            ⚠️ 基於技術面和損益%評分，建議保留10-20%現金作備援。手續費 0.1425%（最低$20）。
           </div>
         </div>
       </div>
+
 
       <!-- ── 選股推薦 ── -->
       <div class="main-tab-pane" id="mtab-recommend">
@@ -570,6 +578,29 @@
   <div class="modal modal-wide">
     <div class="modal-header"><h3>設定</h3><button class="modal-close" onclick="closeModal('settings-modal')">✕</button></div>
     <div class="modal-body">
+
+      <div class="settings-section">
+        <div class="settings-title">☁️ 雲端同步（跨裝置）</div>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:10px;line-height:1.6">
+          使用 <a href="https://jsonbin.io" target="_blank" style="color:var(--blue)">JSONBin.io</a> 免費服務同步資料（電腦 ↔ 手機）。<br>
+          1. 前往 jsonbin.io 免費註冊 → 取得 API Key<br>
+          2. 填入下方 → 儲存設定 → 點「上傳到雲端」<br>
+          3. 手機上同樣填入 API Key + Bin ID → 點「從雲端下載」
+        </div>
+        <div class="form-group">
+          <label class="form-label">API Key (Master Key)</label>
+          <input type="password" id="jsonbin-key" class="form-input" placeholder="$2a$10$...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Bin ID（首次上傳後自動產生）</label>
+          <input type="text" id="jsonbin-bin" class="form-input" placeholder="留空，上傳後自動填入">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
+          <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="saveSettings();SYNC.upload()">⬆ 上傳到雲端</button>
+          <button class="btn-cancel" style="font-size:12px;padding:6px 14px" onclick="SYNC.download()">⬇ 從雲端下載</button>
+          <span id="sync-status" style="font-size:11px;color:var(--text-3)">未設定</span>
+        </div>
+      </div>
 
       <div class="settings-section">
         <div class="settings-title">📈 投資目標</div>
