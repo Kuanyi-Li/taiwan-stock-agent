@@ -1,0 +1,17 @@
+{
+  "name": "台股 Agent — 智能選股平台",
+  "short_name": "台股 Agent",
+  "description": "台股投資組合管理與 AI 智能分析",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#1D9E75",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%231D9E75'/><path d='M40 140 L75 85 L110 108 L150 55' stroke='white' stroke-width='14' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}
