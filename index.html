@@ -188,7 +188,7 @@
         <button class="main-tab-btn" data-mtab="goal">目標追蹤</button>
         <button class="main-tab-btn" data-mtab="trades">交易紀錄</button>
         <button class="main-tab-btn" data-mtab="alloc">資金分配</button>
-        <button class="main-tab-btn" data-mtab="recommend">AI 選股</button>
+        <button class="main-tab-btn" data-mtab="recommend">選股推薦</button>
       </div>
 
       <!-- ── AI 下單建議 ── -->
@@ -383,27 +383,16 @@
         <div class="recommend-container">
           <div class="rec-header">
             <div>
-              <div class="rec-title">🤖 AI 智能選股推薦</div>
-              <div class="rec-subtitle">Claude AI 根據你的投資目標與現有持股，推薦適合長期投資的標的</div>
+              <div class="rec-title">📊 智能選股推薦</div>
+              <div class="rec-subtitle">根據你的投資目標與現有持股結構，推薦適合長期投資的補強標的</div>
             </div>
             <button class="rec-run-btn" id="rec-run-btn" onclick="RECOMMEND.run()">
-              <span id="rec-spinner">⟳</span>
-              🤖 AI 分析推薦
+              📊 產生推薦
             </button>
           </div>
-
-          <div class="rec-hint">
-            <strong>如何串接 Claude API：</strong><br>
-            1. 前往 <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a> 免費申請帳號<br>
-            2. 到 <strong>API Keys</strong> 頁面建立一個新的 API Key（格式：sk-ant-...）<br>
-            3. 點右上角 ⚙ 設定，在「Anthropic API Key」欄位填入 Key<br>
-            4. 儲存後回到此頁面，點「AI 分析推薦」即可使用<br>
-            <span style="color:var(--amber)">⚠️ API Key 儲存在本機 localStorage，不會上傳任何伺服器。每次呼叫 Claude API 會從你的帳號扣除用量費用（約 $0.01 USD/次）。</span>
-          </div>
-
           <div id="rec-result">
-            <div style="text-align:center;padding:24px;color:var(--text-3);font-size:13px">
-              填入 API Key 後，點「AI 分析推薦」開始使用
+            <div style="text-align:center;padding:32px;color:var(--text-3);font-size:13px">
+              點「產生推薦」，系統會根據你的持股結構與投資目標，推薦適合補強的標的
             </div>
           </div>
         </div>
@@ -590,19 +579,6 @@
           <div class="form-group half">
             <label class="form-label">目標年限（年）</label>
             <input type="number" id="goal-years-input" class="form-input" placeholder="2.5" value="2.5" step="0.5">
-          </div>
-        </div>
-      </div>
-
-      <!-- Claude API -->
-      <div class="settings-section">
-        <div class="settings-title">🤖 Claude AI 設定（AI 選股推薦功能）</div>
-        <div class="form-group">
-          <label class="form-label">Anthropic API Key</label>
-          <input type="password" id="anthropic-key" class="form-input" placeholder="sk-ant-api03-...">
-          <div class="api-key-hint">
-            前往 <a href="https://console.anthropic.com/api-keys" target="_blank">console.anthropic.com/api-keys</a> 建立。
-            Key 僅存在本機 localStorage，不會傳送到任何伺服器。每次使用約消耗 $0.01 USD。
           </div>
         </div>
       </div>
