@@ -80,8 +80,15 @@ const TRADES = {
     }
     list.innerHTML = trades.slice(0, 50).map(t => {
       const isBuy = t.action === 'buy';
-      const total = t.shares * t.price * 1000;
+      const total = t.shares * t.price;  // shares = 股數
       const fee = t.fee || 0;
+      const totalDisplay = total >= 10000
+        ? `${(total/10000).toFixed(2)}萬`
+        : `${total.toFixed(0)}元`;
+      // 顯示：若 shares >= 1000 才顯示張數
+      const sharesDisplay = t.shares >= 1000
+        ? `${(t.shares/1000).toFixed(t.shares%1000===0?0:2)}張`
+        : `${t.shares}股`;
       return `
         <div class="trade-item">
           <div class="ti-left">
@@ -90,12 +97,12 @@ const TRADES = {
             <span class="ti-name">${t.name}</span>
           </div>
           <div class="ti-mid">
-            <span>${t.shares}張 @ $${t.price}</span>
+            <span>${sharesDisplay} @ $${t.price}</span>
             <span class="ti-date">${t.date || '—'}</span>
           </div>
           <div class="ti-right">
-            <span class="${isBuy?'dn-color':'up-color'}">${isBuy?'-':'+'}${(total/10000).toFixed(2)}萬</span>
-            ${fee ? `<span class="ti-fee">手續費 $${fee}</span>` : ''}
+            <span class="${isBuy?'dn-color':'up-color'}">${isBuy?'-':'+'}${totalDisplay}</span>
+            ${fee ? `<span class="ti-fee">稅費 $${fee}</span>` : ''}
           </div>
         </div>`;
     }).join('');
@@ -115,15 +122,17 @@ const ORDER = {
     const strategy = document.getElementById('strategy-select')?.value ?? 'auto';
     const price    = this.suggestEntry || APP.getActiveStock()?.price || 100;
     if (!price) return;
-    const pricePerLot = price * 1000;
+
+    // 每次建議買多少股：以預算直接除以股價，不乘1000
     let batches = 3;
     if (strategy === 'single') batches = 1;
     else if (strategy === 'batch2') batches = 2;
     else if (strategy === 'batch3') batches = 3;
     else if (strategy === 'batch4') batches = 4;
     else {
-      if (budget < pricePerLot * 2) batches = 1;
-      else if (budget < pricePerLot * 4 || this.score < 2) batches = 2;
+      // 自動：依預算和訊號強度決定批次
+      if (budget < price * 200) batches = 1;        // 預算不足買200股
+      else if (budget < price * 500 || this.score < 2) batches = 2;
       else if (this.score >= 3) batches = 4;
       else batches = 3;
     }
@@ -137,21 +146,26 @@ const ORDER = {
     const tbody = document.getElementById('order-tbody');
     if (!tbody) return;
     tbody.innerHTML = '';
-    let totalCost = 0, totalLots = 0;
-    const FEE_RATE = 0.001425; // 0.1425%
+    let totalCost = 0, totalShares = 0;
+    const FEE_RATE = 0.001425;
     ratios.forEach((ratio, i) => {
       const batchBudget = budget * ratio;
-      const batchPrice  = +(price * (1 + offsets[i])).toFixed(1);
-      const lots = Math.max(1, Math.floor(batchBudget / (batchPrice * 1000)));
-      const cost = lots * batchPrice * 1000;
-      const fee  = Math.round(cost * FEE_RATE);
-      totalCost += cost + fee; totalLots += lots;
+      const batchPrice  = +(price * (1 + offsets[i])).toFixed(2);
+      const shares = Math.max(1, Math.floor(batchBudget / batchPrice));  // 股數
+      const cost = shares * batchPrice;
+      const fee  = Math.max(20, Math.round(cost * FEE_RATE));
+      totalCost += cost + fee; totalShares += shares;
+      // 顯示：張/股
+      const sharesDisp = shares >= 1000
+        ? `${(shares/1000).toFixed(shares%1000===0?0:1)}張${shares%1000>0?`${shares%1000}股`:''}`
+        : `${shares}股`;
+      const costDisp = cost >= 10000 ? `${(cost/10000).toFixed(2)}萬` : `${cost.toFixed(0)}元`;
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="td-batch">${batches>1?`第${i+1}批`:'進場'}<br><small style="color:var(--text-3);font-size:10px">預算${(budget*ratio/10000).toFixed(1)}萬</small></td>
         <td class="td-price">$${batchPrice}</td>
-        <td class="td-shares">${lots}張</td>
-        <td class="td-amount">${(cost/10000).toFixed(2)}萬</td>
+        <td class="td-shares">${sharesDisp}</td>
+        <td class="td-amount">${costDisp}</td>
         <td class="td-fee" style="color:var(--text-3);font-size:11px">+${fee}</td>
         <td class="td-pct">${(ratio*100).toFixed(0)}%</td>`;
       tbody.appendChild(tr);
@@ -159,7 +173,9 @@ const ORDER = {
     const footer = document.getElementById('order-footer');
     if (footer) {
       const remain = budget - totalCost;
-      footer.innerHTML = `<span>合計：<strong>${totalLots}張</strong>，含手續費 <strong>${(totalCost/10000).toFixed(2)}萬</strong></span><span>剩餘：${(remain/10000).toFixed(2)}萬（${(remain/budget*100).toFixed(0)}%）</span>`;
+      const totalDisp = totalCost >= 10000 ? `${(totalCost/10000).toFixed(2)}萬` : `${totalCost.toFixed(0)}元`;
+      const remDisp = Math.abs(remain) >= 10000 ? `${(remain/10000).toFixed(2)}萬` : `${remain.toFixed(0)}元`;
+      footer.innerHTML = `<span>合計：<strong>${totalShares}股</strong>，含手續費 <strong>${totalDisp}</strong></span><span>剩餘：${remDisp}（${(remain/budget*100).toFixed(0)}%）</span>`;
     }
   },
 
@@ -198,12 +214,15 @@ const ORDER = {
     const allocs = eligible.map(s => {
       const ratio = Math.max(0.1, s.score) / totalScore;
       const budget = totalBudget * ratio;
-      const pricePerLot = s.price * 1000;
-      const lots = Math.max(0, Math.floor(budget / pricePerLot));
-      const cost = lots * pricePerLot;
-      const fee = Math.round(cost * 0.001425);
+      const shares = Math.max(0, Math.floor(budget / s.price));  // 股數，不是張數
+      const cost = shares * s.price;
+      const fee = Math.max(20, Math.round(cost * 0.001425));
       const batches = s.score >= 3 ? '建議分2批' : '建議單次';
-      return { ...s, ratio, budget, lots, cost, fee, batches };
+      const sharesDisp = shares >= 1000
+        ? `${(shares/1000).toFixed(1)}張`
+        : `${shares}股`;
+      const costDisp = cost >= 10000 ? `${(cost/10000).toFixed(2)}萬` : `${cost.toFixed(0)}元`;
+      return { ...s, ratio, budget, shares, cost, fee, batches, sharesDisp, costDisp };
     });
 
     const el = document.getElementById('portfolio-alloc-result');
@@ -220,13 +239,15 @@ const ORDER = {
           </div>
           <div class="alloc-bar-wrap"><div class="alloc-bar" style="width:${barW}%"></div></div>
           <div class="alloc-detail">
-            ${a.lots>0 ? `買${a.lots}張，約${(a.cost/10000).toFixed(2)}萬，手續費$${a.fee}` : '預算不足購買1張'}
+            ${a.shares>0 ? `買${a.sharesDisp}，約${a.costDisp}，手續費$${a.fee}` : '預算不足購買1股'}
             <span class="alloc-strategy">${a.batches}</span>
           </div>
         </div>`;
     });
     const used = allocs.reduce((a, s) => a + s.cost + s.fee, 0);
-    html += `<div class="alloc-footer">已分配${(used/10000).toFixed(2)}萬，剩餘${((totalBudget-used)/10000).toFixed(2)}萬現金</div>`;
+    const usedDisp = used >= 10000 ? `${(used/10000).toFixed(2)}萬` : `${used.toFixed(0)}元`;
+    const remDisp = (totalBudget-used) >= 10000 ? `${((totalBudget-used)/10000).toFixed(2)}萬` : `${(totalBudget-used).toFixed(0)}元`;
+    html += `<div class="alloc-footer">已分配${usedDisp}，剩餘${remDisp}現金</div>`;
     el.innerHTML = html;
   },
 };
@@ -240,7 +261,7 @@ const PIE = {
     if (!canvas || !APP.portfolio.length) return;
     const stocks = APP.portfolio.filter(s => s.price);
     const labels = stocks.map(s => `${s.code} ${s.name}`);
-    const data = stocks.map(s => s.price * s.shares * 1000);
+    const data = stocks.map(s => s.price * s.shares);   // shares = 股數
     const colors = ['#E24B4A','#1D9E75','#378ADD','#EF9F27','#D4537E','#5DCAA5','#F09595','#9FE1CB','#FAC775','#B5D4F4'];
 
     if (this.instance) { this.instance.destroy(); this.instance = null; }
@@ -264,7 +285,8 @@ const PIE = {
               label: ctx => {
                 const val = ctx.raw;
                 const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                return ` ${(val/10000).toFixed(1)}萬 (${(val/total*100).toFixed(1)}%)`;
+                const valDisp = val >= 10000 ? `${(val/10000).toFixed(1)}萬` : `${val.toFixed(0)}元`;
+                return ` ${valDisp} (${(val/total*100).toFixed(1)}%)`;
               }
             }
           }
@@ -310,7 +332,7 @@ const RECOMMEND = {
 - 投資目標：${goals.purpose}，目標金額 ${(goals.target/10000).toFixed(0)} 萬元，期限 ${goals.years} 年
 - 投資策略：長期持有（2-3年），視情況部分獲利了結
 - 目前總市值：${(totalVal/10000).toFixed(1)} 萬元
-- 現有持股：${portfolio.map(s => `${s.name}(${s.code}) ${s.shares}張 成本${s.cost} 現價${s.price} 損益${s.gainPct}`).join('、')}
+- 現有持股：${portfolio.map(s => `${s.name}(${s.code}) ${s.shares}股 均價$${s.cost} 現價$${s.price} 損益${s.gainPct}`).join('、')}
 
 【請推薦】
 請推薦 3-5 檔在以下條件下值得考慮的台股：
@@ -435,7 +457,8 @@ const APP = {
   },
 
   _calcTotalValue() {
-    return this.portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares * 1000, 0);
+    // shares = 股數（零股單位），不是張數
+    return this.portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
   },
 
   _showEmptyPortfolio() {
@@ -493,20 +516,25 @@ const APP = {
     this.portfolio.forEach(s => {
       const price = s.price ?? s.cost;
       const prev  = s.prevClose ?? s.cost;
-      totalVal  += price * s.shares * 1000;
-      totalCost += s.cost  * s.shares * 1000;
-      dayPnl    += (price - prev) * s.shares * 1000;
+      totalVal  += price * s.shares;       // shares = 股數
+      totalCost += s.cost  * s.shares;
+      dayPnl    += (price - prev) * s.shares;
     });
     const pnl = totalVal - totalCost;
     const roi = totalCost > 0 ? pnl / totalCost * 100 : 0;
     const dayPct = totalCost > 0 ? dayPnl / totalCost * 100 : 0;
-    const fmt = n => { const abs = Math.abs(n); return abs >= 1e6 ? (n/1e4).toFixed(1)+'萬' : n.toFixed(0); };
+    const fmtVal = n => {
+      const abs = Math.abs(n);
+      if (abs >= 1e6) return (n/1e4).toFixed(1)+'萬';
+      if (abs >= 1e4) return (n/1e4).toFixed(2)+'萬';
+      return n.toFixed(0)+'元';
+    };
 
-    setText('total-value', (totalVal/10000).toFixed(1)+'萬', 'neutral');
-    setText('total-cost', '成本 '+(totalCost/10000).toFixed(1)+'萬', '');
-    setSignedText('total-pnl', pnl, fmt);
+    setText('total-value', fmtVal(totalVal), 'neutral');
+    setText('total-cost', '成本 '+fmtVal(totalCost), '');
+    setSignedText('total-pnl', pnl, fmtVal);
     setSignedText('total-pnl-pct', roi, v => v.toFixed(2)+'%', true);
-    setSignedText('day-pnl', dayPnl, fmt);
+    setSignedText('day-pnl', dayPnl, fmtVal);
     setSignedText('day-pnl-pct', dayPct, v => v.toFixed(2)+'%', true);
     setSignedText('total-roi', roi, v => v.toFixed(2)+'%', true);
     setText('stock-count', this.portfolio.length+' 檔持股', '');
@@ -522,10 +550,17 @@ const APP = {
       const prev  = s.prevClose ?? s.cost;
       const chg   = price - prev;
       const chgPct = prev ? chg / prev * 100 : 0;
-      const pnl    = (price - s.cost) * s.shares * 1000;
+      const pnl    = (price - s.cost) * s.shares;   // shares = 股數
       const pnlPct = (price - s.cost) / s.cost * 100;
       const isUp   = chg >= 0;
       const isActive = s.code === this.activeSymbol;
+      // 顯示單位：若 shares >= 1000 才顯示張數，否則顯示股數
+      const sharesDisplay = s.shares >= 1000
+        ? `${(s.shares/1000).toFixed(s.shares%1000===0?0:2)}張`
+        : `${s.shares}股`;
+      const pnlDisplay = Math.abs(pnl) >= 10000
+        ? `${pnl>=0?'+':''}${(pnl/10000).toFixed(2)}萬`
+        : `${pnl>=0?'+':''}${pnl.toFixed(0)}元`;
 
       const div = document.createElement('div');
       div.className = 'stock-item' + (isActive ? ' active' : '');
@@ -537,11 +572,11 @@ const APP = {
           </div>
           <div class="si-row2">
             <span class="si-name">${s.name}</span>
-            <span class="si-shares">${s.shares}張</span>
+            <span class="si-shares">${sharesDisplay}</span>
           </div>
           <div class="si-row3">
             <span class="si-cost">均價$${s.cost}</span>
-            <span class="${pnl>=0?'up-color':'dn-color'}">${pnl>=0?'+':''}${(pnl/10000).toFixed(2)}萬(${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%)</span>
+            <span class="${pnl>=0?'up-color':'dn-color'}">${pnlDisplay}(${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%)</span>
           </div>
           <div class="si-row4">
             <span class="${isUp?'up-color':'dn-color'}">${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)</span>
@@ -739,7 +774,7 @@ function openSellStockModal(code, idx) {
   document.getElementById('sell-code').value = s.code;
   document.getElementById('sell-name').value = s.name;
   document.getElementById('sell-price').value = s.price?.toFixed(2) || s.cost;
-  document.getElementById('sell-max').textContent = `最多 ${s.shares} 張`;
+  document.getElementById('sell-max').textContent = `最多 ${s.shares} 股`;
   document.getElementById('sell-modal')?.classList.add('show');
   document.getElementById('sell-modal')._idx = idx;
 }
@@ -750,26 +785,28 @@ function closeModal(id) { document.getElementById(id)?.classList.remove('show');
 function addStock() {
   const code   = document.getElementById('m-code')?.value.trim();
   const name   = document.getElementById('m-name')?.value.trim();
-  const shares = parseInt(document.getElementById('m-shares')?.value) || 1;
+  const shares = parseFloat(document.getElementById('m-shares')?.value);  // 股數（支援零股）
   const cost   = parseFloat(document.getElementById('m-cost')?.value);
   const date   = document.getElementById('m-date')?.value || '';
-  if (!code || !name || !cost) { showToast('請填寫必填欄位'); return; }
+  if (!code || !name || !shares || !cost) { showToast('請填寫必填欄位'); return; }
 
-  // Check if exists → merge
+  // 若已存在同代號 → 加權平均成本合併
   const existing = APP.portfolio.find(s => s.code === code);
   if (existing) {
     const totalShares = existing.shares + shares;
-    const newCost = (existing.cost * existing.shares + cost * shares) / totalShares;
-    existing.shares = totalShares;
-    existing.cost = +newCost.toFixed(2);
+    existing.cost = +((existing.cost * existing.shares + cost * shares) / totalShares).toFixed(4);
+    existing.shares = +totalShares.toFixed(0);
   } else {
     APP.portfolio.push({ code, name, shares, cost, date, price: cost, prevClose: cost });
   }
 
-  TRADES.add({ date: date || new Date().toISOString().split('T')[0], code, name, action:'buy', shares, price: cost, fee: Math.round(cost * shares * 1000 * 0.001425) });
+  // 手續費：零股也適用，以實際金額計算
+  const tradeValue = cost * shares;
+  const fee = Math.max(20, Math.round(tradeValue * 0.001425)); // 最低手續費 $20
+  TRADES.add({ date: date || new Date().toISOString().split('T')[0], code, name, action:'buy', shares, price: cost, fee });
 
   APP.save(); APP.renderAll(); closeModal('add-modal');
-  showToast(`已新增 ${name} (${code})`);
+  showToast(`已新增 ${name} (${code}) × ${shares}股`);
   ['m-code','m-name','m-shares','m-cost'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   DATA.fetchQuote(code).then(q => {
     const s = APP.portfolio.find(x => x.code === code);
@@ -782,19 +819,20 @@ function confirmBuy() {
   const idx = modal._idx;
   const s = APP.portfolio[idx];
   if (!s) return;
-  const shares = parseInt(document.getElementById('buy-shares')?.value) || 1;
+  const shares = parseFloat(document.getElementById('buy-shares')?.value);
   const price  = parseFloat(document.getElementById('buy-price')?.value);
   const date   = document.getElementById('buy-date')?.value || new Date().toISOString().split('T')[0];
-  if (!price) { showToast('請填寫價格'); return; }
+  if (!shares || !price) { showToast('請填寫股數和價格'); return; }
 
   const totalShares = s.shares + shares;
-  s.cost = +((s.cost * s.shares + price * shares) / totalShares).toFixed(2);
-  s.shares = totalShares;
+  s.cost = +((s.cost * s.shares + price * shares) / totalShares).toFixed(4);
+  s.shares = +totalShares.toFixed(0);
 
-  TRADES.add({ date, code: s.code, name: s.name, action:'buy', shares, price, fee: Math.round(price * shares * 1000 * 0.001425) });
+  const fee = Math.max(20, Math.round(price * shares * 0.001425));
+  TRADES.add({ date, code: s.code, name: s.name, action:'buy', shares, price, fee });
 
   APP.save(); APP.renderAll(); closeModal('buy-modal');
-  showToast(`${s.name} 加碼 ${shares}張 @ $${price}，新均價 $${s.cost}`);
+  showToast(`${s.name} 加碼 ${shares}股 @ $${price}，新均價 $${s.cost.toFixed(2)}`);
 }
 
 function confirmSell() {
@@ -802,26 +840,33 @@ function confirmSell() {
   const idx = modal._idx;
   const s = APP.portfolio[idx];
   if (!s) return;
-  const shares = parseInt(document.getElementById('sell-shares')?.value) || 1;
+  const shares = parseFloat(document.getElementById('sell-shares')?.value);
   const price  = parseFloat(document.getElementById('sell-price')?.value);
   const date   = document.getElementById('sell-date')?.value || new Date().toISOString().split('T')[0];
-  if (!price) { showToast('請填寫賣出價格'); return; }
-  if (shares > s.shares) { showToast(`超過持股數量（最多 ${s.shares} 張）`); return; }
+  if (!shares || !price) { showToast('請填寫股數和賣出價格'); return; }
+  if (shares > s.shares) { showToast(`超過持股數量（最多 ${s.shares} 股）`); return; }
 
-  const pnl = (price - s.cost) * shares * 1000;
-  const sellTax = Math.round(price * shares * 1000 * 0.003); // 0.3% 交易稅
-  const fee = Math.round(price * shares * 1000 * 0.001425);
+  const tradeValue = price * shares;
+  const pnl = (price - s.cost) * shares;
+  const sellTax = Math.round(tradeValue * 0.003);   // 交易稅 0.3%
+  const fee = Math.max(20, Math.round(tradeValue * 0.001425));
+  const totalFee = fee + sellTax;
 
-  TRADES.add({ date, code: s.code, name: s.name, action:'sell', shares, price, fee: fee + sellTax, note: `損益${pnl>=0?'+':''}${(pnl/10000).toFixed(2)}萬` });
+  const pnlDisplay = Math.abs(pnl) >= 10000
+    ? `${(pnl/10000).toFixed(2)}萬`
+    : `${pnl.toFixed(0)}元`;
 
-  s.shares -= shares;
+  TRADES.add({ date, code: s.code, name: s.name, action:'sell', shares, price, fee: totalFee,
+    note: `損益${pnl>=0?'+':''}${pnlDisplay}` });
+
+  s.shares = +(s.shares - shares).toFixed(0);
   if (s.shares <= 0) {
     APP.portfolio.splice(idx, 1);
-    if (APP.activeSymbol === s.code) { APP.activeSymbol = ''; }
+    if (APP.activeSymbol === s.code) APP.activeSymbol = '';
   }
   APP.save(); APP.renderAll(); closeModal('sell-modal');
   TRADES.render();
-  showToast(`${s.name} 賣出 ${shares}張 @ $${price}，${pnl>=0?'獲利':'虧損'} ${Math.abs(pnl/10000).toFixed(2)}萬（含稅費$${fee+sellTax}）`);
+  showToast(`${s.name} 賣出 ${shares}股 @ $${price}，${pnl>=0?'獲利':'虧損'}${pnlDisplay}（稅費$${totalFee}）`);
 }
 
 function addWatchlist() {
