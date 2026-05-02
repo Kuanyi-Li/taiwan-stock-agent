@@ -302,113 +302,98 @@ const PIE = {
   },
 };
 
-// ── RECOMMEND module (Claude API) ─────────────────────
+// ── RECOMMEND module（純規則引擎，無需 API）─────────────
 const RECOMMEND = {
-  loading: false,
-  lastResult: null,
+  // 候選股票資料庫：涵蓋 ETF、權值股、各產業龍頭
+  CANDIDATES: [
+    // ETF
+    { code:'0050', name:'元大台灣50',     sector:'ETF',   type:'ETF',    risk:'低', reason:'追蹤台灣前50大市值公司，長期持有最穩健的選擇，年化報酬約8-12%。', logic:'定期定額買入，適合作為投資組合核心部位（建議佔比30-50%）。' },
+    { code:'0056', name:'元大高股息',     sector:'ETF',   type:'ETF',    risk:'低', reason:'高股息策略，每年穩定配息，適合長期存股。', logic:'股息再投入複利效果佳，適合保守型長期持有。' },
+    { code:'00878',name:'國泰永續高股息', sector:'ETF',   type:'ETF',    risk:'低', reason:'ESG + 高股息雙重篩選，成分股品質較高，月月配息。', logic:'適合需要穩定現金流的長期投資人。' },
+    { code:'006208',name:'富邦台50',      sector:'ETF',   type:'ETF',    risk:'低', reason:'與0050相近但管理費更低，適合長期持有。', logic:'低費用率讓長期複利效果更好。' },
+    // 半導體
+    { code:'2330', name:'台積電',         sector:'半導體', type:'權值股', risk:'中', reason:'全球最先進晶圓代工廠，AI/HPC需求持續驅動成長，護城河極深。', logic:'長期持有跟著台灣科技產業成長，是台股不可缺少的核心持股。' },
+    { code:'2454', name:'聯發科',         sector:'半導體', type:'權值股', risk:'中', reason:'手機AP + AI晶片雙引擎，中低階市場龍頭，受惠AI終端普及。', logic:'AI on device趨勢受惠股，中長期成長動能明確。' },
+    { code:'2303', name:'聯電',           sector:'半導體', type:'權值股', risk:'中', reason:'成熟製程需求穩定，車用/工業用晶片長期需求支撐。', logic:'殖利率佳，適合長期存股兼具成長潛力。' },
+    // 電子製造
+    { code:'2317', name:'鴻海',           sector:'電子',  type:'權值股', risk:'中', reason:'全球最大電子代工廠，積極布局電動車（MIH平台）和AI伺服器。', logic:'本益比低、殖利率穩定，電動車轉型是長期催化劑。' },
+    { code:'2382', name:'廣達',           sector:'電子',  type:'成長股', risk:'中', reason:'AI伺服器最大受惠者之一，輝達合作夥伴，GB200訂單強勁。', logic:'AI基礎建設需求爆發，長期成長能見度高。' },
+    { code:'3231', name:'緯創',           sector:'電子',  type:'成長股', risk:'中高', reason:'AI伺服器ODM大廠，與鴻海並列AI伺服器雙雄。', logic:'受惠AI資本支出超週期，但波動較大需分批布局。' },
+    // 金融
+    { code:'2882', name:'國泰金',         sector:'金融',  type:'存股',   risk:'低中', reason:'台灣最大壽險公司，股息穩定，利率上升環境有利。', logic:'長期存股標的，每年穩定配息，適合保守型投資人。' },
+    { code:'2881', name:'富邦金',         sector:'金融',  type:'存股',   risk:'低中', reason:'獲利能力強的綜合金控，旗下富邦人壽、台北富邦銀行。', logic:'金融股防禦性強，適合作為組合中的穩定配置。' },
+    // 傳產/民生
+    { code:'1301', name:'台塑',           sector:'石化',  type:'存股',   risk:'低中', reason:'台灣石化龍頭，股息穩定，景氣復甦受惠股。', logic:'高殖利率存股，低本益比，適合保守型長期持有。' },
+    { code:'2412', name:'中華電',         sector:'電信',  type:'存股',   risk:'低', reason:'台灣最大電信公司，現金流穩定，殖利率4-5%，防禦性強。', logic:'景氣不佳時的避風港，適合作為組合中的防禦部位。' },
+  ],
 
-  async run() {
-    const apiKey = APP.settings.anthropicKey;
-    if (!apiKey) {
-      this._showError('請先在設定中填入 Anthropic API Key');
+  run() {
+    const el = document.getElementById('rec-result');
+    if (!el) return;
+
+    const portfolio = APP.portfolio;
+    const goals = GOALS.get();
+    const ownedCodes = new Set(portfolio.map(s => s.code));
+    const totalVal = APP._calcTotalValue();
+
+    // 分析現有持股結構
+    const sectorMap = {};
+    portfolio.forEach(s => {
+      const match = this.CANDIDATES.find(c => c.code === s.code);
+      if (match) sectorMap[match.sector] = (sectorMap[match.sector] || 0) + 1;
+    });
+
+    // 評分：依據分散化、風險、目標
+    const scored = this.CANDIDATES
+      .filter(c => !ownedCodes.has(c.code))
+      .map(c => {
+        let score = 0;
+        // ETF 基礎分數高（長期投資首選）
+        if (c.type === 'ETF') score += 3;
+        // 低風險加分
+        if (c.risk === '低') score += 2;
+        else if (c.risk === '低中') score += 1;
+        // 分散化：未有的產業加分
+        if (!sectorMap[c.sector]) score += 2;
+        // 長期目標適合加分
+        if (goals.years >= 2 && (c.type === 'ETF' || c.type === '存股')) score += 1;
+        // 成長目標且偏積極加分
+        if (c.type === '成長股' && goals.target > 2000000) score += 1;
+        return { ...c, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    if (!scored.length) {
+      el.innerHTML = '<div class="rec-card"><div class="rec-body">你已持有所有推薦標的，投資組合相當完整！</div></div>';
       return;
     }
 
-    this.loading = true;
-    this._setLoading(true);
+    const riskColor = { '低':'#1D9E75', '低中':'#5DCAA5', '中':'#EF9F27', '中高':'#E24B4A', '高':'#E24B4A' };
 
-    // Build context
-    const portfolio = APP.portfolio.map(s => ({
-      code: s.code, name: s.name, shares: s.shares,
-      cost: s.cost, price: s.price || s.cost,
-      gainPct: s.price ? ((s.price - s.cost)/s.cost*100).toFixed(1) + '%' : '未知',
-    }));
-    const goals = GOALS.get();
-    const totalVal = APP._calcTotalValue();
-
-    const prompt = `你是台股智能投資助理。請根據以下資訊，推薦 3-5 檔適合長期投資的台股標的。
-
-【使用者現況】
-- 投資目標：${goals.purpose}，目標金額 ${(goals.target/10000).toFixed(0)} 萬元，期限 ${goals.years} 年
-- 投資策略：長期持有（2-3年），視情況部分獲利了結
-- 目前總市值：${(totalVal/10000).toFixed(1)} 萬元
-- 現有持股：${portfolio.map(s => `${s.name}(${s.code}) ${s.shares}股 均價$${s.cost} 現價$${s.price} 損益${s.gainPct}`).join('、')}
-
-【請推薦】
-請推薦 3-5 檔在以下條件下值得考慮的台股：
-1. 適合長期持有 2-3 年
-2. 流動性佳（日均量大）
-3. 基本面穩健，非投機
-4. 與現有持股互補（分散風險）
-
-對每檔股票提供：
-- 代號與名稱
-- 推薦理由（2-3 行）
-- 適合進場時機（技術面概述）
-- 預期投資邏輯
-
-請用繁體中文回覆，格式要簡潔清晰。每檔股票用 --- 分隔。`;
-
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-opus-4-5',
-          max_tokens: 1500,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error?.message || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      const text = data.content?.[0]?.text || '無回應';
-      this.lastResult = text;
-      this._renderResult(text);
-    } catch (e) {
-      this._showError(`分析失敗：${e.message}`);
-      console.error('[RECOMMEND]', e);
-    }
-
-    this.loading = false;
-    this._setLoading(false);
-  },
-
-  _setLoading(on) {
-    const btn = document.getElementById('rec-run-btn');
-    const spinner = document.getElementById('rec-spinner');
-    if (btn) btn.disabled = on;
-    if (btn) btn.textContent = on ? '分析中...' : '🤖 AI 分析推薦';
-    if (spinner) spinner.style.display = on ? 'block' : 'none';
-  },
-
-  _renderResult(text) {
-    const el = document.getElementById('rec-result');
-    if (!el) return;
-    const stocks = text.split('---').map(s => s.trim()).filter(Boolean);
-    el.innerHTML = stocks.map(s => {
-      const lines = s.split('\n').filter(Boolean);
-      const title = lines[0] || '';
-      const body = lines.slice(1).join('\n');
-      return `<div class="rec-card">
-        <div class="rec-title">${title}</div>
-        <div class="rec-body">${body.replace(/\n/g, '<br>')}</div>
+    el.innerHTML = `
+      <div style="font-size:11px;color:var(--text-3);margin-bottom:12px;padding:8px 10px;background:var(--bg-2);border-radius:6px;line-height:1.6">
+        📊 根據你的投資目標（${(goals.target/10000).toFixed(0)}萬 / ${goals.years}年）與現有持股結構，以下是建議補強的標的：
+      </div>
+      ${scored.map((c, i) => `
+        <div class="rec-card">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="font-size:11px;font-weight:700;background:var(--bg-3);border-radius:4px;padding:2px 7px;color:var(--text-3)">#${i+1}</span>
+            <span style="font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--text-1)">${c.code}</span>
+            <span style="font-size:13px;font-weight:600">${c.name}</span>
+            <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg-3);color:var(--text-2)">${c.sector}</span>
+            <span style="font-size:10px;padding:2px 6px;border-radius:4px;color:${riskColor[c.risk]};background:${riskColor[c.risk]}22">風險${c.risk}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-2);line-height:1.7;margin-bottom:6px">
+            <span style="color:var(--text-3)">推薦理由：</span>${c.reason}
+          </div>
+          <div style="font-size:12px;color:var(--text-2);line-height:1.7">
+            <span style="color:var(--text-3)">投資邏輯：</span>${c.logic}
+          </div>
+        </div>`).join('')}
+      <div style="font-size:11px;color:var(--text-3);margin-top:8px;padding:8px 10px;background:var(--bg-2);border-radius:6px;line-height:1.6">
+        ⚠️ 以上為規則引擎根據長期投資原則產生的參考建議，不構成投資建議。投資前請自行研究，股票市場有風險。
       </div>`;
-    }).join('');
-  },
-
-  _showError(msg) {
-    const el = document.getElementById('rec-result');
-    if (el) el.innerHTML = `<div class="rec-error">${msg}</div>`;
   },
 };
 
@@ -891,7 +876,6 @@ function saveSettings() {
   s.ejsService  = document.getElementById('ejs-service')?.value.trim();
   s.ejsTemplate = document.getElementById('ejs-template')?.value.trim();
   s.ejsPubkey   = document.getElementById('ejs-pubkey')?.value.trim();
-  s.anthropicKey = document.getElementById('anthropic-key')?.value.trim();
   // Goals
   const gTarget = parseFloat(document.getElementById('goal-target-input')?.value) * 10000;
   const gYears  = parseFloat(document.getElementById('goal-years-input')?.value);
