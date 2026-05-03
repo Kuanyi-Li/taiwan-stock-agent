@@ -19,12 +19,82 @@ const CURRENCY = {
   toTWD(usd) { return usd * (this.usdRate || 31.5); },
 };
 
-// ── GOALS module ──────────────────────────────────────
+// ── VIX module（台股波動恐慌指標）────────────────────
+const VIX = {
+  level: null,     // 數值
+  label: null,     // 文字
+  cls: null,       // CSS class
+  score: 0,        // 對評分的影響 (-2 ~ +2)
+
+  async fetch() {
+    try {
+      // 用 ^TWII 的日線計算20日歷史波動率估算恐慌指數
+      const res = await DATA._fetchWithFallback('https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=3mo');
+      const json = await res.json();
+      const closes = json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
+      if (closes.length < 21) return;
+
+      // 計算 20 日年化波動率
+      const returns = [];
+      for (let i = 1; i < closes.length; i++) {
+        if (closes[i] && closes[i-1]) returns.push(Math.log(closes[i] / closes[i-1]));
+      }
+      const last20 = returns.slice(-20);
+      const mean = last20.reduce((a, b) => a + b, 0) / last20.length;
+      const variance = last20.reduce((a, r) => a + (r - mean) ** 2, 0) / last20.length;
+      const vol = Math.sqrt(variance * 252) * 100; // 年化波動率 %
+
+      this.level = +vol.toFixed(1);
+      this._classify(vol);
+      this._updateDisplay();
+    } catch(e) {
+      console.warn('[VIX] fetch failed:', e.message);
+    }
+  },
+
+  _classify(vol) {
+    // 台股典型波動率範圍：10-15% 正常，>25% 恐慌，>35% 極度恐慌
+    if (vol >= 35) {
+      this.label = '極度恐慌';  this.cls = 'vix-extreme';  this.score = +2; // 超跌 → 逆向買入機會
+    } else if (vol >= 25) {
+      this.label = '市場恐慌';  this.cls = 'vix-fear';     this.score = +1;
+    } else if (vol >= 18) {
+      this.label = '偏向謹慎';  this.cls = 'vix-caution';  this.score = 0;
+    } else if (vol >= 13) {
+      this.label = '市場平靜';  this.cls = 'vix-neutral';  this.score = 0;
+    } else {
+      this.label = '過度樂觀';  this.cls = 'vix-greed';    this.score = -1; // 過熱 → 小心回調
+    }
+  },
+
+  _updateDisplay() {
+    const el = document.getElementById('vix-badge');
+    if (!el || !this.level) return;
+    el.innerHTML = `波動率 <strong>${this.level}%</strong> <span class="${this.cls}">${this.label}</span>`;
+
+    // 更新說明
+    const tip = document.getElementById('vix-tip');
+    const tips = {
+      'vix-extreme': '⚡ 極度恐慌，歷史上常是底部區域，逢回可逆向布局',
+      'vix-fear':    '⚠️ 市場恐慌，短期波動大，建議分批進場',
+      'vix-caution': '🔶 市場偏謹慎，控制倉位，不宜追高',
+      'vix-neutral': '✅ 市場平穩，技術面訊號較可靠',
+      'vix-greed':   '🔴 市場過熱，注意回調風險，逢高減碼',
+    };
+    if (tip) tip.textContent = tips[this.cls] || '';
+  },
+};
+
+
 const GOALS = {
   defaults: { target: 3000000, years: 2.5, purpose: '買房頭期款', strategy: 'long', cashTWD: 0, cashUSD: 0 },
 
   get() { return JSON.parse(localStorage.getItem('twsa-goals') || 'null') || this.defaults; },
-  save(data) { localStorage.setItem('twsa-goals', JSON.stringify(data)); },
+  save(data) {
+    data._lastSyncedAt = new Date().toISOString();
+    localStorage.setItem('twsa-goals', JSON.stringify(data));
+    SYNC.markDirty();
+  },
 
   // 記錄每日市值（資產曲線用）
   recordSnapshot() {
@@ -179,6 +249,7 @@ const TRADES = {
     const trades = this.get();
     trades.unshift({ ...trade, id: Date.now() });
     localStorage.setItem('twsa-trades', JSON.stringify(trades));
+    SYNC.markDirty();
   },
   render() {
     const list = document.getElementById('trade-list');
@@ -210,39 +281,54 @@ const TRADES = {
   },
 };
 
-// ── SIGNAL module（買賣訊號直觀化）────────────────────
+// ── SIGNAL module（統一買賣訊號，優先用技術分析）────
 const SIGNAL = {
-  // 根據技術分數+損益% 給出 7 級訊號
-  // score: -5 ~ +5 (來自 ANALYSIS._calcScore)
-  // gainPct: 持有損益%
-  classify(score, gainPct, rsi, macdDead, kdDead, supportBreak) {
-    // 緊急賣出：跌破支撐 or 嚴重虧損
-    if (supportBreak || gainPct <= -8) return { label:'緊急出場', short:'🔴 出清', cls:'signal-emergency', tier:0 };
-    // 強賣：多項指標空頭
-    if (score <= -3 || (gainPct >= 25 && score < 0)) return { label:'強力賣出', short:'🔴 大賣', cls:'signal-strong-sell', tier:1 };
-    // 小賣：技術偏空但不嚴重
-    if (score <= -1.5 || (macdDead && kdDead)) return { label:'建議減碼', short:'🟠 小賣', cls:'signal-sell', tier:2 };
-    // 觀望
-    if (score > -1.5 && score < 1.5) return { label:'持有觀望', short:'⚪ 觀望', cls:'signal-hold', tier:3 };
-    // 小買：技術偏多
-    if (score >= 1.5 && score < 3) return { label:'可考慮加碼', short:'🟢 小買', cls:'signal-buy', tier:4 };
-    // 強買
-    if (score >= 3 && score < 4) return { label:'積極買進', short:'🟢 大買', cls:'signal-strong-buy', tier:5 };
-    // 全力買
-    if (score >= 4) return { label:'強力買進', short:'🟢 全買', cls:'signal-max-buy', tier:6 };
-    return { label:'持有觀望', short:'⚪ 觀望', cls:'signal-hold', tier:3 };
+  // 7 級訊號
+  LEVELS: [
+    { tier:0, label:'緊急出場', short:'🔴 出清',  cls:'signal-emergency'   },
+    { tier:1, label:'強力賣出', short:'🔴 大賣',  cls:'signal-strong-sell' },
+    { tier:2, label:'建議減碼', short:'🟠 小賣',  cls:'signal-sell'        },
+    { tier:3, label:'持有觀望', short:'⚪ 觀望',  cls:'signal-hold'        },
+    { tier:4, label:'可考慮加碼',short:'🟢 小買', cls:'signal-buy'         },
+    { tier:5, label:'積極買進', short:'🟢 大買',  cls:'signal-strong-buy'  },
+    { tier:6, label:'強力買進', short:'🟢 全買',  cls:'signal-max-buy'     },
+  ],
+
+  // 完整評分（有技術分析時用）
+  fromScore(score, gainPct, supportBreak) {
+    // VIX 影響
+    const vixAdj = VIX.score || 0;
+    const adjusted = score + vixAdj * 0.5;
+
+    if (supportBreak || gainPct <= -8) return this.LEVELS[0];
+    if (adjusted <= -3 || gainPct >= 30) return this.LEVELS[1];
+    if (adjusted <= -1.5) return this.LEVELS[2];
+    if (adjusted < 1.5)   return this.LEVELS[3];
+    if (adjusted < 3)     return this.LEVELS[4];
+    if (adjusted < 4)     return this.LEVELS[5];
+    return this.LEVELS[6];
   },
 
-  // 快速估算（沒有完整技術數據時用價格估算）
+  // 快速估算（沒有技術分析時，純用損益%）
   quickEstimate(stock) {
-    if (!stock.price) return { label:'待更新', short:'⚫ —', cls:'signal-hold', tier:3 };
+    if (!stock.price) return { ...this.LEVELS[3], label:'待更新', short:'⚫ —' };
+
+    // 優先：有技術分析結果
+    if (ANALYSIS.lastSymbol === stock.code && ANALYSIS.lastInd) {
+      const score = ANALYSIS._calcScore(ANALYSIS.lastInd);
+      const gainPct = (stock.price - stock.cost) / stock.cost * 100;
+      const supportBreak = stock.price < (ANALYSIS.lastInd.support || 0) * 0.98;
+      return this.fromScore(score, gainPct, supportBreak);
+    }
+
+    // 否則：純損益%估算（不衝突，因為只用損益）
     const gainPct = (stock.price - stock.cost) / stock.cost * 100;
-    if (gainPct <= -8)  return { label:'緊急出場', short:'🔴 出清', cls:'signal-emergency', tier:0 };
-    if (gainPct >= 30)  return { label:'強力賣出', short:'🔴 大賣', cls:'signal-strong-sell', tier:1 };
-    if (gainPct >= 20)  return { label:'建議減碼', short:'🟠 小賣', cls:'signal-sell', tier:2 };
-    if (gainPct <= -4)  return { label:'建議減碼', short:'🟠 小賣', cls:'signal-sell', tier:2 };
-    if (gainPct > 5)    return { label:'持有觀望', short:'⚪ 觀望', cls:'signal-hold', tier:3 };
-    return { label:'可考慮加碼', short:'🟢 小買', cls:'signal-buy', tier:4 };
+    if (gainPct <= -8)  return this.LEVELS[0];
+    if (gainPct <= -5)  return this.LEVELS[2];
+    if (gainPct >= 30)  return this.LEVELS[1];
+    if (gainPct >= 20)  return this.LEVELS[2];
+    // 沒有技術分析→不給買進建議，只給觀望
+    return { ...this.LEVELS[3], label:'持有觀望', short:'⚪ 待分析' };
   },
 };
 
@@ -313,76 +399,140 @@ const ORDER = {
     const stocks = APP.portfolio.filter(s => s.price);
     if (!stocks.length) return;
 
-    // 評分：優先用技術分析結果，沒有就用損益%估算
     const scored = stocks.map(s => {
-      let score = 0;
-      // 有技術分析結果才用
-      if (ANALYSIS.lastSymbol === s.code && ANALYSIS.lastInd) {
-        score = ANALYSIS._calcScore(ANALYSIS.lastInd);
-      } else {
-        // 用損益%和價格相對均價估算
-        const gainPct = (s.price - s.cost) / s.cost * 100;
-        const priceVsCost = s.price / s.cost;
-        if (gainPct < -8) score = -3;       // 大幅虧損 → 偏空
-        else if (gainPct < -3) score = -1;  // 小幅虧損 → 略偏空
-        else if (gainPct >= 25) score = -1; // 大幅獲利 → 稍微減分（已高）
-        else if (gainPct >= 15) score = 0.5;
-        else if (gainPct >= 5) score = 1;
-        else score = 1.5; // 略有獲利但空間還大 → 偏多
-      }
+      let score = 0, hasAnalysis = false, reasons = [];
       const gainPct = (s.price - s.cost) / s.cost * 100;
-      const adj = gainPct < -8 ? score - 1 : gainPct > 25 ? score - 0.5 : score;
-      return { ...s, score: adj, gainPct };
+
+      if (ANALYSIS.lastSymbol === s.code && ANALYSIS.lastInd) {
+        const ind = ANALYSIS.lastInd;
+        score = ANALYSIS._calcScore(ind);
+        hasAnalysis = true;
+        if (ind.rsi < 35) reasons.push(`RSI ${ind.rsi}超賣`);
+        if (ind.rsi > 68) reasons.push(`RSI ${ind.rsi}超買`);
+        if (ind.macdGolden) reasons.push('MACD黃金交叉');
+        if (ind.macdDead)   reasons.push('MACD死亡交叉');
+        if (ind.kdGolden)   reasons.push('KD黃金交叉');
+        if (ind.kdDead)     reasons.push('KD死亡交叉');
+        if (ind.maBull)     reasons.push('均線多頭排列');
+        if (!ind.maBull)    reasons.push('均線空頭排列');
+      } else {
+        if (gainPct <= -8)  { score = -3; reasons.push(`虧損${gainPct.toFixed(1)}%嚴重`); }
+        else if (gainPct <= -3) { score = -1; reasons.push(`虧損${gainPct.toFixed(1)}%`); }
+        else if (gainPct >= 25) { score = -1; reasons.push(`獲利${gainPct.toFixed(1)}%已高`); }
+        else if (gainPct >= 15) { score = 0.5; reasons.push(`獲利${gainPct.toFixed(1)}%`); }
+        else                    { score = 1;   reasons.push('損益正常範圍'); }
+      }
+
+      // VIX 調整
+      const vixAdj = VIX.score || 0;
+      if (vixAdj > 0) reasons.push(`VIX${VIX.label}利多`);
+      if (vixAdj < 0) reasons.push(`VIX${VIX.label}偏空`);
+      score += vixAdj * 0.5;
+
+      // 持股狀況調整
+      if (gainPct <= -8)   { score -= 0.5; }
+      if (gainPct >= 25)   { score -= 0.3; reasons.push('建議部分了結'); }
+
+      return { ...s, score, gainPct, hasAnalysis, reasons };
     });
 
     const el = document.getElementById('portfolio-alloc-result');
     if (!el) return;
 
-    const eligible = scored.filter(s => s.score > 0);
-    if (!eligible.length) {
-      el.innerHTML = '<div class="alloc-empty">目前各股評分均偏空或虧損過多，建議保留現金觀察。<br><small style="color:var(--text-3)">點選個股並執行技術分析後，分配建議會更準確。</small></div>';
-      return;
+    const toBuy    = scored.filter(s => s.score > 1.5).sort((a,b) => b.score - a.score);
+    const toWatch  = scored.filter(s => s.score >= -1 && s.score <= 1.5);
+    const toReduce = scored.filter(s => s.score < -1);
+    const totalScore = toBuy.reduce((a, s) => a + Math.max(0.1, s.score), 0);
+
+    let html = '';
+
+    // VIX 警示列
+    if (VIX.label) {
+      const vixColor = VIX.score > 0 ? 'var(--green-l)' : VIX.score < 0 ? 'var(--red)' : 'var(--amber)';
+      html += `<div class="alloc-vix-tip">
+        <span style="color:${vixColor};font-weight:600">${VIX.label} ${VIX.level}%</span>
+        <span style="color:var(--text-2)"> — ${VIX.score > 0 ? '恐慌期，逆向佈局機會' : VIX.score < 0 ? '市場過熱，謹慎追高' : '市場平穩，技術訊號較可靠'}</span>
+      </div>`;
     }
 
-    const totalScore = eligible.reduce((a, s) => a + Math.max(0.1, s.score), 0);
-    const allocs = eligible.map(s => {
-      const ratio = Math.max(0.1, s.score) / totalScore;
-      const budget = totalBudget * ratio;
-      const shares = Math.max(0, Math.floor(budget / s.price));
-      const cost = shares * s.price;
-      const fee = Math.max(20, Math.round(cost * 0.001425));
-      const batches = s.score >= 3 ? '建議分2批' : '建議單次';
-      const sharesDisp = shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`;
-      const costDisp = cost >= 10000 ? `${(cost/10000).toFixed(2)}萬` : `${cost.toFixed(0)}元`;
-      const hasAnalysis = ANALYSIS.lastSymbol === s.code && ANALYSIS.lastInd;
-      return { ...s, ratio, budget, shares, cost, fee, batches, sharesDisp, costDisp, hasAnalysis };
-    });
+    if (toBuy.length === 0) {
+      html += `<div class="alloc-empty">目前無明確買進訊號<br><small>建議保留現金觀察，等待更好的進場時機</small></div>`;
+    } else {
+      html += `<div class="alloc-decision-header">💰 預算 ${this._fmtMoney(totalBudget)} → 分配建議</div>`;
+      toBuy.forEach(s => {
+        const ratio = Math.max(0.1, s.score) / totalScore;
+        const budget = totalBudget * ratio;
+        const shares = Math.max(0, Math.floor(budget / s.price));
+        const cost = shares * s.price;
+        const fee = Math.max(20, Math.round(cost * 0.001425));
+        const sharesDisp = shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`;
+        const costDisp = this._fmtMoney(cost);
+        const isBig = s.score >= 3;
+        const action = isBig ? '積極買入' : '適量買入';
+        const batchNote = isBig
+          ? '建議分 <strong>2 批</strong> 進場（今 50%，低點加碼 50%）'
+          : '建議 <strong>單次</strong> 進場';
 
-    let html = `<div class="alloc-header">預算 ${(totalBudget/10000).toFixed(totalBudget>=10000?1:2)}萬 → 分配建議</div>`;
-    html += `<div style="font-size:11px;color:var(--amber);margin-bottom:8px">💡 先點選個股執行「重新分析」可獲得更準確的技術評分</div>`;
-    allocs.forEach(a => {
-      const barW = (a.ratio * 100).toFixed(0);
-      const scoreLabel = a.hasAnalysis ? `技術評分${a.score>=0?'+':''}${a.score.toFixed(1)}` : `估算評分${a.score>=0?'+':''}${a.score.toFixed(1)}`;
-      html += `<div class="alloc-item">
-        <div class="alloc-stock">
-          <span class="alloc-code">${a.code}</span>
-          <span class="alloc-name">${a.name}</span>
-          <span class="alloc-score score-${a.score>=2?'pos':a.score<0?'neg':'neu'}">${scoreLabel}</span>
-          <span style="font-size:10px;color:${a.gainPct>=0?'var(--red)':'var(--green-l)'}">${a.gainPct>=0?'+':''}${a.gainPct.toFixed(1)}%</span>
-        </div>
-        <div class="alloc-bar-wrap"><div class="alloc-bar" style="width:${barW}%"></div></div>
-        <div class="alloc-detail">
-          ${a.shares>0?`買${a.sharesDisp}，約${a.costDisp}，手續費$${a.fee}`:'預算不足購買1股'}
-          <span class="alloc-strategy">${a.batches}</span>
-        </div>
-      </div>`;
-    });
-    const used = allocs.reduce((a, s) => a + s.cost + s.fee, 0);
-    const usedDisp = used >= 10000 ? `${(used/10000).toFixed(2)}萬` : `${used.toFixed(0)}元`;
-    const rem = totalBudget - used;
-    const remDisp = rem >= 10000 ? `${(rem/10000).toFixed(2)}萬` : `${rem.toFixed(0)}元`;
-    html += `<div class="alloc-footer">已分配${usedDisp}，剩餘${remDisp}現金</div>`;
+        html += `<div class="alloc-decision-card buy">
+          <div class="adc-header">
+            <span class="adc-action buy">✅ ${action}</span>
+            <span class="adc-code">${s.code} ${s.name}</span>
+            <span class="adc-price">現價 $${s.price}</span>
+            <span class="adc-gain ${s.gainPct>=0?'up-color':'dn-color'}">${s.gainPct>=0?'+':''}${s.gainPct.toFixed(1)}%</span>
+          </div>
+          <div class="adc-order">
+            <div class="adc-order-main">買 <strong>${sharesDisp}</strong>，約 <strong>${costDisp}</strong>（含手續費 $${fee}）</div>
+            <div class="adc-batch">${batchNote}</div>
+          </div>
+          <div class="adc-reasons">
+            ${s.reasons.map(r => `<span class="adc-reason-tag">${r}</span>`).join('')}
+            ${!s.hasAnalysis ? '<span class="adc-reason-tag warn">需技術分析</span>' : ''}
+          </div>
+        </div>`;
+      });
+    }
+
+    if (toWatch.length > 0) {
+      html += `<div class="alloc-section-title">⚪ 持有觀望</div>`;
+      html += toWatch.map(s => `
+        <div class="alloc-decision-card watch">
+          <div class="adc-header">
+            <span class="adc-action watch">⚪ 觀望</span>
+            <span class="adc-code">${s.code} ${s.name}</span>
+            <span class="adc-gain ${s.gainPct>=0?'up-color':'dn-color'}">${s.gainPct>=0?'+':''}${s.gainPct.toFixed(1)}%</span>
+          </div>
+          <div class="adc-reasons">${s.reasons.map(r => `<span class="adc-reason-tag">${r}</span>`).join('')}</div>
+        </div>`).join('');
+    }
+
+    if (toReduce.length > 0) {
+      html += `<div class="alloc-section-title">🟠 建議減碼</div>`;
+      html += toReduce.map(s => {
+        const sig = SIGNAL.quickEstimate(s);
+        return `<div class="alloc-decision-card sell">
+          <div class="adc-header">
+            <span class="adc-action sell">${sig.short}</span>
+            <span class="adc-code">${s.code} ${s.name}</span>
+            <span class="adc-gain ${s.gainPct>=0?'up-color':'dn-color'}">${s.gainPct>=0?'+':''}${s.gainPct.toFixed(1)}%</span>
+          </div>
+          <div class="adc-reasons">${s.reasons.map(r => `<span class="adc-reason-tag warn">${r}</span>`).join('')}</div>
+        </div>`;
+      }).join('');
+    }
+
+    const usedBudget = toBuy.reduce((a, s) => {
+      const ratio = Math.max(0.1, s.score) / (totalScore || 1);
+      return a + Math.max(0, Math.floor((totalBudget * ratio) / s.price)) * s.price;
+    }, 0);
+    html += `<div class="alloc-footer">實際使用 ${this._fmtMoney(usedBudget)}，剩餘現金 <strong>${this._fmtMoney(totalBudget - usedBudget)}</strong></div>`;
     el.innerHTML = html;
+  },
+
+  _fmtMoney(n) {
+    const abs = Math.abs(n);
+    if (abs >= 1e6) return (n/1e4).toFixed(1)+'萬';
+    if (abs >= 1e4) return (n/1e4).toFixed(2)+'萬';
+    return n.toFixed(0)+'元';
   },
 };
 
@@ -399,7 +549,7 @@ const PIE = {
     const total = data.reduce((a, b) => a + b, 0);
     const colors = ['#E24B4A','#1D9E75','#378ADD','#EF9F27','#D4537E','#5DCAA5','#F09595','#9FE1CB','#FAC775','#B5D4F4','#A78BFA','#FB923C'];
     const isDark = !document.body.classList.contains('light-mode');
-    const legendColor = isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.75)';
+    const legendColor = isDark ? 'rgba(230,237,243,0.85)' : 'rgba(36,41,47,0.85)';
     if (this.instance) { this.instance.destroy(); this.instance = null; }
     this.instance = new Chart(canvas, {
       type: 'doughnut',
@@ -451,10 +601,11 @@ const PIE = {
   },
 };
 
-// ── SYNC module（跨裝置雲端同步 via JSONBin.io）────────
-// 免費方案：每月 10,000 次讀寫，足夠個人使用
+// ── SYNC module（跨裝置雲端同步 - 全自動）─────────────
 const SYNC = {
   API_BASE: 'https://api.jsonbin.io/v3',
+  _timer: null,
+  _dirty: false,
 
   getConfig() {
     return {
@@ -463,7 +614,21 @@ const SYNC = {
     };
   },
 
-  // 打包所有資料
+  // 標記資料已變更，3秒後自動上傳（debounce）
+  markDirty() {
+    this._dirty = true;
+    clearTimeout(this._timer);
+    this._timer = setTimeout(() => this._autoUpload(), 3000);
+  },
+
+  async _autoUpload() {
+    const { apiKey } = this.getConfig();
+    if (!apiKey || !this._dirty) return;
+    this._dirty = false;
+    const ok = await this.upload(true); // silent = true
+    if (ok) this._updateStatus('已同步 ' + new Date().toLocaleTimeString('zh-TW', {hour:'2-digit',minute:'2-digit'}));
+  },
+
   _pack() {
     return {
       portfolio: APP.portfolio,
@@ -475,7 +640,6 @@ const SYNC = {
     };
   },
 
-  // 解包並寫入本機
   _unpack(data) {
     if (data.portfolio) APP.portfolio = data.portfolio;
     if (data.watchlist) APP.watchlist = data.watchlist;
@@ -485,21 +649,22 @@ const SYNC = {
     APP.save();
   },
 
-  async upload() {
+  async upload(silent = false) {
     const { apiKey, binId } = this.getConfig();
-    if (!apiKey) { showToast('請先在設定中填入 JSONBin API Key'); return false; }
+    if (!apiKey) {
+      if (!silent) showToast('請先在設定中填入 JSONBin API Key');
+      return false;
+    }
     const data = this._pack();
     try {
       let res;
       if (binId) {
-        // 更新現有 bin
         res = await fetch(`${this.API_BASE}/b/${binId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', 'X-Master-Key': apiKey },
           body: JSON.stringify(data),
         });
       } else {
-        // 建立新 bin
         res = await fetch(`${this.API_BASE}/b`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Master-Key': apiKey, 'X-Bin-Name': 'twsa-data', 'X-Bin-Private': 'true' },
@@ -507,41 +672,97 @@ const SYNC = {
         });
         if (res.ok) {
           const json = await res.json();
-          const newBinId = json.metadata?.id;
-          if (newBinId) {
-            APP.settings.jsonbinBin = newBinId;
+          const newId = json.metadata?.id;
+          if (newId) {
+            APP.settings.jsonbinBin = newId;
             localStorage.setItem('twsa-settings', JSON.stringify(APP.settings));
-            const binEl = document.getElementById('jsonbin-bin');
-            if (binEl) binEl.value = newBinId;
-            showToast(`✅ 已建立雲端備份 (Bin ID: ${newBinId})`);
+            const el = document.getElementById('jsonbin-bin');
+            if (el) el.value = newId;
+            if (!silent) showToast(`✅ 已建立雲端備份 (Bin ID: ${newId})`);
           }
         }
         return res.ok;
       }
-      if (res.ok) { showToast('✅ 資料已同步到雲端'); return true; }
-      else { showToast(`同步失敗：HTTP ${res.status}`); return false; }
-    } catch(e) { showToast(`同步失敗：${e.message}`); return false; }
+      if (!silent && res.ok) showToast('✅ 已同步到雲端');
+      return res.ok;
+    } catch(e) {
+      if (!silent) showToast(`同步失敗：${e.message}`);
+      return false;
+    }
   },
 
-  async download() {
+  // 智能連接：只需 API Key，自動找到 Bin ID
+  async smartConnect(apiKey) {
+    if (!apiKey) return false;
+    try {
+      // 搜尋已有的 bins
+      const res = await fetch(`${this.API_BASE}/b?sortOrder=desc`, {
+        headers: { 'X-Master-Key': apiKey },
+      });
+      if (!res.ok) { showToast(`API Key 無效（HTTP ${res.status}）`); return false; }
+      const json = await res.json();
+      const bins = json;
+      // 找名為 twsa-data 的 bin
+      const found = Array.isArray(bins) ? bins.find(b => b.snippetMeta?.name === 'twsa-data') : null;
+      if (found) {
+        APP.settings.jsonbinBin = found.id;
+        APP.settings.jsonbinKey = apiKey;
+        localStorage.setItem('twsa-settings', JSON.stringify(APP.settings));
+        const el = document.getElementById('jsonbin-bin');
+        if (el) el.value = found.id;
+        showToast(`✅ 已自動找到同步資料，Bin ID: ${found.id}`);
+        return true;
+      } else {
+        showToast('未找到現有資料，請先在電腦端上傳一次');
+        return false;
+      }
+    } catch(e) {
+      showToast(`連線失敗：${e.message}`);
+      return false;
+    }
+  },
     const { apiKey, binId } = this.getConfig();
-    if (!apiKey || !binId) { showToast('請先設定 JSONBin API Key 和 Bin ID'); return false; }
+    if (!apiKey || !binId) return;
     try {
       const res = await fetch(`${this.API_BASE}/b/${binId}/latest`, {
         headers: { 'X-Master-Key': apiKey },
       });
-      if (!res.ok) { showToast(`下載失敗：HTTP ${res.status}`); return false; }
+      if (!res.ok) return;
+      const json = await res.json();
+      const remote = json.record;
+      if (!remote?.syncedAt) return;
+      const remoteTime = new Date(remote.syncedAt).getTime();
+      const localGoals = GOALS.get();
+      const localTime = localGoals._lastSyncedAt ? new Date(localGoals._lastSyncedAt).getTime() : 0;
+      if (remoteTime > localTime + 60000) { // 雲端至少比本機新1分鐘才同步
+        this._unpack(remote);
+        APP.renderAll(); TRADES.render(); GOALS.updateDashboard();
+        showToast(`✅ 已從雲端載入最新資料（${new Date(remote.syncedAt).toLocaleString('zh-TW')}）`);
+      }
+    } catch(e) { /* 靜默失敗 */ }
+  },
+
+  async manualDownload() {
+    const { apiKey, binId } = this.getConfig();
+    if (!apiKey || !binId) { showToast('請先設定 API Key 和 Bin ID'); return; }
+    try {
+      const res = await fetch(`${this.API_BASE}/b/${binId}/latest`, {
+        headers: { 'X-Master-Key': apiKey },
+      });
+      if (!res.ok) { showToast(`下載失敗：HTTP ${res.status}`); return; }
       const json = await res.json();
       const data = json.record;
-      if (data && data.portfolio) {
+      if (data?.portfolio) {
         this._unpack(data);
         APP.renderAll(); TRADES.render(); GOALS.updateDashboard();
-        showToast(`✅ 已從雲端載入資料（${new Date(data.syncedAt).toLocaleString('zh-TW')}）`);
-        return true;
+        showToast(`✅ 已從雲端下載資料（${new Date(data.syncedAt).toLocaleString('zh-TW')}）`);
       }
-      showToast('雲端無資料或格式錯誤');
-      return false;
-    } catch(e) { showToast(`下載失敗：${e.message}`); return false; }
+    } catch(e) { showToast(`下載失敗：${e.message}`); }
+  },
+
+  _updateStatus(msg) {
+    const el = document.getElementById('sync-status');
+    if (el) { el.textContent = msg; el.style.color = 'var(--green-l)'; }
   },
 
   updateStatus() {
@@ -549,13 +770,13 @@ const SYNC = {
     if (!el) return;
     const { apiKey, binId } = this.getConfig();
     if (apiKey && binId) {
-      el.textContent = `✅ 已設定 (Bin: ${binId.slice(-6)})`;
+      el.textContent = `✅ 自動同步中 (Bin: ...${binId.slice(-6)})`;
       el.style.color = 'var(--green-l)';
     } else if (apiKey) {
-      el.textContent = '⚠️ 有 API Key，尚未建立 Bin（點上傳會自動建立）';
+      el.textContent = '⚠️ 有 Key，首次上傳後自動建立 Bin';
       el.style.color = 'var(--amber)';
     } else {
-      el.textContent = '未設定';
+      el.textContent = '未設定（設定 API Key 後自動同步）';
       el.style.color = 'var(--text-3)';
     }
   },
@@ -626,10 +847,30 @@ const RECOMMEND = {
     const riskColor = { '低':'#1D9E75','低中':'#5DCAA5','中':'#EF9F27','中高':'#E24B4A','高':'#E24B4A' };
     const horizonLabel = { '長線':'長期', '短線':'短線', '長短':'長短' };
     const horizonCls = { '長線':'horizon-long','短線':'horizon-short','長短':'horizon-both' };
+    const budget = parseFloat(document.getElementById('rec-budget')?.value) || 0;
+    const budgetPerStock = budget > 0 ? budget / scored.length : 0;
 
     el.innerHTML = `
       <div class="rec-meta">根據你的目標（${(goals.target/10000).toFixed(0)}萬/${goals.years}年）與持股結構推薦：</div>
-      ${scored.map((c, i) => `
+      ${scored.map((c, i) => {
+        // 下單建議（若有填金額）
+        let orderHtml = '';
+        if (budgetPerStock > 0 && c.price) {
+          const shares = Math.max(1, Math.floor(budgetPerStock / c.price));
+          const cost = shares * c.price;
+          const fee = Math.max(20, Math.round(cost * 0.001425));
+          const sharesDisp = shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`;
+          const costDisp = cost >= 10000 ? `${(cost/10000).toFixed(2)}萬` : `${cost.toFixed(0)}元`;
+          const isBatch = c.horizon === '短線' || c.horizon === '長短';
+          orderHtml = `<div class="rec-order">
+            <span class="rec-order-tag">💰 下單參考</span>
+            現價 $${c.price} ✕ ${sharesDisp} ≈ ${costDisp}（含手續費 $${fee}）
+            ${isBatch ? '｜<strong>建議分2批</strong>進場' : '｜建議單次進場'}
+          </div>`;
+        } else if (budget > 0) {
+          orderHtml = `<div class="rec-order warn">需要先取得此股票報價才能計算下單量</div>`;
+        }
+        return `
         <div class="rec-card">
           <div class="rec-card-header">
             <span class="rec-rank">#${i+1}</span>
@@ -642,7 +883,9 @@ const RECOMMEND = {
           <div class="rec-reason"><span class="rec-tag">推薦理由</span>${c.reason}</div>
           <div class="rec-logic"><span class="rec-tag">投資邏輯</span>${c.logic}</div>
           ${c.shortNote ? `<div class="rec-short-note">${c.shortNote}</div>` : ''}
-        </div>`).join('')}
+          ${orderHtml}
+        </div>`;
+      }).join('')}
       <div class="rec-disclaimer">⚠️ 以上為規則引擎參考建議，不構成投資建議，請自行判斷。</div>`;
   },
 };
@@ -668,9 +911,11 @@ const APP = {
     if (!this.portfolio.length) this._showEmptyPortfolio();
     if (!this.watchlist.length) this._showEmptyWatchlist();
 
-    // Load USD rate
-    await CURRENCY.fetchUSDRate();
+    // Load USD rate + VIX
+    await Promise.all([CURRENCY.fetchUSDRate(), VIX.fetch()]);
     await this.refreshPrices();
+    // 嘗試從雲端自動下載最新資料
+    await SYNC.autoDownloadOnStart();
     if (this.portfolio.length > 0) this.selectStock(this.portfolio[0].code, 0, 'portfolio');
 
     this.refreshTimer = setInterval(() => this.refreshPrices(), 60000);
@@ -679,6 +924,7 @@ const APP = {
     DATA.fetchIndexes();
     setInterval(() => DATA.fetchIndexes(), 120000);
     setInterval(() => CURRENCY.fetchUSDRate(), 3600000);
+    setInterval(() => VIX.fetch(), 3600000); // VIX 每小時更新
 
     PIE.render();
     GOALS.updateDashboard();
@@ -775,12 +1021,14 @@ const APP = {
 
   renderPortfolioSummary() {
     let totalVal = 0, totalCost = 0, dayPnl = 0;
+    let hasDayData = false;
     this.portfolio.forEach(s => {
       const price = s.price ?? s.cost;
       const prev  = s.prevClose ?? s.cost;
       totalVal  += price * s.shares;
       totalCost += s.cost  * s.shares;
       dayPnl    += (price - prev) * s.shares;
+      if (Math.abs(price - prev) > 0.01) hasDayData = true;
     });
     const pnl = totalVal - totalCost;
     const roi = totalCost > 0 ? pnl / totalCost * 100 : 0;
@@ -795,8 +1043,13 @@ const APP = {
     setText('total-cost', '成本 '+fmtV(totalCost), '');
     setSignedText('total-pnl', pnl, fmtV);
     setSignedText('total-pnl-pct', roi, v => v.toFixed(2)+'%', true);
-    setSignedText('day-pnl', dayPnl, fmtV);
-    setSignedText('day-pnl-pct', dayPct, v => v.toFixed(2)+'%', true);
+    if (hasDayData) {
+      setSignedText('day-pnl', dayPnl, fmtV);
+      setSignedText('day-pnl-pct', dayPct, v => v.toFixed(2)+'%', true);
+    } else {
+      setText('day-pnl', '—', 'neutral');
+      setText('day-pnl-pct', '待更新', '');
+    }
     setSignedText('total-roi', roi, v => v.toFixed(2)+'%', true);
     setText('stock-count', this.portfolio.length+' 檔持股', '');
   },
@@ -842,7 +1095,10 @@ const APP = {
             <span class="${pnl>=0?'up-color':'dn-color'}">${pnlDisplay}(${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%)</span>
           </div>
           <div class="si-row4">
-            <span class="${isUp?'up-color':'dn-color'}">${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)}(${Math.abs(chgPct).toFixed(2)}%)</span>
+            ${Math.abs(chg) > 0.001
+              ? `<span class="${isUp?'up-color':'dn-color'}">${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)</span>`
+              : `<span style="color:var(--text-3);font-size:11px">今日變動待更新</span>`
+            }
             ${daysHeld !== null ? `<span class="si-days">${daysHeld}天${annualRoi!==null?` ${annualRoi>=0?'+':''}${annualRoi.toFixed(0)}%/年`:''}</span>` : ''}
           </div>
           <div style="margin-top:3px"><span class="si-signal-badge ${sig.cls}">${sig.short} ${sig.label}</span></div>
@@ -868,16 +1124,18 @@ const APP = {
       const chg   = price - prev;
       const chgPct = prev ? chg / prev * 100 : 0;
       const isUp  = chg >= 0;
+      const sig = price > 0 ? SIGNAL.quickEstimate(s) : null;
       const div = document.createElement('div');
       div.className = 'watch-item';
       div.innerHTML = `
         <div class="wi-left" onclick="APP.selectStock('${s.code}',${i},'watch')">
           <div class="wi-code">${s.code}</div>
           <div class="wi-name">${s.name}</div>
+          ${sig ? `<div class="wi-signal ${sig.cls}">${sig.short} ${sig.label}</div>` : ''}
         </div>
         <div class="wi-right" onclick="APP.selectStock('${s.code}',${i},'watch')">
           <div class="wi-price ${isUp?'up-color':'dn-color'}">${price>0?price.toFixed(2):'—'}</div>
-          <div class="wi-change ${isUp?'up-color':'dn-color'}">${price>0?(isUp?'+':'')+chgPct.toFixed(2)+'%':''}</div>
+          <div class="wi-change ${isUp?'up-color':'dn-color'}">${price>0&&Math.abs(chg)>0.001?(isUp?'+':'')+chgPct.toFixed(2)+'%':''}</div>
         </div>
         <button class="watch-del" onclick="APP.removeWatch(${i})">✕</button>`;
       wrap.appendChild(div);
@@ -915,6 +1173,7 @@ const APP = {
   save() {
     localStorage.setItem('twsa-portfolio', JSON.stringify(this.portfolio));
     localStorage.setItem('twsa-watchlist', JSON.stringify(this.watchlist));
+    SYNC.markDirty(); // 自動觸發雲端同步
   },
 
   removeStock(idx) {
