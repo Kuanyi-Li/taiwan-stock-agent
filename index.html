@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
@@ -16,7 +15,6 @@
 <body>
 
 <!-- ── Top Bar ── -->
-
 <header class="topbar">
   <div class="topbar-left">
     <div class="logo">
@@ -43,477 +41,470 @@
 </header>
 
 <!-- ── Layout ── -->
-
 <div class="app-layout">
 
   <!-- ── Sidebar ── -->
-
   <aside class="sidebar">
 
-```
-<!-- Portfolio Summary -->
-<section class="section">
-  <div class="section-header">
-    <span class="section-title">投資組合</span>
-    <span class="data-source-tag">Yahoo Finance</span>
-  </div>
-  <div class="summary-grid">
-    <div class="s-card">
-      <div class="s-label">總市值</div>
-      <div class="s-value neutral" id="total-value">—</div>
-      <div class="s-sub" id="total-cost">成本 —</div>
-    </div>
-    <div class="s-card">
-      <div class="s-label">未實現損益</div>
-      <div class="s-value" id="total-pnl">—</div>
-      <div class="s-sub" id="total-pnl-pct">—</div>
-    </div>
-    <div class="s-card">
-      <div class="s-label">今日損益</div>
-      <div class="s-value" id="day-pnl">—</div>
-      <div class="s-sub" id="day-pnl-pct">—</div>
-    </div>
-    <div class="s-card">
-      <div class="s-label">報酬率</div>
-      <div class="s-value" id="total-roi">—</div>
-      <div class="s-sub neutral" id="stock-count">— 檔持股</div>
-    </div>
-  </div>
-  <!-- 迷你持股比重圓餅圖 -->
-  <div id="mini-pie-section" style="margin-top:8px;display:none">
-    <div style="font-size:10px;color:var(--text-3);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">持股比重</div>
-    <div style="height:100px;position:relative">
-      <canvas id="pieChartMini"></canvas>
-    </div>
-  </div>
-</section>
+    <!-- Portfolio Summary -->
+    <section class="section">
+      <div class="section-header">
+        <span class="section-title">投資組合</span>
+        <span class="data-source-tag">Yahoo Finance</span>
+      </div>
+      <div class="summary-grid">
+        <div class="s-card">
+          <div class="s-label">總市值</div>
+          <div class="s-value neutral" id="total-value">—</div>
+          <div class="s-sub" id="total-cost">成本 —</div>
+        </div>
+        <div class="s-card">
+          <div class="s-label">未實現損益</div>
+          <div class="s-value" id="total-pnl">—</div>
+          <div class="s-sub" id="total-pnl-pct">—</div>
+        </div>
+        <div class="s-card">
+          <div class="s-label">今日損益</div>
+          <div class="s-value" id="day-pnl">—</div>
+          <div class="s-sub" id="day-pnl-pct">—</div>
+        </div>
+        <div class="s-card">
+          <div class="s-label">報酬率</div>
+          <div class="s-value" id="total-roi">—</div>
+          <div class="s-sub neutral" id="stock-count">— 檔持股</div>
+        </div>
+      </div>
+      <!-- 迷你持股比重圓餅圖 -->
+      <div id="mini-pie-section" style="margin-top:8px;display:none">
+        <div style="font-size:10px;color:var(--text-3);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">持股比重</div>
+        <div style="height:100px;position:relative">
+          <canvas id="pieChartMini"></canvas>
+        </div>
+      </div>
+    </section>
 
-<!-- Stock List -->
-<section class="section flex-fill">
-  <div class="section-header">
-    <span class="section-title">持股清單</span>
-    <button class="text-btn" onclick="openAddModal()">＋ 新增</button>
-  </div>
-  <div id="stock-list" class="stock-list"></div>
-</section>
+    <!-- Stock List -->
+    <section class="section flex-fill">
+      <div class="section-header">
+        <span class="section-title">持股清單</span>
+        <button class="text-btn" onclick="openAddModal()">＋ 新增</button>
+      </div>
+      <div id="stock-list" class="stock-list"></div>
+    </section>
 
-<!-- Watchlist -->
-<section class="section">
-  <div class="section-header">
-    <span class="section-title">自選清單</span>
-    <button class="text-btn" onclick="openWatchlistModal()">＋</button>
-  </div>
-  <div id="watchlist" class="watchlist"></div>
-</section>
-```
+    <!-- Watchlist -->
+    <section class="section">
+      <div class="section-header">
+        <span class="section-title">自選清單</span>
+        <button class="text-btn" onclick="openWatchlistModal()">＋</button>
+      </div>
+      <div id="watchlist" class="watchlist"></div>
+    </section>
 
   </aside>
 
   <!-- ── Main Content ── -->
-
   <main class="content">
 
-```
-<!-- ── Chart Card ── -->
-<div class="card">
-  <div class="chart-header">
-    <div>
-      <div class="chart-stock-name" id="chart-name">請選擇股票</div>
-      <div class="chart-price-row">
-        <span class="chart-price" id="chart-price">—</span>
-        <span class="chart-change" id="chart-change"></span>
-      </div>
-    </div>
-    <div class="chart-controls">
-      <div class="period-tabs" id="period-tabs">
-        <button class="period-btn" data-period="5m">5分</button>
-        <button class="period-btn" data-period="15m">15分</button>
-        <button class="period-btn" data-period="60m">1時</button>
-        <button class="period-btn" data-period="1d">1日</button>
-        <button class="period-btn" data-period="1wk">1週</button>
-        <button class="period-btn active" data-period="3mo">3月</button>
-        <button class="period-btn" data-period="6mo">6月</button>
-        <button class="period-btn" data-period="1y">1年</button>
-      </div>
-      <div class="chart-type-toggle">
-        <button class="type-btn active" data-type="candle">蠟燭</button>
-        <button class="type-btn" data-type="line">折線</button>
-      </div>
-      <button class="zoom-btn" id="zoom-reset-btn" title="重設縮放">↺ 重設</button>
-    </div>
-  </div>
-
-  <div class="tab-nav">
-    <button class="tab-btn active" data-tab="chart">K 線</button>
-    <button class="tab-btn" data-tab="tech">技術指標</button>
-    <button class="tab-btn" data-tab="info">個股資訊</button>
-  </div>
-
-  <!-- K-Line -->
-  <div class="tab-pane active" id="pane-chart">
-    <div class="canvas-wrap" id="candle-wrap">
-      <canvas id="mainChart"></canvas>
-      <div id="chart-loading" class="chart-loading">載入中...</div>
-      <div class="chart-tooltip" id="chart-tt"></div>
-      <div class="chart-crosshair-v" id="cv"></div>
-      <div class="chart-crosshair-h" id="ch"></div>
-    </div>
-    <div class="vol-wrap"><canvas id="volChart"></canvas></div>
-    <div class="ma-legend">
-      <span style="color:#EF9F27">● MA5</span>
-      <span style="color:#378ADD">● MA20</span>
-      <span style="color:#D4537E">● MA60</span>
-      <span style="color:var(--text-3);font-size:10px">滾輪縮放 / 拖曳平移</span>
-    </div>
-  </div>
-
-  <!-- Tech Indicators -->
-  <div class="tab-pane" id="pane-tech">
-    <div id="pane-tech" style="padding:12px">
-      <div class="indicators-row" id="ind-row"></div>
-      <div style="position:relative;height:140px;margin-top:12px"><canvas id="macdChart"></canvas></div>
-      <div style="position:relative;height:110px;margin-top:10px"><canvas id="kdChart"></canvas></div>
-    </div>
-  </div>
-
-  <!-- Info -->
-  <div class="tab-pane" id="pane-info">
-    <div class="info-grid" id="info-grid" style="padding:12px">
-      <div class="empty-state" style="grid-column:1/-1">選擇股票後顯示個股資訊</div>
-    </div>
-  </div>
-
-  <!-- pieChart kept for compatibility but hidden - mini version in sidebar -->
-  <canvas id="pieChart" style="display:none"></canvas>
-</div><!-- end chart card -->
-
-<!-- ── Feature Tabs ── -->
-<div class="card">
-  <div class="main-tabs">
-    <button class="main-tab-btn active" data-mtab="signals">買賣訊號</button>
-    <button class="main-tab-btn" data-mtab="ai">下單建議</button>
-    <button class="main-tab-btn" data-mtab="goal">目標追蹤</button>
-    <button class="main-tab-btn" data-mtab="trades">交易紀錄</button>
-    <button class="main-tab-btn" data-mtab="alloc">資金分配</button>
-    <button class="main-tab-btn" data-mtab="recommend">選股推薦</button>
-  </div>
-
-  <!-- ── 買賣訊號總覽（直觀，不需點入個股）── -->
-  <div class="main-tab-pane active" id="mtab-signals">
-    <div class="signal-overview-wrap">
-      <div class="sov-title">所有持股即時訊號</div>
-      <div id="signal-overview">
-        <div class="empty-state">新增持股後顯示即時買賣訊號</div>
-      </div>
-      <div style="font-size:11px;color:var(--text-3);margin-top:10px;line-height:1.6;background:var(--bg-2);border-radius:6px;padding:8px 10px">
-        💡 訊號級距：<span style="color:#ff6b6b">緊急出場</span>（跌破支撐/虧損>8%）→
-        <span style="color:var(--red)">強力賣出</span>（獲利>25%/多指標空頭）→
-        <span style="color:var(--amber)">建議減碼</span> →
-        <span style="color:var(--text-3)">持有觀望</span> →
-        <span style="color:var(--green-l)">可考慮加碼</span> →
-        <span style="color:#1D9E75">積極買進</span> →
-        <span style="color:#5DCAA5">強力買進</span>（技術評分≥4）<br>
-        執行完整技術分析後訊號更準確，點選個股後在「下單建議」按「重新分析」。
-      </div>
-    </div>
-  </div>
-
-  <!-- ── AI 下單建議 ── -->
-  <div class="main-tab-pane" id="mtab-ai">
-    <div class="ai-header">
-      <div class="ai-title">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1C4.186 1 1.5 3.686 1.5 7s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6z" stroke="#1D9E75" stroke-width="1"/><path d="M5 7.5l2 2 3.5-4" stroke="#1D9E75" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        AI 下單建議引擎
-      </div>
-      <div class="ai-header-right">
-        <span class="confidence-chip mid" id="conf-chip">—</span>
-        <button class="analyze-btn" onclick="runAnalysis()">↺ 重新分析</button>
-      </div>
-    </div>
-    <div class="ai-body">
-      <!-- VIX 市場狀況 -->
-      <div class="vix-info-bar" id="vix-tip"></div>
-      <div class="signals-row">
-        <div class="signal-block signal-action signal-action-big">
-          <div class="sig-label">📊 建議動作</div>
-          <div class="sig-value" id="sig-action">—</div>
-          <div class="sig-desc" id="sig-action-desc">請先選擇股票並執行分析</div>
-          <!-- 整合賣出提示 -->
-          <div id="sig-sell-hint" style="display:none;margin-top:8px;font-size:12px;padding:6px 10px;background:rgba(226,75,74,0.1);border-radius:6px;border-left:3px solid var(--amber)"></div>
-        </div>
-        <div class="signal-block signal-entry">
-          <div class="sig-label">建議進場價</div>
-          <div class="sig-value" id="sig-entry">—</div>
-          <div class="sig-desc" id="sig-entry-desc">—</div>
-        </div>
-        <div class="signal-block signal-tp">
-          <div class="sig-label">停利目標</div>
-          <div class="sig-value" id="sig-tp">—</div>
-          <div class="sig-desc" id="sig-tp-desc">—</div>
-        </div>
-        <div class="signal-block signal-sl">
-          <div class="sig-label">停損設定</div>
-          <div class="sig-value" id="sig-sl">—</div>
-          <div class="sig-desc" id="sig-sl-desc">—</div>
-        </div>
-      </div>
-
-      <div class="pattern-section">
-        <div class="pattern-title">型態比對</div>
-        <div class="pattern-tags" id="pattern-tags"></div>
-        <div class="pattern-meter">
-          <div class="meter-label">綜合信號強度</div>
-          <div class="meter-bar-wrap"><div class="meter-bar" id="meter-bar" style="width:50%"></div></div>
-          <div class="meter-value" id="meter-value">—</div>
-        </div>
-      </div>
-
-      <div class="ai-reasoning">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="flex-shrink:0;margin-top:1px"><rect x="1" y="1" width="12" height="12" rx="3" stroke="#1D9E75" stroke-width="1"/><path d="M4 5h6M4 7h6M4 9h4" stroke="#1D9E75" stroke-width="1" stroke-linecap="round"/></svg>
-        <div class="reasoning-text" id="reasoning-text">請先選擇持股或自選股，系統將自動執行技術分析與型態比對。</div>
-      </div>
-
-      <!-- Per-stock Order Plan - 移至「資金分配」tab，此處僅保留快捷進場參考 -->
-      <div class="order-section" style="background:var(--bg-3);border-color:var(--border-md)">
-        <div style="font-size:11px;color:var(--text-3)">💡 個股進場計算已整合至「資金分配」tab，可在那裡輸入總預算，一次得到所有持股的分配建議。</div>
-      </div>
-
-      <div class="notify-section">
-        <input type="email" id="notify-email" class="notify-email-input" placeholder="到價通知 Email（需設定 EmailJS）">
-        <select id="notify-condition" class="notify-condition">
-          <option value="reach">到達進場價</option>
-          <option value="break-up">突破壓力</option>
-          <option value="break-down">跌破支撐</option>
-          <option value="rsi-oversold">RSI 超賣</option>
-        </select>
-        <button class="set-notify-btn" onclick="setNotification()">設定通知</button>
-        <span class="notify-feedback" id="notify-feedback"></span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── 賣出分析 ── -->
-  <div class="main-tab-pane" id="mtab-sell">
-    <div class="sell-header">
-      <div class="sell-title">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2L13.5 12.5H1.5L7.5 2Z" stroke="#E24B4A" stroke-width="1.2" stroke-linejoin="round"/><path d="M7.5 6v3M7.5 11v.5" stroke="#E24B4A" stroke-width="1.2" stroke-linecap="round"/></svg>
-        賣出建議引擎
-      </div>
-      <div class="sell-urgency-badge none" id="sell-urgency-badge">等待分析</div>
-    </div>
-    <div class="sell-signals-wrap" id="sell-signals-wrap">
-      <div class="sell-signals-empty">選擇持股並執行分析後顯示賣出評估</div>
-    </div>
-    <div class="sell-plan-wrap" id="sell-plan-wrap" style="display:none">
-      <div class="sell-plan-title" id="sell-plan-title"></div>
-      <div id="sell-plan-rows"></div>
-      <div class="sell-plan-note" id="sell-plan-note"></div>
-    </div>
-  </div>
-
-  <!-- ── 目標追蹤 ── -->
-  <div class="main-tab-pane" id="mtab-goal">
-    <div class="goal-dashboard">
-      <div class="goal-header">📈 長期投資目標 — 2-3年買房頭期款</div>
-
-      <!-- 資產結構 -->
-      <div class="goal-asset-section">
-        <div class="gas-title">資產結構（含現金）</div>
-        <div class="gas-bar-wrap">
-          <div class="gas-bar-stock" id="goal-asset-stock-bar" style="width:70%"></div>
-          <div class="gas-bar-cash"  id="goal-asset-cash-bar"  style="width:30%"></div>
-        </div>
-        <div class="gas-legend">
-          <span><span class="gas-dot" style="background:var(--green-l)"></span>股票 <span id="goal-stock-pct">—</span></span>
-          <span><span class="gas-dot" style="background:var(--amber)"></span>現金 <span id="goal-cash-pct">—</span></span>
-        </div>
-      </div>
-
-      <!-- 現金輸入 -->
-      <div class="goal-cash-section">
-        <div class="goal-cash-title">💰 現金資產（購屋用）</div>
-        <div class="cash-row">
-          <span class="cash-label">台幣現金</span>
-          <input type="number" id="cash-twd-input" class="cash-input" placeholder="0" min="0" step="1000">
-          <span class="cash-unit">元</span>
-        </div>
-        <div class="cash-row">
-          <span class="cash-label">美金現金</span>
-          <input type="number" id="cash-usd-input" class="cash-input" placeholder="0" min="0" step="100">
-          <span class="cash-unit">USD</span>
-          <span class="usd-rate" id="usd-rate-display">匯率載入中...</span>
-        </div>
-        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button class="cash-save-btn" onclick="saveCashSettings()">更新現金</button>
-          <span style="font-size:11px;color:var(--text-3)">美金自動換算台幣，匯率每小時更新</span>
-        </div>
-      </div>
-
-      <!-- 總計目標 -->
-      <div class="goal-grid">
-        <div class="goal-card">
-          <div class="gc-label">股票市值</div>
-          <div class="gc-value" id="goal-stock-val">—</div>
-        </div>
-        <div class="goal-card">
-          <div class="gc-label">台幣現金</div>
-          <div class="gc-value" id="goal-cash-twd-val">—</div>
-        </div>
-        <div class="goal-card">
-          <div class="gc-label">美金現金</div>
-          <div class="gc-value" id="goal-cash-usd-val">—</div>
-        </div>
-        <div class="goal-card">
-          <div class="gc-label">🏠 合計</div>
-          <div class="gc-value" id="goal-total-val" style="color:var(--green-l)">—</div>
-          <div class="gc-sub" id="goal-diff">計算中...</div>
-        </div>
-      </div>
-
-      <!-- 進度 -->
-      <div class="goal-progress-wrap">
-        <div class="gp-header">
-          <span class="gp-title">距目標 <span id="goal-target-val">300萬</span></span>
-          <span class="gp-pct" id="goal-pct">0%</span>
-        </div>
-        <div class="gp-bar-wrap"><div class="gp-bar" id="goal-progress-bar" style="width:0%"></div></div>
-        <div class="gp-diff" id="goal-diff-bar"></div>
-      </div>
-
-      <!-- 統計 -->
-      <div class="goal-stats">
-        <div class="gs-item">
-          <div class="gs-label">目前年化報酬</div>
-          <div class="gs-value" id="goal-annual-return">—</div>
-        </div>
-        <div class="gs-item">
-          <div class="gs-label">需年化報酬</div>
-          <div class="gs-value" id="goal-required-return">—</div>
-        </div>
-        <div class="gs-item">
-          <div class="gs-label">預計達標</div>
-          <div class="gs-value" id="goal-eta">—</div>
-        </div>
-      </div>
-
-      <!-- 資產成長曲線 -->
-      <div class="goal-value-chart">
-        <div class="gvc-title">📈 資產成長曲線</div>
-        <div class="gvc-wrap">
-          <canvas id="value-chart" style="width:100%;height:100px"></canvas>
-        </div>
-      </div>
-
-      <div style="font-size:11px;color:var(--text-3);line-height:1.6;background:var(--bg-2);border-radius:var(--radius-sm);padding:10px">
-        💡 目標金額和年限可在 ⚙ 設定 中修改。資產曲線每次開啟頁面自動記錄一個快照。
-      </div>
-    </div>
-  </div>
-
-  <!-- ── 交易紀錄 ── -->
-  <div class="main-tab-pane" id="mtab-trades">
-    <div class="trades-container">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-        <span style="font-size:13px;font-weight:600">交易紀錄（最近50筆）</span>
-        <div class="export-row">
-          <button class="export-btn" onclick="APP.exportData()">⬇ 匯出備份</button>
-          <button class="export-btn" onclick="document.getElementById('import-file').click()">⬆ 匯入備份</button>
-          <input type="file" id="import-file" style="display:none" accept=".json" onchange="APP.importData(this.files[0])">
-        </div>
-      </div>
-      <div id="trade-list"></div>
-    </div>
-  </div>
-
-  <!-- ── 資金分配 ── -->
-  <div class="main-tab-pane" id="mtab-alloc">
-    <div style="padding:14px 16px">
-      <div class="portfolio-alloc">
-        <div class="pa-title">📊 跨股資金配置分析</div>
-        <div class="pa-subtitle">根據各股評分自動分配預算，一次看所有持股的建議加碼量</div>
-        <div class="pa-input-row">
-          <label class="budget-label">可用總預算</label>
-          <div class="budget-input-wrap">
-            <span class="budget-prefix">NT$</span>
-            <input type="number" id="portfolio-budget" class="budget-input" value="500000" min="0" step="10000" style="width:130px">
-          </div>
-          <button class="analyze-btn" onclick="calcPortfolio()">計算分配</button>
-        </div>
-        <div id="portfolio-alloc-result">
-          <div class="alloc-empty">輸入預算後點「計算分配」</div>
-        </div>
-      </div>
-
-      <!-- 個股精算 -->
-      <div class="order-section" style="margin-top:12px">
-        <div class="order-title">🎯 個股精算下單（選定個股用）</div>
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">點選左側持股並執行「重新分析」後，此處顯示該股的精確分批建議</div>
-        <div class="budget-input-row">
-          <label class="budget-label">個股預算</label>
-          <div class="budget-input-wrap">
-            <span class="budget-prefix">NT$</span>
-            <input type="number" id="budget" class="budget-input" value="200000" min="0" step="10000" oninput="calcOrder()">
-          </div>
-          <select id="strategy-select" class="strategy-select" onchange="calcOrder()">
-            <option value="auto">自動策略</option>
-            <option value="single">單次進場</option>
-            <option value="batch2">2 次分批</option>
-            <option value="batch3">3 次分批</option>
-            <option value="batch4">4 次分批</option>
-          </select>
-        </div>
-        <div class="order-table-wrap">
-          <table class="order-table">
-            <thead><tr><th>批次</th><th>建議價</th><th>股數</th><th>金額</th><th>手續費</th><th>佔比</th></tr></thead>
-            <tbody id="order-tbody"></tbody>
-          </table>
-        </div>
-        <div class="order-footer" id="order-footer"></div>
-      </div>
-
-      <div style="font-size:11px;color:var(--text-3);line-height:1.6;background:var(--bg-2);border-radius:var(--radius-sm);padding:10px;margin-top:10px">
-        ⚠️ 基於技術面和損益%評分，建議保留10-20%現金作備援。手續費 0.1425%（最低$20）。
-      </div>
-    </div>
-  </div>
-
-
-  <!-- ── 選股推薦 ── -->
-  <div class="main-tab-pane" id="mtab-recommend">
-    <div class="recommend-container">
-      <div class="rec-header">
+    <!-- ── Chart Card ── -->
+    <div class="card">
+      <div class="chart-header">
         <div>
-          <div class="rec-title-h">📊 智能選股推薦</div>
-          <div class="rec-subtitle">根據持股結構與目標，推薦長線/短線標的，並提供下單建議</div>
+          <div class="chart-stock-name" id="chart-name">請選擇股票</div>
+          <div class="chart-price-row">
+            <span class="chart-price" id="chart-price">—</span>
+            <span class="chart-change" id="chart-change"></span>
+          </div>
         </div>
-        <div class="rec-controls">
-          <select id="rec-filter" class="rec-filter">
-            <option value="all">全部</option>
-            <option value="long">長線為主</option>
-            <option value="short">短線機會</option>
-          </select>
-          <button class="rec-run-btn" onclick="runRecommend()">📊 產生推薦</button>
-        </div>
-      </div>
-      <!-- 金額輸入 -->
-      <div style="display:flex;align-items:center;gap:10px;padding:0 0 12px;flex-wrap:wrap">
-        <label style="font-size:12px;color:var(--text-2);white-space:nowrap">可投入金額</label>
-        <div class="budget-input-wrap">
-          <span class="budget-prefix">NT$</span>
-          <input type="number" id="rec-budget" class="budget-input" value="100000" min="0" step="10000" style="width:120px">
-        </div>
-        <span style="font-size:11px;color:var(--text-3)">填入後推薦結果會顯示對應的下單股數建議</span>
-      </div>
-      <div id="rec-result">
-        <div style="text-align:center;padding:32px;color:var(--text-3);font-size:13px">
-          點「產生推薦」，系統根據你的持股結構與目標推薦適合補強的標的
+        <div class="chart-controls">
+          <div class="period-tabs" id="period-tabs">
+            <button class="period-btn" data-period="5m">5分</button>
+            <button class="period-btn" data-period="15m">15分</button>
+            <button class="period-btn" data-period="60m">1時</button>
+            <button class="period-btn" data-period="1d">1日</button>
+            <button class="period-btn" data-period="1wk">1週</button>
+            <button class="period-btn active" data-period="3mo">3月</button>
+            <button class="period-btn" data-period="6mo">6月</button>
+            <button class="period-btn" data-period="1y">1年</button>
+          </div>
+          <div class="chart-type-toggle">
+            <button class="type-btn active" data-type="candle">蠟燭</button>
+            <button class="type-btn" data-type="line">折線</button>
+          </div>
+          <button class="zoom-btn" id="zoom-reset-btn" title="重設縮放">↺ 重設</button>
         </div>
       </div>
-    </div>
-  </div>
 
-</div><!-- end feature card -->
-```
+      <div class="tab-nav">
+        <button class="tab-btn active" data-tab="chart">K 線</button>
+        <button class="tab-btn" data-tab="tech">技術指標</button>
+        <button class="tab-btn" data-tab="info">個股資訊</button>
+      </div>
+
+      <!-- K-Line -->
+      <div class="tab-pane active" id="pane-chart">
+        <div class="canvas-wrap" id="candle-wrap">
+          <canvas id="mainChart"></canvas>
+          <div id="chart-loading" class="chart-loading">載入中...</div>
+          <div class="chart-tooltip" id="chart-tt"></div>
+          <div class="chart-crosshair-v" id="cv"></div>
+          <div class="chart-crosshair-h" id="ch"></div>
+        </div>
+        <div class="vol-wrap"><canvas id="volChart"></canvas></div>
+        <div class="ma-legend">
+          <span style="color:#EF9F27">● MA5</span>
+          <span style="color:#378ADD">● MA20</span>
+          <span style="color:#D4537E">● MA60</span>
+          <span style="color:var(--text-3);font-size:10px">滾輪縮放 / 拖曳平移</span>
+        </div>
+      </div>
+
+      <!-- Tech Indicators -->
+      <div class="tab-pane" id="pane-tech">
+        <div id="pane-tech" style="padding:12px">
+          <div class="indicators-row" id="ind-row"></div>
+          <div style="position:relative;height:140px;margin-top:12px"><canvas id="macdChart"></canvas></div>
+          <div style="position:relative;height:110px;margin-top:10px"><canvas id="kdChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Info -->
+      <div class="tab-pane" id="pane-info">
+        <div class="info-grid" id="info-grid" style="padding:12px">
+          <div class="empty-state" style="grid-column:1/-1">選擇股票後顯示個股資訊</div>
+        </div>
+      </div>
+
+      <!-- pieChart kept for compatibility but hidden - mini version in sidebar -->
+      <canvas id="pieChart" style="display:none"></canvas>
+    </div><!-- end chart card -->
+
+    <!-- ── Feature Tabs ── -->
+    <div class="card">
+      <div class="main-tabs">
+        <button class="main-tab-btn active" data-mtab="signals">買賣訊號</button>
+        <button class="main-tab-btn" data-mtab="ai">下單建議</button>
+        <button class="main-tab-btn" data-mtab="goal">目標追蹤</button>
+        <button class="main-tab-btn" data-mtab="trades">交易紀錄</button>
+        <button class="main-tab-btn" data-mtab="alloc">資金分配</button>
+        <button class="main-tab-btn" data-mtab="recommend">選股推薦</button>
+      </div>
+
+      <!-- ── 買賣訊號總覽（直觀，不需點入個股）── -->
+      <div class="main-tab-pane active" id="mtab-signals">
+        <div class="signal-overview-wrap">
+          <div class="sov-title">所有持股即時訊號</div>
+          <div id="signal-overview">
+            <div class="empty-state">新增持股後顯示即時買賣訊號</div>
+          </div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:10px;line-height:1.6;background:var(--bg-2);border-radius:6px;padding:8px 10px">
+            💡 訊號級距：<span style="color:#ff6b6b">緊急出場</span>（跌破支撐/虧損>8%）→
+            <span style="color:var(--red)">強力賣出</span>（獲利>25%/多指標空頭）→
+            <span style="color:var(--amber)">建議減碼</span> →
+            <span style="color:var(--text-3)">持有觀望</span> →
+            <span style="color:var(--green-l)">可考慮加碼</span> →
+            <span style="color:#1D9E75">積極買進</span> →
+            <span style="color:#5DCAA5">強力買進</span>（技術評分≥4）<br>
+            執行完整技術分析後訊號更準確，點選個股後在「下單建議」按「重新分析」。
+          </div>
+        </div>
+      </div>
+
+      <!-- ── AI 下單建議 ── -->
+      <div class="main-tab-pane" id="mtab-ai">
+        <div class="ai-header">
+          <div class="ai-title">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1C4.186 1 1.5 3.686 1.5 7s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6z" stroke="#1D9E75" stroke-width="1"/><path d="M5 7.5l2 2 3.5-4" stroke="#1D9E75" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            AI 下單建議引擎
+          </div>
+          <div class="ai-header-right">
+            <span class="confidence-chip mid" id="conf-chip">—</span>
+            <button class="analyze-btn" onclick="runAnalysis()">↺ 重新分析</button>
+          </div>
+        </div>
+        <div class="ai-body">
+          <!-- VIX 市場狀況 -->
+          <div class="vix-info-bar" id="vix-tip"></div>
+          <div class="signals-row">
+            <div class="signal-block signal-action signal-action-big">
+              <div class="sig-label">📊 建議動作</div>
+              <div class="sig-value" id="sig-action">—</div>
+              <div class="sig-desc" id="sig-action-desc">請先選擇股票並執行分析</div>
+              <!-- 整合賣出提示 -->
+              <div id="sig-sell-hint" style="display:none;margin-top:8px;font-size:12px;padding:6px 10px;background:rgba(226,75,74,0.1);border-radius:6px;border-left:3px solid var(--amber)"></div>
+            </div>
+            <div class="signal-block signal-entry">
+              <div class="sig-label">建議進場價</div>
+              <div class="sig-value" id="sig-entry">—</div>
+              <div class="sig-desc" id="sig-entry-desc">—</div>
+            </div>
+            <div class="signal-block signal-tp">
+              <div class="sig-label">停利目標</div>
+              <div class="sig-value" id="sig-tp">—</div>
+              <div class="sig-desc" id="sig-tp-desc">—</div>
+            </div>
+            <div class="signal-block signal-sl">
+              <div class="sig-label">停損設定</div>
+              <div class="sig-value" id="sig-sl">—</div>
+              <div class="sig-desc" id="sig-sl-desc">—</div>
+            </div>
+          </div>
+
+          <div class="pattern-section">
+            <div class="pattern-title">型態比對</div>
+            <div class="pattern-tags" id="pattern-tags"></div>
+            <div class="pattern-meter">
+              <div class="meter-label">綜合信號強度</div>
+              <div class="meter-bar-wrap"><div class="meter-bar" id="meter-bar" style="width:50%"></div></div>
+              <div class="meter-value" id="meter-value">—</div>
+            </div>
+          </div>
+
+          <div class="ai-reasoning">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="flex-shrink:0;margin-top:1px"><rect x="1" y="1" width="12" height="12" rx="3" stroke="#1D9E75" stroke-width="1"/><path d="M4 5h6M4 7h6M4 9h4" stroke="#1D9E75" stroke-width="1" stroke-linecap="round"/></svg>
+            <div class="reasoning-text" id="reasoning-text">請先選擇持股或自選股，系統將自動執行技術分析與型態比對。</div>
+          </div>
+
+          <!-- Per-stock Order Plan - 移至「資金分配」tab，此處僅保留快捷進場參考 -->
+          <div class="order-section" style="background:var(--bg-3);border-color:var(--border-md)">
+            <div style="font-size:11px;color:var(--text-3)">💡 個股進場計算已整合至「資金分配」tab，可在那裡輸入總預算，一次得到所有持股的分配建議。</div>
+          </div>
+
+          <div class="notify-section">
+            <input type="email" id="notify-email" class="notify-email-input" placeholder="到價通知 Email（需設定 EmailJS）">
+            <select id="notify-condition" class="notify-condition">
+              <option value="reach">到達進場價</option>
+              <option value="break-up">突破壓力</option>
+              <option value="break-down">跌破支撐</option>
+              <option value="rsi-oversold">RSI 超賣</option>
+            </select>
+            <button class="set-notify-btn" onclick="setNotification()">設定通知</button>
+            <span class="notify-feedback" id="notify-feedback"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 賣出分析 ── -->
+      <div class="main-tab-pane" id="mtab-sell">
+        <div class="sell-header">
+          <div class="sell-title">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2L13.5 12.5H1.5L7.5 2Z" stroke="#E24B4A" stroke-width="1.2" stroke-linejoin="round"/><path d="M7.5 6v3M7.5 11v.5" stroke="#E24B4A" stroke-width="1.2" stroke-linecap="round"/></svg>
+            賣出建議引擎
+          </div>
+          <div class="sell-urgency-badge none" id="sell-urgency-badge">等待分析</div>
+        </div>
+        <div class="sell-signals-wrap" id="sell-signals-wrap">
+          <div class="sell-signals-empty">選擇持股並執行分析後顯示賣出評估</div>
+        </div>
+        <div class="sell-plan-wrap" id="sell-plan-wrap" style="display:none">
+          <div class="sell-plan-title" id="sell-plan-title"></div>
+          <div id="sell-plan-rows"></div>
+          <div class="sell-plan-note" id="sell-plan-note"></div>
+        </div>
+      </div>
+
+      <!-- ── 目標追蹤 ── -->
+      <div class="main-tab-pane" id="mtab-goal">
+        <div class="goal-dashboard">
+          <div class="goal-header">📈 長期投資目標 — 2-3年買房頭期款</div>
+
+          <!-- 資產結構 -->
+          <div class="goal-asset-section">
+            <div class="gas-title">資產結構（含現金）</div>
+            <div class="gas-bar-wrap">
+              <div class="gas-bar-stock" id="goal-asset-stock-bar" style="width:70%"></div>
+              <div class="gas-bar-cash"  id="goal-asset-cash-bar"  style="width:30%"></div>
+            </div>
+            <div class="gas-legend">
+              <span><span class="gas-dot" style="background:var(--green-l)"></span>股票 <span id="goal-stock-pct">—</span></span>
+              <span><span class="gas-dot" style="background:var(--amber)"></span>現金 <span id="goal-cash-pct">—</span></span>
+            </div>
+          </div>
+
+          <!-- 現金輸入 -->
+          <div class="goal-cash-section">
+            <div class="goal-cash-title">💰 現金資產（購屋用）</div>
+            <div class="cash-row">
+              <span class="cash-label">台幣現金</span>
+              <input type="number" id="cash-twd-input" class="cash-input" placeholder="0" min="0" step="1000">
+              <span class="cash-unit">元</span>
+            </div>
+            <div class="cash-row">
+              <span class="cash-label">美金現金</span>
+              <input type="number" id="cash-usd-input" class="cash-input" placeholder="0" min="0" step="100">
+              <span class="cash-unit">USD</span>
+              <span class="usd-rate" id="usd-rate-display">匯率載入中...</span>
+            </div>
+            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="cash-save-btn" onclick="saveCashSettings()">更新現金</button>
+              <span style="font-size:11px;color:var(--text-3)">美金自動換算台幣，匯率每小時更新</span>
+            </div>
+          </div>
+
+          <!-- 總計目標 -->
+          <div class="goal-grid">
+            <div class="goal-card">
+              <div class="gc-label">股票市值</div>
+              <div class="gc-value" id="goal-stock-val">—</div>
+            </div>
+            <div class="goal-card">
+              <div class="gc-label">台幣現金</div>
+              <div class="gc-value" id="goal-cash-twd-val">—</div>
+            </div>
+            <div class="goal-card">
+              <div class="gc-label">美金現金</div>
+              <div class="gc-value" id="goal-cash-usd-val">—</div>
+            </div>
+            <div class="goal-card">
+              <div class="gc-label">🏠 合計</div>
+              <div class="gc-value" id="goal-total-val" style="color:var(--green-l)">—</div>
+              <div class="gc-sub" id="goal-diff">計算中...</div>
+            </div>
+          </div>
+
+          <!-- 進度 -->
+          <div class="goal-progress-wrap">
+            <div class="gp-header">
+              <span class="gp-title">距目標 <span id="goal-target-val">300萬</span></span>
+              <span class="gp-pct" id="goal-pct">0%</span>
+            </div>
+            <div class="gp-bar-wrap"><div class="gp-bar" id="goal-progress-bar" style="width:0%"></div></div>
+            <div class="gp-diff" id="goal-diff-bar"></div>
+          </div>
+
+          <!-- 統計 -->
+          <div class="goal-stats">
+            <div class="gs-item">
+              <div class="gs-label">目前年化報酬</div>
+              <div class="gs-value" id="goal-annual-return">—</div>
+            </div>
+            <div class="gs-item">
+              <div class="gs-label">需年化報酬</div>
+              <div class="gs-value" id="goal-required-return">—</div>
+            </div>
+            <div class="gs-item">
+              <div class="gs-label">預計達標</div>
+              <div class="gs-value" id="goal-eta">—</div>
+            </div>
+          </div>
+
+          <!-- 資產成長曲線 -->
+          <div class="goal-value-chart">
+            <div class="gvc-title">📈 資產成長曲線</div>
+            <div class="gvc-wrap">
+              <canvas id="value-chart" style="width:100%;height:100px"></canvas>
+            </div>
+          </div>
+
+          <div style="font-size:11px;color:var(--text-3);line-height:1.6;background:var(--bg-2);border-radius:var(--radius-sm);padding:10px">
+            💡 目標金額和年限可在 ⚙ 設定 中修改。資產曲線每次開啟頁面自動記錄一個快照。
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 交易紀錄 ── -->
+      <div class="main-tab-pane" id="mtab-trades">
+        <div class="trades-container">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+            <span style="font-size:13px;font-weight:600">交易紀錄（最近50筆）</span>
+            <div class="export-row">
+              <button class="export-btn" onclick="APP.exportData()">⬇ 匯出備份</button>
+              <button class="export-btn" onclick="document.getElementById('import-file').click()">⬆ 匯入備份</button>
+              <input type="file" id="import-file" style="display:none" accept=".json" onchange="APP.importData(this.files[0])">
+            </div>
+          </div>
+          <div id="trade-list"></div>
+        </div>
+      </div>
+
+      <!-- ── 資金分配 ── -->
+      <div class="main-tab-pane" id="mtab-alloc">
+        <div style="padding:14px 16px">
+          <div class="portfolio-alloc">
+            <div class="pa-title">📊 跨股資金配置分析</div>
+            <div class="pa-subtitle">根據各股評分自動分配預算，一次看所有持股的建議加碼量</div>
+            <div class="pa-input-row">
+              <label class="budget-label">可用總預算</label>
+              <div class="budget-input-wrap">
+                <span class="budget-prefix">NT$</span>
+                <input type="number" id="portfolio-budget" class="budget-input" value="500000" min="0" step="10000" style="width:130px">
+              </div>
+              <button class="analyze-btn" onclick="calcPortfolio()">計算分配</button>
+            </div>
+            <div id="portfolio-alloc-result">
+              <div class="alloc-empty">輸入預算後點「計算分配」</div>
+            </div>
+          </div>
+
+          <!-- 個股精算 -->
+          <div class="order-section" style="margin-top:12px">
+            <div class="order-title">🎯 個股精算下單（選定個股用）</div>
+            <div style="font-size:11px;color:var(--text-3);margin-bottom:8px">點選左側持股並執行「重新分析」後，此處顯示該股的精確分批建議</div>
+            <div class="budget-input-row">
+              <label class="budget-label">個股預算</label>
+              <div class="budget-input-wrap">
+                <span class="budget-prefix">NT$</span>
+                <input type="number" id="budget" class="budget-input" value="200000" min="0" step="10000" oninput="calcOrder()">
+              </div>
+              <select id="strategy-select" class="strategy-select" onchange="calcOrder()">
+                <option value="auto">自動策略</option>
+                <option value="single">單次進場</option>
+                <option value="batch2">2 次分批</option>
+                <option value="batch3">3 次分批</option>
+                <option value="batch4">4 次分批</option>
+              </select>
+            </div>
+            <div class="order-table-wrap">
+              <table class="order-table">
+                <thead><tr><th>批次</th><th>建議價</th><th>股數</th><th>金額</th><th>手續費</th><th>佔比</th></tr></thead>
+                <tbody id="order-tbody"></tbody>
+              </table>
+            </div>
+            <div class="order-footer" id="order-footer"></div>
+          </div>
+
+          <div style="font-size:11px;color:var(--text-3);line-height:1.6;background:var(--bg-2);border-radius:var(--radius-sm);padding:10px;margin-top:10px">
+            ⚠️ 基於技術面和損益%評分，建議保留10-20%現金作備援。手續費 0.1425%（最低$20）。
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ── 選股推薦 ── -->
+      <div class="main-tab-pane" id="mtab-recommend">
+        <div class="recommend-container">
+          <div class="rec-header">
+            <div>
+              <div class="rec-title-h">📊 智能選股推薦</div>
+              <div class="rec-subtitle">根據持股結構與目標，推薦長線/短線標的，並提供下單建議</div>
+            </div>
+            <div class="rec-controls">
+              <select id="rec-filter" class="rec-filter">
+                <option value="all">全部</option>
+                <option value="long">長線為主</option>
+                <option value="short">短線機會</option>
+              </select>
+              <button class="rec-run-btn" onclick="runRecommend()">📊 產生推薦</button>
+            </div>
+          </div>
+          <!-- 金額輸入 -->
+          <div style="display:flex;align-items:center;gap:10px;padding:0 0 12px;flex-wrap:wrap">
+            <label style="font-size:12px;color:var(--text-2);white-space:nowrap">可投入金額</label>
+            <div class="budget-input-wrap">
+              <span class="budget-prefix">NT$</span>
+              <input type="number" id="rec-budget" class="budget-input" value="100000" min="0" step="10000" style="width:120px">
+            </div>
+            <span style="font-size:11px;color:var(--text-3)">填入後推薦結果會顯示對應的下單股數建議</span>
+          </div>
+          <div id="rec-result">
+            <div style="text-align:center;padding:32px;color:var(--text-3);font-size:13px">
+              點「產生推薦」，系統根據你的持股結構與目標推薦適合補強的標的
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end feature card -->
 
   </main>
 </div>
@@ -521,14 +512,13 @@
 <!-- ════ MODALS ════ -->
 
 <!-- 新增持股 -->
-
 <div class="modal-overlay" id="add-modal">
   <div class="modal">
     <div class="modal-header"><h3>新增持股</h3><button class="modal-close" onclick="closeModal('add-modal')">✕</button></div>
     <div class="modal-body">
       <div class="form-row">
-        <div class="form-group"><label class="form-label">股票代號 <span class="required">*</span></label><input type="text" id="m-code" class="form-input" placeholder="2330" maxlength="6" oninput="autoFetchStockName(this.value,'m-name')"></div>
-        <div class="form-group"><label class="form-label">股票名稱（可空白，自動抓取）</label><input type="text" id="m-name" class="form-input" placeholder="自動抓取中..."></div>
+        <div class="form-group"><label class="form-label">股票代號 <span class="required">*</span></label><input type="text" id="m-code" class="form-input" placeholder="2330" maxlength="6"></div>
+        <div class="form-group"><label class="form-label">股票名稱 <span class="required">*</span></label><input type="text" id="m-name" class="form-input" placeholder="台積電"></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">持股股數 <span class="required">*</span></label><input type="number" id="m-shares" class="form-input" placeholder="100" min="1" step="1"></div>
@@ -542,7 +532,6 @@
 </div>
 
 <!-- 加碼 -->
-
 <div class="modal-overlay" id="buy-modal">
   <div class="modal">
     <div class="modal-header"><h3>加碼買入</h3><button class="modal-close" onclick="closeModal('buy-modal')">✕</button></div>
@@ -563,7 +552,6 @@
 </div>
 
 <!-- 賣出 -->
-
 <div class="modal-overlay" id="sell-modal">
   <div class="modal">
     <div class="modal-header"><h3>賣出持股</h3><button class="modal-close" onclick="closeModal('sell-modal')">✕</button></div>
@@ -584,14 +572,13 @@
 </div>
 
 <!-- 自選清單 -->
-
 <div class="modal-overlay" id="watch-modal">
   <div class="modal">
     <div class="modal-header"><h3>新增自選股</h3><button class="modal-close" onclick="closeModal('watch-modal')">✕</button></div>
     <div class="modal-body">
       <div class="form-row">
-        <div class="form-group"><label class="form-label">股票代號</label><input type="text" id="w-code" class="form-input" placeholder="6505" oninput="autoFetchStockName(this.value,'w-name')"></div>
-        <div class="form-group"><label class="form-label">股票名稱（可空白，自動抓取）</label><input type="text" id="w-name" class="form-input" placeholder="自動抓取中..."></div>
+        <div class="form-group"><label class="form-label">股票代號</label><input type="text" id="w-code" class="form-input" placeholder="6505"></div>
+        <div class="form-group"><label class="form-label">股票名稱</label><input type="text" id="w-name" class="form-input" placeholder="台塑化"></div>
       </div>
     </div>
     <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('watch-modal')">取消</button><button class="btn-primary" onclick="addWatchlist()">新增</button></div>
@@ -599,98 +586,89 @@
 </div>
 
 <!-- 設定 -->
-
 <div class="modal-overlay" id="settings-modal">
   <div class="modal modal-wide">
     <div class="modal-header"><h3>設定</h3><button class="modal-close" onclick="closeModal('settings-modal')">✕</button></div>
     <div class="modal-body">
 
-```
-  <div class="settings-section">
-    <div class="settings-title">☁️ 雲端同步（跨裝置 - 全自動）</div>
-    <div style="font-size:11px;color:var(--text-3);margin-bottom:10px;line-height:1.6">
-      使用 <a href="https://jsonbin.io" target="_blank" style="color:var(--blue)">JSONBin.io</a> 免費服務。設定後<strong>自動同步</strong>，無需手動操作。<br>
-      <strong>📱 手機設定只需兩步驟：</strong><br>
-      1. 電腦端：填入 API Key → 儲存 → 自動上傳（首次會建立 Bin ID）<br>
-      2. 手機端：只填 API Key → 點「🔍 自動搜尋資料」→ 自動找到並下載
-    </div>
-    <div class="form-group">
-      <label class="form-label">API Key (Master Key)</label>
-      <input type="password" id="jsonbin-key" class="form-input" placeholder="$2a$10$...">
-    </div>
-    <div class="form-group">
-      <label class="form-label">Bin ID（自動填入，無需手動輸入）</label>
-      <input type="text" id="jsonbin-bin" class="form-input" placeholder="首次上傳後自動填入">
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
-      <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="saveSettings();SYNC.upload()">⬆ 立即上傳</button>
-      <button class="btn-primary" style="font-size:12px;padding:6px 14px;background:var(--blue)" onclick="saveSettings();SYNC.smartConnect(document.getElementById('jsonbin-key').value).then(ok=>ok&&SYNC.manualDownload())">🔍 自動搜尋資料</button>
-      <button class="btn-cancel" style="font-size:12px;padding:6px 14px" onclick="SYNC.manualDownload()">⬇ 強制下載</button>
-    </div>
-    <div id="sync-status" style="font-size:11px;color:var(--text-3);margin-top:6px">未設定</div>
-  </div>
+      <div class="settings-section">
+        <div class="settings-title">☁️ 雲端同步（跨裝置 - 全自動）</div>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:10px;line-height:1.6">
+          使用 <a href="https://jsonbin.io" target="_blank" style="color:var(--blue)">JSONBin.io</a> 免費服務。設定後<strong>自動同步</strong>，無需手動操作。<br>
+          <strong>📱 手機設定只需兩步驟：</strong><br>
+          1. 電腦端：填入 API Key → 儲存 → 自動上傳（首次會建立 Bin ID）<br>
+          2. 手機端：只填 API Key → 點「🔍 自動搜尋資料」→ 自動找到並下載
+        </div>
+        <div class="form-group">
+          <label class="form-label">API Key (Master Key)</label>
+          <input type="password" id="jsonbin-key" class="form-input" placeholder="$2a$10$...">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Bin ID（自動填入，無需手動輸入）</label>
+          <input type="text" id="jsonbin-bin" class="form-input" placeholder="首次上傳後自動填入">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
+          <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="saveSettings();SYNC.upload()">⬆ 立即上傳</button>
+          <button class="btn-primary" style="font-size:12px;padding:6px 14px;background:var(--blue)" onclick="saveSettings();SYNC.smartConnect(document.getElementById('jsonbin-key').value).then(ok=>ok&&SYNC.manualDownload())">🔍 自動搜尋資料</button>
+          <button class="btn-cancel" style="font-size:12px;padding:6px 14px" onclick="SYNC.manualDownload()">⬇ 強制下載</button>
+        </div>
+        <div id="sync-status" style="font-size:11px;color:var(--text-3);margin-top:6px">未設定</div>
+      </div>
 
-  <div class="settings-section">
-    <div class="settings-title">📈 投資目標</div>
-    <div class="form-row">
-      <div class="form-group"><label class="form-label">目標金額（萬元）</label><input type="number" id="goal-target-input" class="form-input" placeholder="300" value="300"></div>
-      <div class="form-group"><label class="form-label">目標年限（年）</label><input type="number" id="goal-years-input" class="form-input" placeholder="2.5" value="2.5" step="0.5"></div>
+      <div class="settings-section">
+        <div class="settings-title">📈 投資目標</div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">目標金額（萬元）</label><input type="number" id="goal-target-input" class="form-input" placeholder="300" value="300"></div>
+          <div class="form-group"><label class="form-label">目標年限（年）</label><input type="number" id="goal-years-input" class="form-input" placeholder="2.5" value="2.5" step="0.5"></div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-title">✉️ EmailJS 到價通知</div>
+        <div class="form-group"><label class="form-label">Service ID</label><input type="text" id="ejs-service" class="form-input" placeholder="service_xxxxxxx"></div>
+        <div class="form-group"><label class="form-label">Template ID</label><input type="text" id="ejs-template" class="form-input" placeholder="template_xxxxxxx"></div>
+        <div class="form-group"><label class="form-label">Public Key</label><input type="text" id="ejs-pubkey" class="form-input" placeholder="xxxxxxxxxxxxxxx"></div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-title">🌐 資料來源</div>
+        <div class="form-group">
+          <label class="form-label">CORS Proxy（主要）</label>
+          <input type="text" id="cors-proxy" class="form-input" value="https://corsproxy.io/?">
+          <div class="form-hint">失效時自動切換至 allorigins.win 備援</div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-title">🎨 介面</div>
+        <div class="toggle-row">
+          <span class="toggle-label">深色模式</span>
+          <label class="toggle"><input type="checkbox" id="dark-mode-toggle" checked onchange="toggleDarkMode(this.checked)"><span class="toggle-slider"></span></label>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-title">💾 資料備份</div>
+        <div class="export-row">
+          <button class="export-btn" onclick="APP.exportData()">⬇ 匯出 JSON</button>
+          <button class="export-btn" onclick="document.getElementById('import-file2').click()">⬆ 匯入備份</button>
+          <input type="file" id="import-file2" style="display:none" accept=".json" onchange="APP.importData(this.files[0])">
+        </div>
+        <div class="form-hint" style="margin-top:8px">⚠️ 資料儲存在瀏覽器 localStorage，清除快取會遺失資料，建議定期匯出。</div>
+      </div>
+
     </div>
-  </div>
-
-  <div class="settings-section">
-    <div class="settings-title">✉️ EmailJS 到價通知</div>
-    <div class="form-group"><label class="form-label">Service ID</label><input type="text" id="ejs-service" class="form-input" placeholder="service_xxxxxxx"></div>
-    <div class="form-group"><label class="form-label">Template ID</label><input type="text" id="ejs-template" class="form-input" placeholder="template_xxxxxxx"></div>
-    <div class="form-group"><label class="form-label">Public Key</label><input type="text" id="ejs-pubkey" class="form-input" placeholder="xxxxxxxxxxxxxxx"></div>
-  </div>
-
-  <div class="settings-section">
-    <div class="settings-title">🌐 資料來源</div>
-    <div class="form-group">
-      <label class="form-label">CORS Proxy（主要）</label>
-      <input type="text" id="cors-proxy" class="form-input" value="https://corsproxy.io/?">
-      <div class="form-hint">失效時自動切換至 allorigins.win 備援</div>
-    </div>
-  </div>
-
-  <div class="settings-section">
-    <div class="settings-title">🎨 介面</div>
-    <div class="toggle-row">
-      <span class="toggle-label">深色模式</span>
-      <label class="toggle"><input type="checkbox" id="dark-mode-toggle" checked onchange="toggleDarkMode(this.checked)"><span class="toggle-slider"></span></label>
-    </div>
-  </div>
-
-  <div class="settings-section">
-    <div class="settings-title">💾 資料備份</div>
-    <div class="export-row">
-      <button class="export-btn" onclick="APP.exportData()">⬇ 匯出 JSON</button>
-      <button class="export-btn" onclick="document.getElementById('import-file2').click()">⬆ 匯入備份</button>
-      <input type="file" id="import-file2" style="display:none" accept=".json" onchange="APP.importData(this.files[0])">
-    </div>
-    <div class="form-hint" style="margin-top:8px">⚠️ 資料儲存在瀏覽器 localStorage，清除快取會遺失資料，建議定期匯出。</div>
-  </div>
-
-</div>
-<div class="modal-footer"><button class="btn-cancel" onclick="closeModal('settings-modal')">取消</button><button class="btn-primary" onclick="saveSettings()">儲存設定</button></div>
-```
-
+    <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('settings-modal')">取消</button><button class="btn-primary" onclick="saveSettings()">儲存設定</button></div>
   </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-
 <script src="https://cdn.emailjs.com/dist/email.min.js"></script>
-
 <script src="js/data.js"></script>
-
 <script src="js/chart.js"></script>
-
 <script src="js/analysis.js"></script>
-
 <script src="js/app.js"></script>
 
 </body>
