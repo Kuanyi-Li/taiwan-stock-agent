@@ -331,7 +331,7 @@ body {
 .sig-value { font-size: 16px; font-weight: 700; font-family: var(--font-mono); margin-bottom: 2px; }
 .signal-action-big .sig-value { font-size: 26px; }
 .sig-desc { font-size: 11px; color: var(--text-2); line-height: 1.4; }
-.signal-action .sig-value { color: var(--amber); }
+.signal-action .sig-value { color: var(--text-1); } /* JS 動態設定顏色 */
 .signal-entry .sig-value { color: var(--green-l); }
 .signal-tp .sig-value { color: var(--red); }
 .signal-sl .sig-value { color: var(--red-l); }
