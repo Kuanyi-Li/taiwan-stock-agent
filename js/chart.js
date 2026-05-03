@@ -472,7 +472,6 @@ const drawLine = (arr, color) => {
 };
 drawLine(Ks, '#E24B4A'); drawLine(Ds, '#378ADD');
 ```
-
 },
 
 *ma(arr, period) {
