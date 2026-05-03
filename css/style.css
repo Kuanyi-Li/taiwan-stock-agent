@@ -344,8 +344,8 @@ body {
 .ptag.match  { background: rgba(55,138,221,0.15); color: var(--blue); border: 1px solid rgba(55,138,221,0.2); }
 .ptag.neutral{ background: var(--bg-3); color: var(--text-3); border: 1px solid var(--border); }
 .pattern-meter .meter-label { font-size: 11px; color: var(--text-3); margin-bottom: 5px; }
-.meter-bar-wrap { height: 5px; background: var(--bg-3); border-radius: 99px; overflow: hidden; margin-bottom: 4px; }
-.meter-bar { height: 100%; border-radius: 99px; transition: width 0.6s ease; }
+.meter-bar-wrap { height: 6px; background: var(--bg-3); border-radius: 99px; overflow: hidden; margin-bottom: 6px; border: 1px solid var(--border); }
+.meter-bar { height: 100%; border-radius: 99px; transition: width 0.6s ease, background 0.3s ease; background: var(--amber); min-width: 4px; }
 .meter-value { font-size: 11px; color: var(--text-2); font-family: var(--font-mono); }
 .ai-reasoning { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px; display: flex; gap: 8px; margin-bottom: 14px; }
 .reasoning-text { font-size: 12px; color: var(--text-2); line-height: 1.6; }
