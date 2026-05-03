@@ -1733,7 +1733,6 @@ overlay.addEventListener(‘click’, e => { if (e.target === overlay) overlay.c
 document.addEventListener(‘keydown’, e => {
 if (e.key === ‘Escape’) document.querySelectorAll(’.modal-overlay.show’).forEach(m => m.classList.remove(‘show’));
 });
-
 window.addEventListener(‘DOMContentLoaded’, () => {
 APP.init();
 const today = new Date().toISOString().split(‘T’)[0];
