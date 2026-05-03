@@ -313,26 +313,27 @@ const SIGNAL = {
   quickEstimate(stock) {
     if (!stock.price) return { ...this.LEVELS[3], label:'待更新', short:'⚫ —' };
 
-    // 優先：有技術分析結果
-    if (ANALYSIS.lastSymbol === stock.code && ANALYSIS.lastInd) {
-      const score = ANALYSIS._calcScore(ANALYSIS.lastInd);
+    // ★ 優先用此股票自己的快取分析結果（不被其他股票的 lastInd 污染）
+    const cachedInd = ANALYSIS._cache[stock.code];
+    if (cachedInd) {
+      const score = ANALYSIS._calcScore(cachedInd);
       const gainPct = (stock.price - stock.cost) / stock.cost * 100;
-      const supportBreak = stock.price < (ANALYSIS.lastInd.support || 0) * 0.98;
+      const supportBreak = stock.price < (cachedInd.support || 0) * 0.98;
       return this.fromScore(score, gainPct, supportBreak);
     }
 
-    // 若此股票是當前選中的但分析還沒跑完 → 顯示「分析中」避免閃爍
-    if (APP.activeSymbol === stock.code && !ANALYSIS.lastInd) {
+    // 當前選中股票但尚未分析完 → 顯示「分析中」
+    if (APP.activeSymbol === stock.code) {
       return { ...this.LEVELS[3], label:'分析中', short:'⏳ —' };
     }
 
-    // 其他股票（非當前選中）：用損益%估算
-    const gainPct = (stock.price - stock.cost) / stock.cost * 100;
+    // 其他股票無快取 → 純損益%估算，不顯示買進，避免誤導
+    const gainPct = stock.cost ? (stock.price - stock.cost) / stock.cost * 100 : 0;
     if (gainPct <= -8)  return this.LEVELS[0];
     if (gainPct <= -5)  return this.LEVELS[2];
     if (gainPct >= 30)  return this.LEVELS[1];
     if (gainPct >= 20)  return this.LEVELS[2];
-    return { ...this.LEVELS[3], label:'持有觀望', short:'⚪ 待分析' };
+    return { ...this.LEVELS[3], label:'待分析', short:'⚪ —' };
   },
 };
 
@@ -407,8 +408,10 @@ const ORDER = {
       let score = 0, hasAnalysis = false, reasons = [];
       const gainPct = (s.price - s.cost) / s.cost * 100;
 
-      if (ANALYSIS.lastSymbol === s.code && ANALYSIS.lastInd) {
-        const ind = ANALYSIS.lastInd;
+      // ★ 用此股票自己的快取，不是 lastInd
+      const cachedInd = ANALYSIS._cache[s.code];
+      if (cachedInd) {
+        const ind = cachedInd;
         score = ANALYSIS._calcScore(ind);
         hasAnalysis = true;
         if (ind.rsi < 35) reasons.push(`RSI ${ind.rsi}超賣`);
@@ -1212,10 +1215,6 @@ const APP = {
     this.activeIdx = idx;
     this._source = source;
 
-    // 清空舊的分析結果，避免 quickEstimate 在等待期間顯示不一致訊號
-    ANALYSIS.lastSymbol = '';
-    ANALYSIS.lastInd = null;
-
     const s = source === 'portfolio' ? this.portfolio[idx] : this.watchlist[idx];
     if (s) {
       document.getElementById('chart-name').textContent = `${s.name} ${s.code}`;
@@ -1229,27 +1228,33 @@ const APP = {
       changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
     }
 
-    // 下單建議先顯示「載入中」，不渲染舊訊號
+    // 若此股票已有快取分析結果，直接顯示；否則顯示「分析中」
+    const hasCached = !!ANALYSIS._cache[code];
     const sigAction = document.getElementById('sig-action');
-    if (sigAction) { sigAction.textContent = '分析中...'; sigAction.style.color = 'var(--text-3)'; }
-    const sigDesc = document.getElementById('sig-action-desc');
-    if (sigDesc) sigDesc.innerHTML = '';
+    if (sigAction) {
+      if (!hasCached) {
+        sigAction.textContent = '分析中...';
+        sigAction.style.color = 'var(--text-3)';
+      }
+    }
     const sellHint = document.getElementById('sig-sell-hint');
-    if (sellHint) sellHint.style.display = 'none';
+    if (sellHint && !hasCached) sellHint.style.display = 'none';
 
-    // ★ 關鍵修正：不在這裡呼叫 renderStockList()
-    //   renderStockList 改由 ANALYSIS.run() 結束後統一呼叫
-    //   這樣 sidebar badge 一定和分析結果一致，不會閃爍
+    // ★ 有快取就立刻顯示舊結果（不閃爍），等新資料回來再更新
+    if (hasCached) {
+      ANALYSIS.lastSymbol = code;
+      ANALYSIS.lastInd = ANALYSIS._cache[code];
+    }
+
+    // 渲染持股清單（badge 用快取，不會顯示錯誤訊號）
+    this.renderStockList();
 
     const activePeriod = document.querySelector('.period-btn.active')?.dataset.period ?? '3mo';
     const requestedCode = code;
     await CHART.load(code, activePeriod);
 
-    // 若使用者在等待期間又切換到其他股票，丟棄此次結果
     if (this.activeSymbol !== requestedCode) return;
-
     ORDER.calcSingle();
-    // 分析完成後才更新持股清單（ANALYSIS.run 內也會呼叫，這裡是保險）
     this.renderStockList();
   },
 
