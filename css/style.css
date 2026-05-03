@@ -688,3 +688,6 @@ body {
 .mode-btn:hover { color: var(--text-1); background: var(--bg-3); }
 .mode-btn.active-long  { background: rgba(55,138,221,0.2); color: var(--blue); }
 .mode-btn.active-short { background: rgba(239,159,39,0.2); color: var(--amber); }
+
+/* ── 編輯名稱按鈕 ── */
+.si-btn.edit:hover { background: rgba(55,138,221,0.15); color: var(--blue); border-color: var(--blue); }
