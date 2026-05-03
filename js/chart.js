@@ -37,6 +37,14 @@ const CHART = {
     if (resetBtn) resetBtn.addEventListener('click', () => { this._resetZoom(); this.draw(); });
   },
 
+  // 分析週期設定（專業角度）
+  // 長線：6月日線（~125根），足以計算 MA60、長期趨勢、支撐壓力
+  // 短線：1月日線（~22根），著重近期 RSI、MACD 動能、KD 超買超賣
+  ANALYSIS_PERIODS: {
+    long:  '6mo',
+    short: '1mo',
+  },
+
   async load(symbol, period) {
     this.currentPeriod = period;
     const loadEl = document.getElementById('chart-loading');
@@ -46,7 +54,34 @@ const CHART = {
     this.currentData = data;
     this._resetZoom();
     this.draw();
-    if (data.length >= 15) ANALYSIS.run(data, symbol);
+
+    // ★ 技術分析完全不跟 K 線顯示週期走
+    // 只有在「此股票還沒有快取」時才自動拉資料分析
+    // 長線/短線切換由 runAnalysisForSymbol() 處理
+    if (!ANALYSIS._cache[symbol]) {
+      this._runAnalysis(symbol);
+    }
+  },
+
+  // 用指定模式的資料分析（外部呼叫）
+  async runAnalysisForSymbol(symbol, mode) {
+    const period = this.ANALYSIS_PERIODS[mode] || this.ANALYSIS_PERIODS.long;
+    const loadEl = document.getElementById('chart-loading');
+    if (loadEl) loadEl.style.display = 'flex';
+    const data = await DATA.fetchHistory(symbol, period);
+    if (loadEl) loadEl.style.display = 'none';
+    if (data.length >= 15 && APP.activeSymbol === symbol) {
+      ANALYSIS.run(data, symbol);
+    }
+  },
+
+  // 內部自動分析（預設長線）
+  _runAnalysis(symbol) {
+    const mode = APP.getStockMode(symbol);
+    const period = this.ANALYSIS_PERIODS[mode] || this.ANALYSIS_PERIODS.long;
+    DATA.fetchHistory(symbol, period).then(data => {
+      if (data.length >= 15) ANALYSIS.run(data, symbol);
+    });
   },
 
   _resetZoom() {

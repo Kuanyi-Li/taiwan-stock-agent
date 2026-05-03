@@ -213,7 +213,13 @@ const ANALYSIS = {
     set('sig-sl-desc', '嚴格停損 -6%');
 
     const chip = document.getElementById('conf-chip');
-    if (chip) { chip.textContent = `${confidence} ${pct}%`; chip.className = `confidence-chip ${confClass}`; }
+    if (chip) {
+      const modeLabel = (typeof APP !== 'undefined' && symbol)
+        ? (APP.getStockMode(symbol) === 'short' ? '短線' : '長線')
+        : '長線';
+      chip.textContent = `${confidence} ${pct}% ｜${modeLabel}`;
+      chip.className = `confidence-chip ${confClass}`;
+    }
     const bar = document.getElementById('meter-bar');
     if (bar) { bar.style.width = Math.max(0,Math.min(100,pct)) + '%'; bar.style.background = adjScore>=2?'var(--red)':adjScore<=-2?'var(--green-l)':'var(--amber)'; }
     const mv = document.getElementById('meter-value');

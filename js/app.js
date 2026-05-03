@@ -1139,6 +1139,7 @@ const APP = {
       const sharesDisplay = s.shares >= 1000 ? `${(s.shares/1000).toFixed(s.shares%1000===0?0:2)}張` : `${s.shares}股`;
       const pnlDisplay = Math.abs(pnl) >= 10000 ? `${pnl>=0?'+':''}${(pnl/10000).toFixed(2)}萬` : `${pnl>=0?'+':''}${pnl.toFixed(0)}元`;
       const sig = SIGNAL.quickEstimate(s);
+      const mode = this.getStockMode(s.code); // 長線 or 短線
       // 持有天數
       const daysHeld = s.date ? Math.floor((Date.now() - new Date(s.date).getTime()) / 86400000) : null;
       // 年化報酬
@@ -1169,7 +1170,13 @@ const APP = {
             }
             ${daysHeld !== null ? `<span class="si-days">${daysHeld}天${annualRoi!==null?` ${annualRoi>=0?'+':''}${annualRoi.toFixed(0)}%/年`:''}</span>` : ''}
           </div>
-          <div style="margin-top:3px"><span class="si-signal-badge ${sig.cls}">${sig.short} ${sig.label}</span></div>
+          <div style="margin-top:3px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+            <span class="si-signal-badge ${sig.cls}">${sig.short} ${sig.label}</span>
+            <span class="mode-toggle-wrap">
+              <button class="mode-btn ${mode==='long'?'active-long':''}" onclick="APP.setStockMode('${s.code}','long')" title="長線分析（6月日線）">長線</button>
+              <button class="mode-btn ${mode==='short'?'active-short':''}" onclick="APP.setStockMode('${s.code}','short')" title="短線分析（1月日線）">短線</button>
+            </span>
+          </div>
         </div>
         <div class="si-actions">
           <button class="si-btn buy" onclick="openBuyModal('${s.code}', ${i})" title="加碼">＋</button>
@@ -1264,10 +1271,23 @@ const APP = {
            this.watchlist.find(s => s.code === this.activeSymbol) || null;
   },
 
-  save() {
-    localStorage.setItem('twsa-portfolio', JSON.stringify(this.portfolio));
-    localStorage.setItem('twsa-watchlist', JSON.stringify(this.watchlist));
-    SYNC.markDirty(); // 自動觸發雲端同步
+  // 每股分析模式：long（長線）或 short（短線），預設長線
+  _stockModes: JSON.parse(localStorage.getItem('twsa-modes') || '{}'),
+
+  getStockMode(code) {
+    return this._stockModes[code] || 'long';
+  },
+
+  setStockMode(code, mode) {
+    this._stockModes[code] = mode;
+    localStorage.setItem('twsa-modes', JSON.stringify(this._stockModes));
+    // 清除快取，強制重新分析
+    delete ANALYSIS._cache[code];
+    // 重新分析
+    CHART.runAnalysisForSymbol(code, mode);
+    // 更新按鈕狀態
+    this.renderStockList();
+    this._renderSignalOverview();
   },
 
   removeStock(idx) {
