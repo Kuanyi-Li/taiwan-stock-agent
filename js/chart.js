@@ -1,6 +1,6 @@
 // ── chart.js  ── Canvas K-line renderer v3
 // 新增：滑鼠滾輪縮放、拖曳平移
- 
+
 const CHART = {
   currentData: [],
   currentPeriod: '3mo',
@@ -11,7 +11,7 @@ const CHART = {
   isDragging: false,
   dragStartX: 0,
   dragStartZoom: { start: 0, end: 0 },
- 
+
   init() {
     const tabs = document.getElementById('period-tabs');
     if (tabs) {
@@ -36,7 +36,7 @@ const CHART = {
     const resetBtn = document.getElementById('zoom-reset-btn');
     if (resetBtn) resetBtn.addEventListener('click', () => { this._resetZoom(); this.draw(); });
   },
- 
+
   async load(symbol, period) {
     this.currentPeriod = period;
     const loadEl = document.getElementById('chart-loading');
@@ -48,13 +48,13 @@ const CHART = {
     this.draw();
     if (data.length >= 15) ANALYSIS.run(data, symbol);
   },
- 
+
   _resetZoom() {
     const n = this.currentData.length;
     this.zoomStart = 0;
     this.zoomEnd = n - 1;
   },
- 
+
   _visibleData() {
     const n = this.currentData.length;
     if (!n) return [];
@@ -62,12 +62,12 @@ const CHART = {
     const e = Math.max(s+1, Math.min(n-1, this.zoomEnd));
     return this.currentData.slice(s, e + 1);
   },
- 
+
   draw() {
     this._drawMain();
     this._drawVol();
   },
- 
+
   _drawMain() {
     const canvas = document.getElementById('mainChart');
     if (!canvas || !this.currentData.length) return;
@@ -79,7 +79,7 @@ const CHART = {
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
- 
+
     const isDark = !document.body.classList.contains('light-mode');
     const clr = {
       up:'#E24B4A', dn:'#1D9E75',
@@ -87,7 +87,7 @@ const CHART = {
       text: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)',
       ma5:'#EF9F27', ma20:'#378ADD', ma60:'#D4537E',
     };
- 
+
     const data = this._visibleData();
     if (!data.length) return;
     const n = data.length;
@@ -100,20 +100,20 @@ const CHART = {
     const ma5v  = ma5.slice(visStart, visStart + n);
     const ma20v = ma20.slice(visStart, visStart + n);
     const ma60v = ma60.slice(visStart, visStart + n);
- 
+
     const PAD = { l:6, r:56, t:16, b:28 };
     const chartW = W - PAD.l - PAD.r;
     const barW = Math.max(1, Math.min(16, Math.floor(chartW / n) - 1));
     const gap = Math.max(0, (chartW - barW * n) / Math.max(1, n - 1));
- 
+
     const allPrices = data.flatMap(d => [d.h, d.l]);
     const minP = Math.min(...allPrices) * 0.998;
     const maxP = Math.max(...allPrices) * 1.002;
     const priceRange = maxP - minP || 1;
- 
+
     const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
     const yOf = p => PAD.t + (1 - (p - minP) / priceRange) * (H - PAD.t - PAD.b);
- 
+
     // Grid
     ctx.strokeStyle = clr.grid; ctx.lineWidth = 1;
     [0.25, 0.5, 0.75].forEach(r => {
@@ -123,7 +123,7 @@ const CHART = {
       ctx.fillStyle = clr.text; ctx.font = '10px monospace';
       ctx.textAlign = 'left'; ctx.fillText(p.toFixed(1), W - PAD.r + 3, y + 3);
     });
- 
+
     if (this.currentType === 'line') {
       ctx.beginPath(); ctx.strokeStyle = clr.up; ctx.lineWidth = 1.5;
       data.forEach((d, i) => { const x = xOf(i), y = yOf(d.c); i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y); });
@@ -142,7 +142,7 @@ const CHART = {
         if (!isUp) { ctx.strokeRect(x - barW/2, top, barW, bodyH); }
       });
     }
- 
+
     const drawMA = (ma, color) => {
       ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.2;
       let started = false;
@@ -154,7 +154,7 @@ const CHART = {
       ctx.stroke();
     };
     drawMA(ma5v, clr.ma5); drawMA(ma20v, clr.ma20); drawMA(ma60v, clr.ma60);
- 
+
     // X axis dates
     ctx.fillStyle = clr.text; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
     const step = Math.max(1, Math.ceil(n / 6));
@@ -162,7 +162,7 @@ const CHART = {
       const label = new Date(data[i].t).toLocaleDateString('zh-TW', { month:'2-digit', day:'2-digit' });
       ctx.fillText(label, xOf(i), H - 6);
     }
- 
+
     // Zoom indicator
     if (this.zoomStart > 0 || this.zoomEnd < this.currentData.length - 1) {
       const totalN = this.currentData.length;
@@ -170,10 +170,10 @@ const CHART = {
       ctx.fillStyle = 'rgba(239,159,39,0.8)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
       ctx.fillText(`顯示 ${zoomPct}%`, W - PAD.r - 2, PAD.t + 12);
     }
- 
+
     this._setupInteraction(canvas, data, xOf, yOf, PAD, W, H, barW, gap);
   },
- 
+
   _drawVol() {
     const canvas = document.getElementById('volChart');
     if (!canvas || !this.currentData.length) return;
@@ -185,7 +185,7 @@ const CHART = {
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
- 
+
     const data = this._visibleData();
     if (!data.length) return;
     const n = data.length;
@@ -194,7 +194,7 @@ const CHART = {
     const barW = Math.max(1, Math.min(16, Math.floor(chartW / n) - 1));
     const gap = Math.max(0, (chartW - barW * n) / Math.max(1, n - 1));
     const maxV = Math.max(...data.map(d => d.v)) || 1;
- 
+
     data.forEach((d, i) => {
       const x = PAD.l + i * (barW + gap);
       const isUp = d.c >= d.o;
@@ -203,15 +203,15 @@ const CHART = {
       ctx.fillRect(x, H - PAD.b - bh, barW, bh);
     });
   },
- 
+
   _setupInteraction(canvas, data, xOf, yOf, PAD, W, H, barW, gap) {
     const tt = document.getElementById('chart-tt');
     const cv = document.getElementById('cv');
     const ch = document.getElementById('ch');
     const n = data.length;
- 
+
     const getIdx = mx => Math.max(0, Math.min(n-1, Math.round((mx - PAD.l) / ((W - PAD.l - PAD.r) / Math.max(1, n-1)))));
- 
+
     // Crosshair
     canvas.onmousemove = e => {
       const rect = canvas.getBoundingClientRect();
@@ -241,45 +241,55 @@ const CHART = {
         tt.style.opacity = '1';
       }
     };
- 
+
     canvas.onmouseleave = () => {
       if (cv) cv.style.opacity = '0';
       if (ch) ch.style.opacity = '0';
       if (tt) tt.style.opacity = '0';
       this.isDragging = false;
     };
- 
+
     canvas.onmousedown = e => {
       this.isDragging = true;
       this.dragStartX = e.clientX - canvas.getBoundingClientRect().left;
       this.dragStartZoom = { start: this.zoomStart, end: this.zoomEnd };
       canvas.style.cursor = 'grabbing';
     };
- 
+
     canvas.onmouseup = () => { this.isDragging = false; canvas.style.cursor = 'crosshair'; };
- 
-    // Wheel zoom
+
+    // Wheel zoom - 滾輪向上 = 放大（看更細），向下 = 縮小（看更廣）
     canvas.onwheel = e => {
       e.preventDefault();
       const totalN = this.currentData.length;
       const visN = this.zoomEnd - this.zoomStart + 1;
-      const delta = e.deltaY > 0 ? 1 : -1;
+      // deltaY > 0 = 滾輪向下 = 縮小（顯示更多）
+      // deltaY < 0 = 滾輪向上 = 放大（顯示更少）
+      const zoomIn = e.deltaY < 0;
       const zoomFactor = 0.15;
       const change = Math.max(1, Math.round(visN * zoomFactor));
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
-      const ratio = mx / W;  // where to zoom toward
- 
-      let ns = this.zoomStart + Math.round(change * ratio * delta);
-      let ne = this.zoomEnd   - Math.round(change * (1-ratio) * delta);
-      if (ne - ns < 5) { if (delta < 0) { ns = ne - 5; } else { ne = ns + 5; } }
+      const ratio = mx / W;
+
+      let ns, ne;
+      if (zoomIn) {
+        // 放大：縮小顯示範圍
+        ns = this.zoomStart + Math.round(change * ratio);
+        ne = this.zoomEnd   - Math.round(change * (1 - ratio));
+      } else {
+        // 縮小：擴大顯示範圍
+        ns = this.zoomStart - Math.round(change * ratio);
+        ne = this.zoomEnd   + Math.round(change * (1 - ratio));
+      }
+      if (ne - ns < 5) { if (zoomIn) { ns = ne - 5; } else { ne = ns + 5; } }
       this.zoomStart = Math.max(0, ns);
       this.zoomEnd   = Math.min(totalN - 1, ne);
       this.draw();
     };
     canvas.style.cursor = 'crosshair';
   },
- 
+
   drawMACD(data) {
     const canvas = document.getElementById('macdChart');
     if (!canvas || !data.length) return;
@@ -290,7 +300,7 @@ const CHART = {
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
- 
+
     const closes = data.map(d => d.c);
     const n = closes.length;
     const ema12 = ANALYSIS._ema(closes, 12);
@@ -298,7 +308,7 @@ const CHART = {
     const macdArr = closes.slice(25).map((_, i) => ema12[i+25] - ema26[i+25]);
     const sigArr = ANALYSIS._ema(macdArr, 9);
     const hists = macdArr.map((v, i) => v - (sigArr[i] || 0));
- 
+
     const isDark = !document.body.classList.contains('light-mode');
     const grid = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
     const textC = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
@@ -310,18 +320,18 @@ const CHART = {
     const absMax = Math.max(...hists.map(Math.abs), 0.001) * 1.1;
     const mid = PAD.t + (H - PAD.t - PAD.b) / 2;
     const yOf = v => mid - (v / absMax) * ((H - PAD.t - PAD.b) / 2);
- 
+
     ctx.strokeStyle = grid; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(PAD.l, mid); ctx.lineTo(W - PAD.r, mid); ctx.stroke();
     ctx.fillStyle = textC; ctx.font = '9px monospace'; ctx.textAlign = 'left';
     ctx.fillText('MACD', W - PAD.r + 3, PAD.t + 8);
- 
+
     hists.forEach((h, i) => {
       const x = PAD.l + i * (barW + gap);
       ctx.fillStyle = h >= 0 ? 'rgba(226,75,74,0.7)' : 'rgba(29,158,117,0.7)';
       ctx.fillRect(x, Math.min(yOf(h), mid), barW, Math.max(1, Math.abs(yOf(h) - mid)));
     });
- 
+
     const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
     const drawLine = (arr, color) => {
       ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.2;
@@ -330,7 +340,7 @@ const CHART = {
     };
     drawLine(macdArr, '#378ADD'); drawLine(sigArr, '#EF9F27');
   },
- 
+
   drawKD(data) {
     const canvas = document.getElementById('kdChart');
     if (!canvas || !data.length) return;
@@ -341,7 +351,7 @@ const CHART = {
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
- 
+
     const isDark = !document.body.classList.contains('light-mode');
     const grid = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
     const textC = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
@@ -363,7 +373,7 @@ const CHART = {
     const gap = (chartW - barW * n) / (n - 1 || 1);
     const yOf = v => PAD.t + (1 - v / 100) * (H - PAD.t - PAD.b);
     const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
- 
+
     [20, 50, 80].forEach(v => {
       ctx.strokeStyle = grid; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(PAD.l, yOf(v)); ctx.lineTo(W - PAD.r, yOf(v)); ctx.stroke();
@@ -371,7 +381,7 @@ const CHART = {
       ctx.fillText(v, W - PAD.r + 3, yOf(v) + 3);
     });
     ctx.fillStyle = textC; ctx.fillText('KD', W - PAD.r + 3, PAD.t + 8);
- 
+
     const drawLine = (arr, color) => {
       ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.4;
       arr.forEach((v, i) => { i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)); });
@@ -379,7 +389,7 @@ const CHART = {
     };
     drawLine(Ks, '#E24B4A'); drawLine(Ds, '#378ADD');
   },
- 
+
   _ma(arr, period) {
     return arr.map((_, i) => {
       if (i < period - 1) return null;
