@@ -1,6 +1,6 @@
 // ── app.js  ── Main orchestration v3
 // 修正：零股、滾動、圓餅圖、直觀買賣訊號、目標追蹤現金/美金、資產曲線、短線推薦
-
+ 
 // ── CURRENCY module ───────────────────────────────────
 const CURRENCY = {
   usdRate: null,
@@ -18,14 +18,14 @@ const CURRENCY = {
   },
   toTWD(usd) { return usd * (this.usdRate || 31.5); },
 };
-
+ 
 // ── VIX module（台股波動恐慌指標）────────────────────
 const VIX = {
   level: null,     // 數值
   label: null,     // 文字
   cls: null,       // CSS class
   score: 0,        // 對評分的影響 (-2 ~ +2)
-
+ 
   async fetch() {
     try {
       // 用 ^TWII 的日線計算20日歷史波動率估算恐慌指數
@@ -33,7 +33,7 @@ const VIX = {
       const json = await res.json();
       const closes = json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
       if (closes.length < 21) return;
-
+ 
       // 計算 20 日年化波動率
       const returns = [];
       for (let i = 1; i < closes.length; i++) {
@@ -43,7 +43,7 @@ const VIX = {
       const mean = last20.reduce((a, b) => a + b, 0) / last20.length;
       const variance = last20.reduce((a, r) => a + (r - mean) ** 2, 0) / last20.length;
       const vol = Math.sqrt(variance * 252) * 100; // 年化波動率 %
-
+ 
       this.level = +vol.toFixed(1);
       this._classify(vol);
       this._updateDisplay();
@@ -51,7 +51,7 @@ const VIX = {
       console.warn('[VIX] fetch failed:', e.message);
     }
   },
-
+ 
   _classify(vol) {
     // 台股典型波動率範圍：10-15% 正常，>25% 恐慌，>35% 極度恐慌
     if (vol >= 35) {
@@ -66,12 +66,12 @@ const VIX = {
       this.label = '過度樂觀';  this.cls = 'vix-greed';    this.score = -1; // 過熱 → 小心回調
     }
   },
-
+ 
   _updateDisplay() {
     const el = document.getElementById('vix-badge');
     if (!el || !this.level) return;
     el.innerHTML = `波動率 <strong>${this.level}%</strong> <span class="${this.cls}">${this.label}</span>`;
-
+ 
     // 更新說明
     const tip = document.getElementById('vix-tip');
     const tips = {
@@ -84,18 +84,18 @@ const VIX = {
     if (tip) tip.textContent = tips[this.cls] || '';
   },
 };
-
-
+ 
+ 
 const GOALS = {
   defaults: { target: 3000000, years: 2.5, purpose: '買房頭期款', strategy: 'long', cashTWD: 0, cashUSD: 0 },
-
+ 
   get() { return JSON.parse(localStorage.getItem('twsa-goals') || 'null') || this.defaults; },
   save(data) {
     data._lastSyncedAt = new Date().toISOString();
     localStorage.setItem('twsa-goals', JSON.stringify(data));
     SYNC.markDirty();
   },
-
+ 
   // 記錄每日市值（資產曲線用）
   recordSnapshot() {
     const history = JSON.parse(localStorage.getItem('twsa-value-history') || '[]');
@@ -108,7 +108,7 @@ const GOALS = {
       localStorage.setItem('twsa-value-history', JSON.stringify(history));
     }
   },
-
+ 
   _calcTotal() {
     const g = this.get();
     const stockVal = APP._calcTotalValue();
@@ -116,7 +116,7 @@ const GOALS = {
     const cashUSD = parseFloat(g.cashUSD) || 0;
     return stockVal + cashTWD + CURRENCY.toTWD(cashUSD);
   },
-
+ 
   updateDashboard() {
     const g = this.get();
     const stockVal = APP._calcTotalValue();
@@ -127,7 +127,7 @@ const GOALS = {
     const target = g.target;
     const diff = target - totalVal;
     const pct = Math.min(100, totalVal / target * 100);
-
+ 
     const startDate = g.startDate ? new Date(g.startDate) : new Date(Date.now() - 365*86400000);
     const monthsPassed = (Date.now() - startDate.getTime()) / (30.44*86400000);
     const initialVal = g.initialValue || Math.max(1, totalVal * 0.8);
@@ -137,16 +137,16 @@ const GOALS = {
       ? new Date(Date.now() + yearsNeeded*365*86400000).toLocaleDateString('zh-TW', { year:'numeric', month:'short' })
       : '—';
     const requiredAnnual = totalVal > 0 ? (((target/totalVal) ** (1/g.years)) - 1) * 100 : 0;
-
+ 
     const fmtM = v => {
       if (v >= 1e6) return (v/1e4).toFixed(0)+'萬';
       if (v >= 1e4) return (v/1e4).toFixed(1)+'萬';
       return v.toFixed(0)+'元';
     };
-
+ 
     const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
     const setW = (id, w) => { const el = document.getElementById(id); if(el) el.style.width = w; };
-
+ 
     set('goal-stock-val', fmtM(stockVal));
     set('goal-cash-twd-val', fmtM(cashTWD));
     set('goal-cash-usd-val', `$${cashUSD.toLocaleString()} (≈${fmtM(cashUSDtw)})`);
@@ -159,10 +159,10 @@ const GOALS = {
     set('goal-required-return', requiredAnnual.toFixed(1) + '%/年');
     set('goal-eta', eta);
     set('goal-years-left', g.years.toFixed(1) + ' 年');
-
+ 
     const barEl = document.getElementById('goal-progress-bar');
     if (barEl) barEl.style.background = pct >= 100 ? 'var(--green-l)' : pct >= 60 ? 'var(--amber)' : 'var(--red)';
-
+ 
     // 資產結構比例
     if (totalVal > 0) {
       const sp = (stockVal/totalVal*100).toFixed(0);
@@ -174,10 +174,10 @@ const GOALS = {
       if (stockBar) stockBar.style.width = sp + '%';
       if (cashBar)  cashBar.style.width  = cp + '%';
     }
-
+ 
     this._drawValueChart();
   },
-
+ 
   _drawValueChart() {
     const canvas = document.getElementById('value-chart');
     if (!canvas) return;
@@ -198,14 +198,14 @@ const GOALS = {
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
-
+ 
     const vals = history.map(h => h.value);
     const minV = Math.min(...vals) * 0.98;
     const maxV = Math.max(...vals) * 1.02;
     const n = history.length;
     const xOf = i => (i/(n-1)) * (W - 32) + 8;
     const yOf = v => H - 16 - ((v - minV)/(maxV - minV || 1)) * (H - 24);
-
+ 
     // Gradient fill
     const grad = ctx.createLinearGradient(0, 0, 0, H);
     grad.addColorStop(0, 'rgba(29,158,117,0.3)');
@@ -214,12 +214,12 @@ const GOALS = {
     history.forEach((h, i) => { i===0 ? ctx.moveTo(xOf(i), yOf(h.value)) : ctx.lineTo(xOf(i), yOf(h.value)); });
     ctx.lineTo(xOf(n-1), H); ctx.lineTo(xOf(0), H); ctx.closePath();
     ctx.fillStyle = grad; ctx.fill();
-
+ 
     // Line
     ctx.beginPath(); ctx.strokeStyle = '#1D9E75'; ctx.lineWidth = 2;
     history.forEach((h, i) => { i===0 ? ctx.moveTo(xOf(i), yOf(h.value)) : ctx.lineTo(xOf(i), yOf(h.value)); });
     ctx.stroke();
-
+ 
     // Target line
     const g = this.get();
     if (g.target > minV && g.target < maxV) {
@@ -230,7 +230,7 @@ const GOALS = {
       ctx.fillStyle = 'rgba(226,75,74,0.8)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
       ctx.fillText('目標', W-4, ty-3);
     }
-
+ 
     // Labels
     const isDark = !document.body.classList.contains('light-mode');
     ctx.fillStyle = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
@@ -241,7 +241,7 @@ const GOALS = {
     }
   },
 };
-
+ 
 // ── TRADES module ─────────────────────────────────────
 const TRADES = {
   get() { return JSON.parse(localStorage.getItem('twsa-trades') || '[]'); },
@@ -280,7 +280,7 @@ const TRADES = {
     }).join('');
   },
 };
-
+ 
 // ── SIGNAL module（統一買賣訊號，優先用技術分析）────
 const SIGNAL = {
   // 7 級訊號
@@ -293,13 +293,13 @@ const SIGNAL = {
     { tier:5, label:'積極買進', short:'🟢 大買',  cls:'signal-strong-buy'  },
     { tier:6, label:'強力買進', short:'🟢 全買',  cls:'signal-max-buy'     },
   ],
-
+ 
   // 完整評分（有技術分析時用）
   fromScore(score, gainPct, supportBreak) {
     // VIX 影響
     const vixAdj = VIX.score || 0;
     const adjusted = score + vixAdj * 0.5;
-
+ 
     if (supportBreak || gainPct <= -8) return this.LEVELS[0];
     if (adjusted <= -3 || gainPct >= 30) return this.LEVELS[1];
     if (adjusted <= -1.5) return this.LEVELS[2];
@@ -308,11 +308,11 @@ const SIGNAL = {
     if (adjusted < 4)     return this.LEVELS[5];
     return this.LEVELS[6];
   },
-
+ 
   // 快速估算（沒有技術分析時，純用損益%）
   quickEstimate(stock) {
     if (!stock.price) return { ...this.LEVELS[3], label:'待更新', short:'⚫ —' };
-
+ 
     // 優先：有技術分析結果
     if (ANALYSIS.lastSymbol === stock.code && ANALYSIS.lastInd) {
       const score = ANALYSIS._calcScore(ANALYSIS.lastInd);
@@ -320,7 +320,7 @@ const SIGNAL = {
       const supportBreak = stock.price < (ANALYSIS.lastInd.support || 0) * 0.98;
       return this.fromScore(score, gainPct, supportBreak);
     }
-
+ 
     // 否則：純損益%估算（不衝突，因為只用損益）
     const gainPct = (stock.price - stock.cost) / stock.cost * 100;
     if (gainPct <= -8)  return this.LEVELS[0];
@@ -331,11 +331,11 @@ const SIGNAL = {
     return { ...this.LEVELS[3], label:'持有觀望', short:'⚪ 待分析' };
   },
 };
-
+ 
 // ── ORDER module ──────────────────────────────────────
 const ORDER = {
   suggestEntry: 0, suggestSL: 0, suggestTP: 0, score: 0,
-
+ 
   calcSingle() {
     const budget   = parseFloat(document.getElementById('budget')?.value) || 100000;
     const strategy = document.getElementById('strategy-select')?.value ?? 'auto';
@@ -390,7 +390,7 @@ const ORDER = {
       footer.innerHTML = `<span>合計：<strong>${totalShares}股</strong>，含手續費 <strong>${totalDisp}</strong></span><span>剩餘：${remDisp}（${(remain/budget*100).toFixed(0)}%）</span>`;
     }
   },
-
+ 
   calcPortfolio() {
     const budgetEl = document.getElementById('portfolio-budget');
     if (!budgetEl) return;
@@ -398,11 +398,11 @@ const ORDER = {
     if (!totalBudget || !APP.portfolio.length) return;
     const stocks = APP.portfolio.filter(s => s.price);
     if (!stocks.length) return;
-
+ 
     const scored = stocks.map(s => {
       let score = 0, hasAnalysis = false, reasons = [];
       const gainPct = (s.price - s.cost) / s.cost * 100;
-
+ 
       if (ANALYSIS.lastSymbol === s.code && ANALYSIS.lastInd) {
         const ind = ANALYSIS.lastInd;
         score = ANALYSIS._calcScore(ind);
@@ -422,30 +422,30 @@ const ORDER = {
         else if (gainPct >= 15) { score = 0.5; reasons.push(`獲利${gainPct.toFixed(1)}%`); }
         else                    { score = 1;   reasons.push('損益正常範圍'); }
       }
-
+ 
       // VIX 調整
       const vixAdj = VIX.score || 0;
       if (vixAdj > 0) reasons.push(`VIX${VIX.label}利多`);
       if (vixAdj < 0) reasons.push(`VIX${VIX.label}偏空`);
       score += vixAdj * 0.5;
-
+ 
       // 持股狀況調整
       if (gainPct <= -8)   { score -= 0.5; }
       if (gainPct >= 25)   { score -= 0.3; reasons.push('建議部分了結'); }
-
+ 
       return { ...s, score, gainPct, hasAnalysis, reasons };
     });
-
+ 
     const el = document.getElementById('portfolio-alloc-result');
     if (!el) return;
-
+ 
     const toBuy    = scored.filter(s => s.score > 1.5).sort((a,b) => b.score - a.score);
     const toWatch  = scored.filter(s => s.score >= -1 && s.score <= 1.5);
     const toReduce = scored.filter(s => s.score < -1);
     const totalScore = toBuy.reduce((a, s) => a + Math.max(0.1, s.score), 0);
-
+ 
     let html = '';
-
+ 
     // VIX 警示列
     if (VIX.label) {
       const vixColor = VIX.score > 0 ? 'var(--green-l)' : VIX.score < 0 ? 'var(--red)' : 'var(--amber)';
@@ -454,7 +454,7 @@ const ORDER = {
         <span style="color:var(--text-2)"> — ${VIX.score > 0 ? '恐慌期，逆向佈局機會' : VIX.score < 0 ? '市場過熱，謹慎追高' : '市場平穩，技術訊號較可靠'}</span>
       </div>`;
     }
-
+ 
     if (toBuy.length === 0) {
       html += `<div class="alloc-empty">目前無明確買進訊號<br><small>建議保留現金觀察，等待更好的進場時機</small></div>`;
     } else {
@@ -472,7 +472,7 @@ const ORDER = {
         const batchNote = isBig
           ? '建議分 <strong>2 批</strong> 進場（今 50%，低點加碼 50%）'
           : '建議 <strong>單次</strong> 進場';
-
+ 
         html += `<div class="alloc-decision-card buy">
           <div class="adc-header">
             <span class="adc-action buy">✅ ${action}</span>
@@ -491,7 +491,7 @@ const ORDER = {
         </div>`;
       });
     }
-
+ 
     if (toWatch.length > 0) {
       html += `<div class="alloc-section-title">⚪ 持有觀望</div>`;
       html += toWatch.map(s => `
@@ -504,7 +504,7 @@ const ORDER = {
           <div class="adc-reasons">${s.reasons.map(r => `<span class="adc-reason-tag">${r}</span>`).join('')}</div>
         </div>`).join('');
     }
-
+ 
     if (toReduce.length > 0) {
       html += `<div class="alloc-section-title">🟠 建議減碼</div>`;
       html += toReduce.map(s => {
@@ -519,7 +519,7 @@ const ORDER = {
         </div>`;
       }).join('');
     }
-
+ 
     const usedBudget = toBuy.reduce((a, s) => {
       const ratio = Math.max(0.1, s.score) / (totalScore || 1);
       return a + Math.max(0, Math.floor((totalBudget * ratio) / s.price)) * s.price;
@@ -527,7 +527,7 @@ const ORDER = {
     html += `<div class="alloc-footer">實際使用 ${this._fmtMoney(usedBudget)}，剩餘現金 <strong>${this._fmtMoney(totalBudget - usedBudget)}</strong></div>`;
     el.innerHTML = html;
   },
-
+ 
   _fmtMoney(n) {
     const abs = Math.abs(n);
     if (abs >= 1e6) return (n/1e4).toFixed(1)+'萬';
@@ -535,7 +535,7 @@ const ORDER = {
     return n.toFixed(0)+'元';
   },
 };
-
+ 
 // ── PIE CHART ─────────────────────────────────────────
 const PIE = {
   instance: null,
@@ -600,27 +600,27 @@ const PIE = {
     });
   },
 };
-
+ 
 // ── SYNC module（跨裝置雲端同步 - 全自動）─────────────
 const SYNC = {
   API_BASE: 'https://api.jsonbin.io/v3',
   _timer: null,
   _dirty: false,
-
+ 
   getConfig() {
     return {
       apiKey: APP.settings.jsonbinKey || '',
       binId:  APP.settings.jsonbinBin || '',
     };
   },
-
+ 
   // 標記資料已變更，3秒後自動上傳（debounce）
   markDirty() {
     this._dirty = true;
     clearTimeout(this._timer);
     this._timer = setTimeout(() => this._autoUpload(), 3000);
   },
-
+ 
   async _autoUpload() {
     const { apiKey } = this.getConfig();
     if (!apiKey || !this._dirty) return;
@@ -628,7 +628,7 @@ const SYNC = {
     const ok = await this.upload(true); // silent = true
     if (ok) this._updateStatus('已同步 ' + new Date().toLocaleTimeString('zh-TW', {hour:'2-digit',minute:'2-digit'}));
   },
-
+ 
   _pack() {
     return {
       portfolio: APP.portfolio,
@@ -639,7 +639,7 @@ const SYNC = {
       syncedAt: new Date().toISOString(),
     };
   },
-
+ 
   _unpack(data) {
     if (data.portfolio) APP.portfolio = data.portfolio;
     if (data.watchlist) APP.watchlist = data.watchlist;
@@ -648,7 +648,7 @@ const SYNC = {
     if (data.history) localStorage.setItem('twsa-value-history', JSON.stringify(data.history));
     APP.save();
   },
-
+ 
   async upload(silent = false) {
     const { apiKey, binId } = this.getConfig();
     if (!apiKey) {
@@ -690,7 +690,7 @@ const SYNC = {
       return false;
     }
   },
-
+ 
   // 智能連接：只需 API Key，自動找到 Bin ID
   async smartConnect(apiKey) {
     if (!apiKey) return false;
@@ -741,7 +741,7 @@ const SYNC = {
       }
     } catch(e) { /* 靜默失敗 */ }
   },
-
+ 
   async manualDownload() {
     const { apiKey, binId } = this.getConfig();
     if (!apiKey || !binId) { showToast('請先設定 API Key 和 Bin ID'); return; }
@@ -759,12 +759,12 @@ const SYNC = {
       }
     } catch(e) { showToast(`下載失敗：${e.message}`); }
   },
-
+ 
   _updateStatus(msg) {
     const el = document.getElementById('sync-status');
     if (el) { el.textContent = msg; el.style.color = 'var(--green-l)'; }
   },
-
+ 
   updateStatus() {
     const el = document.getElementById('sync-status');
     if (!el) return;
@@ -781,8 +781,8 @@ const SYNC = {
     }
   },
 };
-
-
+ 
+ 
 const RECOMMEND = {
   CANDIDATES: [
     // ETF
@@ -804,7 +804,7 @@ const RECOMMEND = {
     { code:'2881',  name:'富邦金',         sector:'金融',  type:'存股',   risk:'低中', horizon:'長線', reason:'獲利能力強的綜合金控，旗下富邦人壽+台北富邦銀行。', logic:'金融股防禦性強，適合穩定配置。', shortNote:null },
     { code:'2412',  name:'中華電',         sector:'電信',  type:'存股',   risk:'低',   horizon:'長線', reason:'台灣最大電信，現金流穩定，殖利率4-5%。', logic:'景氣不佳時的避風港，防禦部位。', shortNote:null },
   ],
-
+ 
   run() {
     const el = document.getElementById('rec-result');
     if (!el) return;
@@ -812,13 +812,13 @@ const RECOMMEND = {
     const goals = GOALS.get();
     const ownedCodes = new Set(portfolio.map(s => s.code));
     const filter = document.getElementById('rec-filter')?.value || 'all';
-
+ 
     const sectorMap = {};
     portfolio.forEach(s => {
       const match = this.CANDIDATES.find(c => c.code === s.code);
       if (match) sectorMap[match.sector] = (sectorMap[match.sector]||0) + 1;
     });
-
+ 
     const scored = this.CANDIDATES
       .filter(c => !ownedCodes.has(c.code))
       .filter(c => {
@@ -838,18 +838,18 @@ const RECOMMEND = {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
-
+ 
     if (!scored.length) {
       el.innerHTML = '<div class="rec-card"><div class="rec-body">你已持有所有推薦標的！</div></div>';
       return;
     }
-
+ 
     const riskColor = { '低':'#1D9E75','低中':'#5DCAA5','中':'#EF9F27','中高':'#E24B4A','高':'#E24B4A' };
     const horizonLabel = { '長線':'長期', '短線':'短線', '長短':'長短' };
     const horizonCls = { '長線':'horizon-long','短線':'horizon-short','長短':'horizon-both' };
     const budget = parseFloat(document.getElementById('rec-budget')?.value) || 0;
     const budgetPerStock = budget > 0 ? budget / scored.length : 0;
-
+ 
     el.innerHTML = `
       <div class="rec-meta">根據你的目標（${(goals.target/10000).toFixed(0)}萬/${goals.years}年）與持股結構推薦：</div>
       ${scored.map((c, i) => {
@@ -889,7 +889,7 @@ const RECOMMEND = {
       <div class="rec-disclaimer">⚠️ 以上為規則引擎參考建議，不構成投資建議，請自行判斷。</div>`;
   },
 };
-
+ 
 // ── APP module ────────────────────────────────────────
 const APP = {
   portfolio: JSON.parse(localStorage.getItem('twsa-portfolio') || '[]'),
@@ -897,7 +897,7 @@ const APP = {
   activeSymbol: '', activeIdx: -1, _source: 'portfolio',
   refreshTimer: null,
   settings: JSON.parse(localStorage.getItem('twsa-settings') || '{}'),
-
+ 
   async init() {
     CHART.init();
     this._loadSettings();
@@ -910,14 +910,14 @@ const APP = {
     this._updateMarketStatus();
     if (!this.portfolio.length) this._showEmptyPortfolio();
     if (!this.watchlist.length) this._showEmptyWatchlist();
-
+ 
     // Load USD rate + VIX
     await Promise.all([CURRENCY.fetchUSDRate(), VIX.fetch()]);
     await this.refreshPrices();
     // 嘗試從雲端自動下載最新資料
     await SYNC.autoDownloadOnStart();
     if (this.portfolio.length > 0) this.selectStock(this.portfolio[0].code, 0, 'portfolio');
-
+ 
     this.refreshTimer = setInterval(() => this.refreshPrices(), 60000);
     setInterval(() => this.updateClock(), 1000);
     setInterval(() => this._updateMarketStatus(), 60000);
@@ -925,7 +925,7 @@ const APP = {
     setInterval(() => DATA.fetchIndexes(), 120000);
     setInterval(() => CURRENCY.fetchUSDRate(), 3600000);
     setInterval(() => VIX.fetch(), 3600000); // VIX 每小時更新
-
+ 
     PIE.render();
     GOALS.updateDashboard();
     GOALS.recordSnapshot();
@@ -937,26 +937,26 @@ const APP = {
     if (s.jsonbinKey) { const el = document.getElementById('jsonbin-key'); if(el) el.value = s.jsonbinKey; }
     if (s.jsonbinBin) { const el = document.getElementById('jsonbin-bin'); if(el) el.value = s.jsonbinBin; }
   },
-
+ 
   _calcTotalValue() {
     return this.portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
   },
-
+ 
   _showEmptyPortfolio() {
     const list = document.getElementById('stock-list');
     if (list) list.innerHTML = '<div class="empty-state">還沒有持股<br><small>點 ＋ 新增 開始追蹤</small></div>';
   },
-
+ 
   _showEmptyWatchlist() {
     const el = document.getElementById('watchlist');
     if (el) el.innerHTML = '<div class="empty-state">自選清單為空<br><small>點 ＋ 新增觀察標的</small></div>';
   },
-
+ 
   updateClock() {
     const el = document.getElementById('clock');
     if (el) el.textContent = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
   },
-
+ 
   _updateMarketStatus() {
     const now = new Date();
     const h = now.getHours(), m = now.getMinutes();
@@ -967,7 +967,7 @@ const APP = {
     const dot = document.getElementById('live-dot');
     if (dot) dot.style.opacity = isOpen ? '1' : '0.3';
   },
-
+ 
   async refreshPrices() {
     const btn = document.querySelector('.icon-btn[onclick="refreshAll()"]');
     if (btn) btn.classList.add('spinning');
@@ -981,7 +981,7 @@ const APP = {
     this._renderSignalOverview();
     showToast('報價已更新');
   },
-
+ 
   renderAll() {
     this.renderPortfolioSummary();
     this.renderStockList();
@@ -990,7 +990,7 @@ const APP = {
     GOALS.updateDashboard();
     this._renderSignalOverview();
   },
-
+ 
   // ── 買賣訊號總覽（持股清單旁邊直觀顯示）─────────
   _renderSignalOverview() {
     const wrap = document.getElementById('signal-overview');
@@ -1018,7 +1018,7 @@ const APP = {
         </div>`;
     }).join('');
   },
-
+ 
   renderPortfolioSummary() {
     let totalVal = 0, totalCost = 0, dayPnl = 0;
     let hasDayData = false;
@@ -1053,7 +1053,7 @@ const APP = {
     setSignedText('total-roi', roi, v => v.toFixed(2)+'%', true);
     setText('stock-count', this.portfolio.length+' 檔持股', '');
   },
-
+ 
   renderStockList() {
     const list = document.getElementById('stock-list');
     if (!list) return;
@@ -1077,7 +1077,7 @@ const APP = {
       const annualRoi = daysHeld && daysHeld > 7
         ? ((price/s.cost) ** (365/daysHeld) - 1) * 100
         : null;
-
+ 
       const div = document.createElement('div');
       div.className = 'stock-item' + (isActive ? ' active' : '');
       div.innerHTML = `
@@ -1112,7 +1112,7 @@ const APP = {
       list.appendChild(div);
     });
   },
-
+ 
   renderWatchlist() {
     const wrap = document.getElementById('watchlist');
     if (!wrap) return;
@@ -1141,7 +1141,7 @@ const APP = {
       wrap.appendChild(div);
     });
   },
-
+ 
   async selectStock(code, idx, source) {
     this.activeSymbol = code;
     this.activeIdx = idx;
@@ -1163,19 +1163,19 @@ const APP = {
     await CHART.load(code, activePeriod);
     ORDER.calcSingle();
   },
-
+ 
   getActiveStock() {
     if (!this.activeSymbol) return null;
     return this.portfolio.find(s => s.code === this.activeSymbol) ||
            this.watchlist.find(s => s.code === this.activeSymbol) || null;
   },
-
+ 
   save() {
     localStorage.setItem('twsa-portfolio', JSON.stringify(this.portfolio));
     localStorage.setItem('twsa-watchlist', JSON.stringify(this.watchlist));
     SYNC.markDirty(); // 自動觸發雲端同步
   },
-
+ 
   removeStock(idx) {
     if (!confirm(`確定要移除 ${this.portfolio[idx]?.name}？`)) return;
     const s = this.portfolio.splice(idx, 1)[0];
@@ -1183,13 +1183,13 @@ const APP = {
     if (s.code === this.activeSymbol) { this.activeSymbol = ''; document.getElementById('chart-name').textContent = '請選擇股票'; }
     showToast(`已移除 ${s.name}`);
   },
-
+ 
   removeWatch(idx) {
     const s = this.watchlist.splice(idx, 1)[0];
     this.save(); this.renderWatchlist();
     showToast(`已移除 ${s.name}`);
   },
-
+ 
   _setupTabs() {
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1203,7 +1203,7 @@ const APP = {
       });
     });
   },
-
+ 
   _setupMainTabs() {
     document.querySelectorAll('.main-tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1219,7 +1219,7 @@ const APP = {
       });
     });
   },
-
+ 
   _loadSettings() {
     const s = this.settings;
     if (s.corsProxy) DATA.proxies[0] = s.corsProxy;
@@ -1231,7 +1231,7 @@ const APP = {
       g.target = s.goalTarget; g.years = s.goalYears; GOALS.save(g);
     }
   },
-
+ 
   exportData() {
     const data = { portfolio:this.portfolio, watchlist:this.watchlist, trades:TRADES.get(), goals:GOALS.get(), history:JSON.parse(localStorage.getItem('twsa-value-history')||'[]'), exportedAt:new Date().toISOString() };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
@@ -1241,7 +1241,7 @@ const APP = {
     a.click(); URL.revokeObjectURL(url);
     showToast('資料已匯出');
   },
-
+ 
   importData(file) {
     const reader = new FileReader();
     reader.onload = e => {
@@ -1259,7 +1259,7 @@ const APP = {
     reader.readAsText(file);
   },
 };
-
+ 
 // ── Global functions ──────────────────────────────────
 function refreshAll() { APP.refreshPrices(); }
 function openSettings() { document.getElementById('settings-modal')?.classList.add('show'); }
@@ -1270,7 +1270,7 @@ function openAddModal() { document.getElementById('add-modal')?.classList.add('s
 function openWatchlistModal() { document.getElementById('watch-modal')?.classList.add('show'); }
 function closeModal(id) { document.getElementById(id)?.classList.remove('show'); }
 function runRecommend() { RECOMMEND.run(); }
-
+ 
 function openBuyModal(code, idx) {
   const s = APP.portfolio[idx];
   if (!s) return;
@@ -1280,7 +1280,7 @@ function openBuyModal(code, idx) {
   document.getElementById('buy-modal')?.classList.add('show');
   document.getElementById('buy-modal')._idx = idx;
 }
-
+ 
 function openSellStockModal(code, idx) {
   const s = APP.portfolio[idx];
   if (!s) return;
@@ -1291,7 +1291,7 @@ function openSellStockModal(code, idx) {
   document.getElementById('sell-modal')?.classList.add('show');
   document.getElementById('sell-modal')._idx = idx;
 }
-
+ 
 function addStock() {
   const code   = document.getElementById('m-code')?.value.trim();
   const name   = document.getElementById('m-name')?.value.trim();
@@ -1317,7 +1317,7 @@ function addStock() {
     if (s && q.ok && q.price) { s.price = q.price; s.prevClose = q.prevClose; APP.renderAll(); PIE.render(); }
   });
 }
-
+ 
 function confirmBuy() {
   const modal = document.getElementById('buy-modal');
   const idx = modal._idx;
@@ -1335,7 +1335,7 @@ function confirmBuy() {
   APP.save(); APP.renderAll(); closeModal('buy-modal');
   showToast(`${s.name} 加碼 ${shares}股 @ $${price}，新均價 $${s.cost.toFixed(2)}`);
 }
-
+ 
 function confirmSell() {
   const modal = document.getElementById('sell-modal');
   const idx = modal._idx;
@@ -1358,7 +1358,7 @@ function confirmSell() {
   APP.save(); APP.renderAll(); closeModal('sell-modal'); TRADES.render();
   showToast(`${s.name} 賣出 ${shares}股 @ $${price}，${pnl>=0?'獲利':'虧損'}${pnlDisplay}（稅費$${totalFee}）`);
 }
-
+ 
 function addWatchlist() {
   const code = document.getElementById('w-code')?.value.trim();
   const name = document.getElementById('w-name')?.value.trim();
@@ -1374,7 +1374,7 @@ function addWatchlist() {
     if (s && q.ok && q.price) { s.price = q.price; s.prevClose = q.prevClose; APP.renderWatchlist(); }
   });
 }
-
+ 
 function saveSettings() {
   const s = APP.settings;
   s.corsProxy   = document.getElementById('cors-proxy')?.value.trim();
@@ -1401,7 +1401,7 @@ function saveSettings() {
   SYNC.updateStatus();
   showToast('設定已儲存');
 }
-
+ 
 function saveCashSettings() {
   const cashTWD = parseFloat(document.getElementById('cash-twd-input')?.value) || 0;
   const cashUSD = parseFloat(document.getElementById('cash-usd-input')?.value) || 0;
@@ -1410,14 +1410,14 @@ function saveCashSettings() {
   GOALS.save(g);
   GOALS.updateDashboard();
 }
-
+ 
 function toggleDarkMode(checked) {
   document.body.classList.toggle('light-mode', !checked);
   APP.settings.darkMode = checked;
   localStorage.setItem('twsa-settings', JSON.stringify(APP.settings));
   setTimeout(() => { if (CHART.currentData.length) CHART.draw(); PIE.render(); }, 100);
 }
-
+ 
 function renderSellSignals(result) {
   if (!result) return;
   const { signals, urgency, plan } = result;
@@ -1451,7 +1451,7 @@ function renderSellSignals(result) {
     if (noteEl) noteEl.textContent = plan.note ?? '';
   }
 }
-
+ 
 function setNotification() {
   const email = document.getElementById('notify-email')?.value;
   const condition = document.getElementById('notify-condition')?.value;
@@ -1466,7 +1466,7 @@ function setNotification() {
   if (fb) { fb.textContent = `✓ ${stock.name} ${condition} $${targetPrice} 通知已設定`; setTimeout(() => { fb.textContent = ''; }, 5000); }
   showToast('通知規則已設定');
 }
-
+ 
 // ── Helpers ───────────────────────────────────────────
 function setText(id, text, cls) {
   const el = document.getElementById(id);
@@ -1489,14 +1489,14 @@ function showToast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
 }
-
+ 
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('show'); });
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.show').forEach(m => m.classList.remove('show'));
 });
-
+ 
 window.addEventListener('DOMContentLoaded', () => {
   APP.init();
   const today = new Date().toISOString().split('T')[0];
