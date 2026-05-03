@@ -321,13 +321,17 @@ const SIGNAL = {
       return this.fromScore(score, gainPct, supportBreak);
     }
 
-    // 否則：純損益%估算（不衝突，因為只用損益）
+    // 若此股票是當前選中的但分析還沒跑完 → 顯示「分析中」避免閃爍
+    if (APP.activeSymbol === stock.code && !ANALYSIS.lastInd) {
+      return { ...this.LEVELS[3], label:'分析中', short:'⏳ —' };
+    }
+
+    // 其他股票（非當前選中）：用損益%估算
     const gainPct = (stock.price - stock.cost) / stock.cost * 100;
     if (gainPct <= -8)  return this.LEVELS[0];
     if (gainPct <= -5)  return this.LEVELS[2];
     if (gainPct >= 30)  return this.LEVELS[1];
     if (gainPct >= 20)  return this.LEVELS[2];
-    // 沒有技術分析→不給買進建議，只給觀望
     return { ...this.LEVELS[3], label:'持有觀望', short:'⚪ 待分析' };
   },
 };
@@ -577,13 +581,18 @@ const PIE = {
           legend: {
             position: 'right',
             labels: {
-              color: legendColor, font: { size: 12 }, padding: 12, boxWidth: 12,
-              generateLabels: () => stocks.map((s, i) => ({
-                text: `${s.code}  ${(data[i]/total*100).toFixed(1)}%`,
-                fillStyle: colors[i % colors.length],
-                strokeStyle: colors[i % colors.length],
-                hidden: false, index: i,
-              })),
+              color: getComputedStyle(document.body).getPropertyValue('--text-1').trim() || '#e6edf3',
+              font: { size: 12 }, padding: 12, boxWidth: 12,
+              generateLabels: (chart) => {
+                const c = getComputedStyle(document.body).getPropertyValue('--text-1').trim() || '#e6edf3';
+                return stocks.map((s, i) => ({
+                  text: `${s.code}  ${(data[i]/total*100).toFixed(1)}%`,
+                  fillStyle: colors[i % colors.length],
+                  strokeStyle: colors[i % colors.length],
+                  fontColor: c,
+                  hidden: false, index: i,
+                }));
+              },
             },
           },
           tooltip: { callbacks: { label: ctx => {
@@ -608,8 +617,6 @@ const PIE = {
     const d = this._getData();
     if (!d) return;
     const { stocks, data, total, colors } = d;
-    const isDark = !document.body.classList.contains('light-mode');
-    const legendColor = isDark ? 'rgba(230,237,243,0.8)' : 'rgba(36,41,47,0.8)';
     if (this.miniInstance) { this.miniInstance.destroy(); this.miniInstance = null; }
     this.miniInstance = new Chart(canvas, {
       type: 'doughnut',
@@ -623,13 +630,19 @@ const PIE = {
           legend: {
             position: 'right',
             labels: {
-              color: legendColor, font: { size: 10 }, padding: 6, boxWidth: 8,
-              generateLabels: () => stocks.map((s, i) => ({
-                text: `${s.code} ${(data[i]/total*100).toFixed(0)}%`,
-                fillStyle: colors[i % colors.length],
-                strokeStyle: colors[i % colors.length],
-                hidden: false, index: i,
-              })),
+              // 每次 render 動態取顏色，解決深色/淺色模式問題
+              color: getComputedStyle(document.body).getPropertyValue('--text-1').trim() || '#e6edf3',
+              font: { size: 10 }, padding: 6, boxWidth: 8,
+              generateLabels: (chart) => {
+                const c = getComputedStyle(document.body).getPropertyValue('--text-1').trim() || '#e6edf3';
+                return stocks.map((s, i) => ({
+                  text: `${s.code} ${(data[i]/total*100).toFixed(0)}%`,
+                  fillStyle: colors[i % colors.length],
+                  strokeStyle: colors[i % colors.length],
+                  fontColor: c,
+                  hidden: false, index: i,
+                }));
+              },
             },
           },
           tooltip: { callbacks: { label: ctx => {
@@ -1198,6 +1211,11 @@ const APP = {
     this.activeSymbol = code;
     this.activeIdx = idx;
     this._source = source;
+
+    // 清空舊的分析結果，避免 quickEstimate 在等待期間顯示不一致訊號
+    ANALYSIS.lastSymbol = '';
+    ANALYSIS.lastInd = null;
+
     const s = source === 'portfolio' ? this.portfolio[idx] : this.watchlist[idx];
     if (s) {
       document.getElementById('chart-name').textContent = `${s.name} ${s.code}`;
@@ -1210,10 +1228,29 @@ const APP = {
       changeEl.textContent = price > 0 ? `${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)` : '';
       changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
     }
-    this.renderStockList();
+
+    // 下單建議先顯示「載入中」，不渲染舊訊號
+    const sigAction = document.getElementById('sig-action');
+    if (sigAction) { sigAction.textContent = '分析中...'; sigAction.style.color = 'var(--text-3)'; }
+    const sigDesc = document.getElementById('sig-action-desc');
+    if (sigDesc) sigDesc.innerHTML = '';
+    const sellHint = document.getElementById('sig-sell-hint');
+    if (sellHint) sellHint.style.display = 'none';
+
+    // ★ 關鍵修正：不在這裡呼叫 renderStockList()
+    //   renderStockList 改由 ANALYSIS.run() 結束後統一呼叫
+    //   這樣 sidebar badge 一定和分析結果一致，不會閃爍
+
     const activePeriod = document.querySelector('.period-btn.active')?.dataset.period ?? '3mo';
+    const requestedCode = code;
     await CHART.load(code, activePeriod);
+
+    // 若使用者在等待期間又切換到其他股票，丟棄此次結果
+    if (this.activeSymbol !== requestedCode) return;
+
     ORDER.calcSingle();
+    // 分析完成後才更新持股清單（ANALYSIS.run 內也會呼叫，這裡是保險）
+    this.renderStockList();
   },
 
   getActiveStock() {

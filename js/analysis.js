@@ -11,6 +11,9 @@ const ANALYSIS = {
       if (el) el.textContent = '資料點不足，無法進行完整分析（至少需要 15 根 K 線）';
       return;
     }
+    // Race condition guard：只有當前 activeSymbol 才更新 UI
+    if (symbol && APP.activeSymbol && symbol !== APP.activeSymbol) return;
+
     this.lastData = candles;
     if (symbol) this.lastSymbol = symbol;
 
@@ -183,7 +186,20 @@ const ANALYSIS = {
 
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
     const setHTML = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
-    set('sig-action', action);
+
+    // 根據動作設顏色：買入=綠色，賣出=紅色，持有=琥珀色
+    const actionColors = {
+      '買進':    'var(--green-l)',
+      '觀察買':  'var(--green-l)',
+      '賣出':    'var(--red)',
+      '觀察賣':  'var(--red-l)',
+      '持有':    'var(--amber)',
+    };
+    const actionEl = document.getElementById('sig-action');
+    if (actionEl) {
+      actionEl.textContent = action;
+      actionEl.style.color = actionColors[action] || 'var(--amber)';
+    }
     setHTML('sig-action-desc', reasonHtml);
     set('sig-entry', `$${suggestEntry}`);
     set('sig-entry-desc', `支撐${ind.support}，進場區間 ${(curPrice*0.96).toFixed(1)}~${(curPrice*1.002).toFixed(1)}`);
