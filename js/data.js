@@ -162,7 +162,6 @@ if (code.includes(’.’) || code.startsWith(’^’)) return code;
 if (!isNaN(parseInt(code))) return code + ‘.TW’;
 return code;
 },
-
 _mockCandles(symbol, period) {
 const counts = { ‘5m’:78,‘15m’:40,‘60m’:30,‘1d’:22,‘1wk’:30,‘1mo’:45,‘3mo’:65,‘6mo’:130,‘1y’:250 };
 const n = counts[period] ?? 60;
