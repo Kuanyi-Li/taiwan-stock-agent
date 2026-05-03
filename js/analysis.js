@@ -5,7 +5,7 @@ const ANALYSIS = {
   lastSymbol: '',
   lastInd: null,
   // ★ 每支股票各自快取分析結果，解決多股票訊號衝突問題
-  _cache: {},   // { code: IndObject }
+  _cache: {},      // { code: { ind, candles } }
 
   run(candles, symbol) {
     if (!candles || candles.length < 15) {
@@ -21,8 +21,8 @@ const ANALYSIS = {
 
     const ind = this._calcIndicators(candles);
     this.lastInd = ind;
-    // ★ 同時存入每股快取
-    if (symbol) this._cache[symbol] = ind;
+    // ★ 每股快取 ind + candles，切換股票時立刻用
+    if (symbol) this._cache[symbol] = { ind, candles };
     this._updateIndicatorCards(ind);
     this._updateSignals(ind, candles);
     this._updatePatterns(ind, candles);

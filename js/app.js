@@ -314,7 +314,8 @@ const SIGNAL = {
     if (!stock.price) return { ...this.LEVELS[3], label:'待更新', short:'⚫ —' };
 
     // ★ 優先用此股票自己的快取分析結果（不被其他股票的 lastInd 污染）
-    const cachedInd = ANALYSIS._cache[stock.code];
+    const cached = ANALYSIS._cache[stock.code];
+    const cachedInd = cached?.ind || null;
     if (cachedInd) {
       const score = ANALYSIS._calcScore(cachedInd);
       const gainPct = (stock.price - stock.cost) / stock.cost * 100;
@@ -409,7 +410,8 @@ const ORDER = {
       const gainPct = (s.price - s.cost) / s.cost * 100;
 
       // ★ 用此股票自己的快取，不是 lastInd
-      const cachedInd = ANALYSIS._cache[s.code];
+      const cached = ANALYSIS._cache[s.code];
+      const cachedInd = cached?.ind || null;
       if (cachedInd) {
         const ind = cachedInd;
         score = ANALYSIS._calcScore(ind);
@@ -1235,25 +1237,33 @@ const APP = {
       changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
     }
 
-    // 若此股票已有快取分析結果，直接顯示；否則顯示「分析中」
+    // ★ 有快取 → 立刻更新整個分析面板（不等 K 線載入）
     const hasCached = !!ANALYSIS._cache[code];
-    const sigAction = document.getElementById('sig-action');
-    if (sigAction) {
-      if (!hasCached) {
-        sigAction.textContent = '分析中...';
-        sigAction.style.color = 'var(--text-3)';
-      }
-    }
-    const sellHint = document.getElementById('sig-sell-hint');
-    if (sellHint && !hasCached) sellHint.style.display = 'none';
-
-    // ★ 有快取就立刻顯示舊結果（不閃爍），等新資料回來再更新
     if (hasCached) {
       ANALYSIS.lastSymbol = code;
-      ANALYSIS.lastInd = ANALYSIS._cache[code];
+      ANALYSIS.lastInd = ANALYSIS._cache[code]?.ind || null;
+      ANALYSIS.lastData = ANALYSIS._cache[code]?.candles || [];
+      // 直接驅動 UI 更新，讓下方分析立刻反映新股票
+      const ind = ANALYSIS.lastInd;
+      const candles = ANALYSIS.lastData;
+      if (ind) {
+        ANALYSIS._updateIndicatorCards(ind);
+        ANALYSIS._updateSignals(ind, candles);
+        ANALYSIS._updatePatterns(ind, candles);
+        ANALYSIS._updateSellEngine(ind);
+        CHART.drawMACD(candles);
+        CHART.drawKD(candles);
+      }
+    } else {
+      // 無快取 → 顯示「分析中」
+      const sigAction = document.getElementById('sig-action');
+      if (sigAction) { sigAction.textContent = '分析中...'; sigAction.style.color = 'var(--text-3)'; }
+      const sigDesc = document.getElementById('sig-action-desc');
+      if (sigDesc) sigDesc.innerHTML = '';
+      const sellHint = document.getElementById('sig-sell-hint');
+      if (sellHint) sellHint.style.display = 'none';
     }
 
-    // 渲染持股清單（badge 用快取，不會顯示錯誤訊號）
     this.renderStockList();
 
     const activePeriod = document.querySelector('.period-btn.active')?.dataset.period ?? '3mo';
@@ -1377,7 +1387,16 @@ const APP = {
 // ── Global functions ──────────────────────────────────
 function refreshAll() { APP.refreshPrices(); }
 function openSettings() { document.getElementById('settings-modal')?.classList.add('show'); }
-function runAnalysis() { if (CHART.currentData.length) ANALYSIS.run(CHART.currentData, APP.activeSymbol); else showToast('請先選擇股票'); }
+function runAnalysis() {
+  const code = APP.activeSymbol;
+  if (!code) { showToast('請先選擇股票'); return; }
+  // ★ 重新分析用長短線模式對應的週期，不用 K 線顯示的資料
+  // 這樣和長短線按鈕的分析完全一致
+  const mode = APP.getStockMode(code);
+  delete ANALYSIS._cache[code]; // 清除快取，強制重新分析
+  CHART.runAnalysisForSymbol(code, mode);
+  showToast(`重新分析中（${mode === 'short' ? '短線 1月' : '長線 6月'}日線）`);
+}
 function calcOrder() { ORDER.calcSingle(); }
 function calcPortfolio() { ORDER.calcPortfolio(); }
 function openAddModal() { document.getElementById('add-modal')?.classList.add('show'); }
