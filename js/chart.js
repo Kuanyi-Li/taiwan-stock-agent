@@ -155,11 +155,32 @@ const CHART = {
     };
     drawMA(ma5v, clr.ma5); drawMA(ma20v, clr.ma20); drawMA(ma60v, clr.ma60);
 
-    // X axis dates
+    // X axis labels - 根據資料密度自動決定格式
     ctx.fillStyle = clr.text; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
     const step = Math.max(1, Math.ceil(n / 6));
+    // 判斷是否需要顯示時間：intraday (資料間隔 < 2小時) 或高度縮放 (每格 < 2天)
+    const timeSpanMs = data.length > 1 ? data[1].t - data[0].t : 86400000;
+    const isIntraday = timeSpanMs < 2 * 3600 * 1000;        // 2小時以內
+    const isHourly   = timeSpanMs < 8 * 3600 * 1000;        // 8小時以內
+    const visSpanDays = (data[data.length-1].t - data[0].t) / 86400000;
+    const showTime = isIntraday || isHourly || visSpanDays < 5; // 縮放後顯示範圍 < 5天
+
     for (let i = 0; i < n; i += step) {
-      const label = new Date(data[i].t).toLocaleDateString('zh-TW', { month:'2-digit', day:'2-digit' });
+      const dt = new Date(data[i].t);
+      let label;
+      if (showTime && isIntraday) {
+        // 純時間：HH:MM
+        label = dt.toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', hour12:false });
+      } else if (showTime && isHourly) {
+        // 日+時：DD HH:MM
+        label = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2,'0')}:${dt.getMinutes().toString().padStart(2,'0')}`;
+      } else if (showTime && visSpanDays < 5) {
+        // 日+時（顯示範圍少於5天）
+        label = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2,'0')}:${dt.getMinutes().toString().padStart(2,'0')}`;
+      } else {
+        // 一般日期：MM/DD
+        label = dt.toLocaleDateString('zh-TW', { month:'2-digit', day:'2-digit' });
+      }
       ctx.fillText(label, xOf(i), H - 6);
     }
 
@@ -171,7 +192,7 @@ const CHART = {
       ctx.fillText(`顯示 ${zoomPct}%`, W - PAD.r - 2, PAD.t + 12);
     }
 
-    this._setupInteraction(canvas, data, xOf, yOf, PAD, W, H, barW, gap);
+    this._setupInteraction(canvas, data, xOf, yOf, PAD, W, H, barW, gap, timeSpanMs);
   },
 
   _drawVol() {
@@ -204,7 +225,7 @@ const CHART = {
     });
   },
 
-  _setupInteraction(canvas, data, xOf, yOf, PAD, W, H, barW, gap) {
+  _setupInteraction(canvas, data, xOf, yOf, PAD, W, H, barW, gap, timeSpanMs = 86400000) {
     const tt = document.getElementById('chart-tt');
     const cv = document.getElementById('cv');
     const ch = document.getElementById('ch');
@@ -235,9 +256,13 @@ const CHART = {
       if (cv) { cv.style.left = x + 'px'; cv.style.opacity = '1'; }
       if (ch) { ch.style.top = y + 'px'; ch.style.opacity = '1'; }
       if (tt) {
-        const date = new Date(d.t).toLocaleDateString('zh-TW');
+        const dt = new Date(d.t);
+        const showT = timeSpanMs < 8 * 3600 * 1000;
+        const dateStr = showT
+          ? dt.toLocaleDateString('zh-TW') + ' ' + dt.toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', hour12:false })
+          : dt.toLocaleDateString('zh-TW');
         const chg = d.c - d.o;
-        tt.innerHTML = `<span>${date}</span> 開${d.o} 高${d.h} 低${d.l} <b>收${d.c}</b> <span style="color:${chg>=0?'#E24B4A':'#1D9E75'}">${chg>=0?'▲':'▼'}${Math.abs(chg).toFixed(2)}</span>`;
+        tt.innerHTML = `<span>${dateStr}</span> 開${d.o} 高${d.h} 低${d.l} <b>收${d.c}</b> <span style="color:${chg>=0?'#E24B4A':'#1D9E75'}">${chg>=0?'▲':'▼'}${Math.abs(chg).toFixed(2)}</span>`;
         tt.style.opacity = '1';
       }
     };

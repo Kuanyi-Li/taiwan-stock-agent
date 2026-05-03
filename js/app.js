@@ -539,15 +539,28 @@ const ORDER = {
 // ── PIE CHART ─────────────────────────────────────────
 const PIE = {
   instance: null,
+  miniInstance: null,
+
   render() {
-    const canvas = document.getElementById('pieChart');
-    if (!canvas || !APP.portfolio.length) return;
-    const stocks = APP.portfolio.filter(s => s.price);
-    if (!stocks.length) return;
-    const labels = stocks.map(s => `${s.code}`);
+    this._renderMain();
+    this._renderMini();
+  },
+
+  _getData() {
+    const stocks = APP.portfolio.filter(s => s.price && s.price > 0);
+    if (!stocks.length) return null;
     const data = stocks.map(s => s.price * s.shares);
     const total = data.reduce((a, b) => a + b, 0);
     const colors = ['#E24B4A','#1D9E75','#378ADD','#EF9F27','#D4537E','#5DCAA5','#F09595','#9FE1CB','#FAC775','#B5D4F4','#A78BFA','#FB923C'];
+    return { stocks, data, total, colors };
+  },
+
+  _renderMain() {
+    const canvas = document.getElementById('pieChart');
+    if (!canvas || !APP.portfolio.length) return;
+    const d = this._getData();
+    if (!d) return;
+    const { stocks, data, total, colors } = d;
     const isDark = !document.body.classList.contains('light-mode');
     const legendColor = isDark ? 'rgba(230,237,243,0.85)' : 'rgba(36,41,47,0.85)';
     if (this.instance) { this.instance.destroy(); this.instance = null; }
@@ -558,38 +571,72 @@ const PIE = {
         datasets: [{ data, backgroundColor: colors.slice(0, stocks.length), borderWidth: 2, borderColor: 'var(--bg-1)' }],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '55%',
+        responsive: true, maintainAspectRatio: false, cutout: '55%',
         layout: { padding: { right: 20 } },
         plugins: {
           legend: {
             position: 'right',
             labels: {
-              color: legendColor,
-              font: { size: 12 },
-              padding: 12,
-              boxWidth: 12,
-              generateLabels: chart => {
-                return stocks.map((s, i) => ({
-                  text: `${s.code}  ${(data[i]/total*100).toFixed(1)}%`,
-                  fillStyle: colors[i % colors.length],
-                  strokeStyle: colors[i % colors.length],
-                  hidden: false,
-                  index: i,
-                }));
-              },
+              color: legendColor, font: { size: 12 }, padding: 12, boxWidth: 12,
+              generateLabels: () => stocks.map((s, i) => ({
+                text: `${s.code}  ${(data[i]/total*100).toFixed(1)}%`,
+                fillStyle: colors[i % colors.length],
+                strokeStyle: colors[i % colors.length],
+                hidden: false, index: i,
+              })),
             },
           },
-          tooltip: {
-            callbacks: {
-              label: ctx => {
-                const val = ctx.raw;
-                const valDisp = val >= 10000 ? `${(val/10000).toFixed(1)}萬` : `${val.toFixed(0)}元`;
-                return ` ${ctx.label}：${valDisp} (${(val/total*100).toFixed(1)}%)`;
-              }
-            }
-          }
+          tooltip: { callbacks: { label: ctx => {
+            const val = ctx.raw;
+            const valDisp = val >= 10000 ? `${(val/10000).toFixed(1)}萬` : `${val.toFixed(0)}元`;
+            return ` ${ctx.label}：${valDisp} (${(val/total*100).toFixed(1)}%)`;
+          }}},
+        },
+        onClick: (e, els) => {
+          if (!els.length) return;
+          const s = stocks[els[0].index];
+          if (s) APP.selectStock(s.code, APP.portfolio.indexOf(s), 'portfolio');
+        },
+      },
+    });
+  },
+
+  // 迷你版：顯示在 sidebar 投資組合下方
+  _renderMini() {
+    const canvas = document.getElementById('pieChartMini');
+    if (!canvas || !APP.portfolio.length) return;
+    const d = this._getData();
+    if (!d) return;
+    const { stocks, data, total, colors } = d;
+    const isDark = !document.body.classList.contains('light-mode');
+    const legendColor = isDark ? 'rgba(230,237,243,0.8)' : 'rgba(36,41,47,0.8)';
+    if (this.miniInstance) { this.miniInstance.destroy(); this.miniInstance = null; }
+    this.miniInstance = new Chart(canvas, {
+      type: 'doughnut',
+      data: {
+        labels: stocks.map(s => `${s.code} ${s.name}`),
+        datasets: [{ data, backgroundColor: colors.slice(0, stocks.length), borderWidth: 1.5, borderColor: 'var(--bg-1)' }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '50%',
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: {
+              color: legendColor, font: { size: 10 }, padding: 6, boxWidth: 8,
+              generateLabels: () => stocks.map((s, i) => ({
+                text: `${s.code} ${(data[i]/total*100).toFixed(0)}%`,
+                fillStyle: colors[i % colors.length],
+                strokeStyle: colors[i % colors.length],
+                hidden: false, index: i,
+              })),
+            },
+          },
+          tooltip: { callbacks: { label: ctx => {
+            const val = ctx.raw;
+            const valDisp = val >= 10000 ? `${(val/10000).toFixed(1)}萬` : `${val.toFixed(0)}元`;
+            return ` ${(val/total*100).toFixed(1)}%  ${valDisp}`;
+          }}},
         },
         onClick: (e, els) => {
           if (!els.length) return;
@@ -990,6 +1037,8 @@ const APP = {
     this.renderStockList();
     this.renderWatchlist();
     PIE.render();
+    const miniSection = document.getElementById('mini-pie-section');
+    if (miniSection) miniSection.style.display = APP.portfolio.length > 1 ? 'block' : 'none';
     GOALS.updateDashboard();
     this._renderSignalOverview();
   },

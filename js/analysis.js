@@ -23,6 +23,9 @@ const ANALYSIS = {
     CHART.drawMACD(candles);
     CHART.drawKD(candles);
     ORDER.calcPortfolio();
+    // 分析完成後重新渲染持股清單和訊號總覽，確保訊號一致
+    APP.renderStockList();
+    APP._renderSignalOverview();
   },
 
   _calcIndicators(data) {
@@ -207,7 +210,23 @@ const ANALYSIS = {
     const stock = APP.getActiveStock();
     const currentPrice = ind.last.c;
     const result = SELL.evaluate({ techInd: ind, stock, currentPrice });
-    if (result) renderSellSignals(result);
+    if (result) {
+      // 整併到下單建議 tab 的賣出區塊
+      renderSellSignals(result);
+      // 同時更新下單建議中的整合賣出提示
+      const mergedEl = document.getElementById('sig-sell-hint');
+      if (mergedEl) {
+        if (result.urgency === 'none') {
+          mergedEl.style.display = 'none';
+        } else {
+          const urgLabels = { watch:'◎ 觀察減碼', sell:'▼ 建議出場', urgent:'⚠ 緊急減碼', emergency:'🔴 緊急離場' };
+          const urgColors = { watch:'var(--blue)', sell:'var(--amber)', urgent:'var(--red)', emergency:'var(--red)' };
+          const topSignal = result.signals[0];
+          mergedEl.style.display = 'block';
+          mergedEl.innerHTML = `<span style="color:${urgColors[result.urgency]};font-weight:600">${urgLabels[result.urgency]}</span>${topSignal ? `：${topSignal.label} — ${topSignal.desc}` : ''}`;
+        }
+      }
+    }
   },
 
   _updatePatterns(ind, data) {
