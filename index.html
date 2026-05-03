@@ -74,6 +74,13 @@
           <div class="s-sub neutral" id="stock-count">— 檔持股</div>
         </div>
       </div>
+      <!-- 迷你持股比重圓餅圖 -->
+      <div id="mini-pie-section" style="margin-top:8px;display:none">
+        <div style="font-size:10px;color:var(--text-3);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">持股比重</div>
+        <div style="height:100px;position:relative">
+          <canvas id="pieChartMini"></canvas>
+        </div>
+      </div>
     </section>
 
     <!-- Stock List -->
@@ -132,7 +139,6 @@
         <button class="tab-btn active" data-tab="chart">K 線</button>
         <button class="tab-btn" data-tab="tech">技術指標</button>
         <button class="tab-btn" data-tab="info">個股資訊</button>
-        <button class="tab-btn" data-tab="pie">持股比重</button>
       </div>
 
       <!-- K-Line -->
@@ -169,14 +175,8 @@
         </div>
       </div>
 
-      <!-- Pie Chart - 充足高度 -->
-      <div class="tab-pane" id="pane-pie">
-        <div id="pane-pie" style="padding:12px">
-          <div class="pie-wrap">
-            <canvas id="pieChart"></canvas>
-          </div>
-        </div>
-      </div>
+      <!-- pieChart kept for compatibility but hidden - mini version in sidebar -->
+      <canvas id="pieChart" style="display:none"></canvas>
     </div><!-- end chart card -->
 
     <!-- ── Feature Tabs ── -->
@@ -184,7 +184,6 @@
       <div class="main-tabs">
         <button class="main-tab-btn active" data-mtab="signals">買賣訊號</button>
         <button class="main-tab-btn" data-mtab="ai">下單建議</button>
-        <button class="main-tab-btn" data-mtab="sell">賣出分析</button>
         <button class="main-tab-btn" data-mtab="goal">目標追蹤</button>
         <button class="main-tab-btn" data-mtab="trades">交易紀錄</button>
         <button class="main-tab-btn" data-mtab="alloc">資金分配</button>
@@ -231,6 +230,8 @@
               <div class="sig-label">📊 建議動作</div>
               <div class="sig-value" id="sig-action">—</div>
               <div class="sig-desc" id="sig-action-desc">請先選擇股票並執行分析</div>
+              <!-- 整合賣出提示 -->
+              <div id="sig-sell-hint" style="display:none;margin-top:8px;font-size:12px;padding:6px 10px;background:rgba(226,75,74,0.1);border-radius:6px;border-left:3px solid var(--amber)"></div>
             </div>
             <div class="signal-block signal-entry">
               <div class="sig-label">建議進場價</div>
