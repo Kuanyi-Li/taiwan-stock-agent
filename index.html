@@ -25,6 +25,7 @@
       <span class="badge closed" id="mkt-status">休市</span>
       <span class="index-chip" id="taiex-badge">加權 —</span>
       <span class="index-chip" id="tpex-badge">櫃買 —</span>
+      <span class="vix-badge" id="vix-badge" title="台股波動率恐慌指標"></span>
     </div>
   </div>
   <div class="topbar-right">
@@ -223,7 +224,8 @@
           </div>
         </div>
         <div class="ai-body">
-          <!-- 建議動作：佔全寬大區塊 -->
+          <!-- VIX 市場狀況 -->
+          <div class="vix-info-bar" id="vix-tip"></div>
           <div class="signals-row">
             <div class="signal-block signal-action signal-action-big">
               <div class="sig-label">📊 建議動作</div>
@@ -473,7 +475,7 @@
           <div class="rec-header">
             <div>
               <div class="rec-title-h">📊 智能選股推薦</div>
-              <div class="rec-subtitle">根據持股結構與目標，推薦長線/短線標的</div>
+              <div class="rec-subtitle">根據持股結構與目標，推薦長線/短線標的，並提供下單建議</div>
             </div>
             <div class="rec-controls">
               <select id="rec-filter" class="rec-filter">
@@ -483,6 +485,15 @@
               </select>
               <button class="rec-run-btn" onclick="runRecommend()">📊 產生推薦</button>
             </div>
+          </div>
+          <!-- 金額輸入 -->
+          <div style="display:flex;align-items:center;gap:10px;padding:0 0 12px;flex-wrap:wrap">
+            <label style="font-size:12px;color:var(--text-2);white-space:nowrap">可投入金額</label>
+            <div class="budget-input-wrap">
+              <span class="budget-prefix">NT$</span>
+              <input type="number" id="rec-budget" class="budget-input" value="100000" min="0" step="10000" style="width:120px">
+            </div>
+            <span style="font-size:11px;color:var(--text-3)">填入後推薦結果會顯示對應的下單股數建議</span>
           </div>
           <div id="rec-result">
             <div style="text-align:center;padding:32px;color:var(--text-3);font-size:13px">
@@ -580,26 +591,27 @@
     <div class="modal-body">
 
       <div class="settings-section">
-        <div class="settings-title">☁️ 雲端同步（跨裝置）</div>
+        <div class="settings-title">☁️ 雲端同步（跨裝置 - 全自動）</div>
         <div style="font-size:11px;color:var(--text-3);margin-bottom:10px;line-height:1.6">
-          使用 <a href="https://jsonbin.io" target="_blank" style="color:var(--blue)">JSONBin.io</a> 免費服務同步資料（電腦 ↔ 手機）。<br>
-          1. 前往 jsonbin.io 免費註冊 → 取得 API Key<br>
-          2. 填入下方 → 儲存設定 → 點「上傳到雲端」<br>
-          3. 手機上同樣填入 API Key + Bin ID → 點「從雲端下載」
+          使用 <a href="https://jsonbin.io" target="_blank" style="color:var(--blue)">JSONBin.io</a> 免費服務。設定後<strong>自動同步</strong>，無需手動操作。<br>
+          <strong>📱 手機設定只需兩步驟：</strong><br>
+          1. 電腦端：填入 API Key → 儲存 → 自動上傳（首次會建立 Bin ID）<br>
+          2. 手機端：只填 API Key → 點「🔍 自動搜尋資料」→ 自動找到並下載
         </div>
         <div class="form-group">
           <label class="form-label">API Key (Master Key)</label>
           <input type="password" id="jsonbin-key" class="form-input" placeholder="$2a$10$...">
         </div>
         <div class="form-group">
-          <label class="form-label">Bin ID（首次上傳後自動產生）</label>
-          <input type="text" id="jsonbin-bin" class="form-input" placeholder="留空，上傳後自動填入">
+          <label class="form-label">Bin ID（自動填入，無需手動輸入）</label>
+          <input type="text" id="jsonbin-bin" class="form-input" placeholder="首次上傳後自動填入">
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
-          <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="saveSettings();SYNC.upload()">⬆ 上傳到雲端</button>
-          <button class="btn-cancel" style="font-size:12px;padding:6px 14px" onclick="SYNC.download()">⬇ 從雲端下載</button>
-          <span id="sync-status" style="font-size:11px;color:var(--text-3)">未設定</span>
+          <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="saveSettings();SYNC.upload()">⬆ 立即上傳</button>
+          <button class="btn-primary" style="font-size:12px;padding:6px 14px;background:var(--blue)" onclick="saveSettings();SYNC.smartConnect(document.getElementById('jsonbin-key').value).then(ok=>ok&&SYNC.manualDownload())">🔍 自動搜尋資料</button>
+          <button class="btn-cancel" style="font-size:12px;padding:6px 14px" onclick="SYNC.manualDownload()">⬇ 強制下載</button>
         </div>
+        <div id="sync-status" style="font-size:11px;color:var(--text-3);margin-top:6px">未設定</div>
       </div>
 
       <div class="settings-section">
