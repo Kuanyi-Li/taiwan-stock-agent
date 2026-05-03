@@ -985,6 +985,8 @@ const APP = {
     // 嘗試從雲端自動下載最新資料
     await SYNC.autoDownloadOnStart();
     if (this.portfolio.length > 0) this.selectStock(this.portfolio[0].code, 0, 'portfolio');
+    // 問題4: 開網頁自動分析所有持股和自選清單（背景非同步執行）
+    setTimeout(() => this._backgroundAnalyzeAll(), 2000);
 
     this.refreshTimer = setInterval(() => this.refreshPrices(), 60000);
     setInterval(() => this.updateClock(), 1000);
@@ -1183,6 +1185,7 @@ const APP = {
         <div class="si-actions">
           <button class="si-btn buy" onclick="openBuyModal('${s.code}', ${i})" title="加碼">＋</button>
           <button class="si-btn sell" onclick="openSellStockModal('${s.code}', ${i})" title="賣出">－</button>
+          <button class="si-btn edit" onclick="editStockName('${s.code}', ${i})" title="編輯名稱">✎</button>
           <button class="si-btn del" onclick="APP.removeStock(${i})" title="移除">✕</button>
         </div>`;
       div.querySelector('.si-main').addEventListener('click', () => this.selectStock(s.code, i, 'portfolio'));
@@ -1251,8 +1254,12 @@ const APP = {
         ANALYSIS._updateSignals(ind, candles);
         ANALYSIS._updatePatterns(ind, candles);
         ANALYSIS._updateSellEngine(ind);
-        CHART.drawMACD(candles);
-        CHART.drawKD(candles);
+        ANALYSIS._updateInfoGrid(ind);  // 問題5: 更新個股資訊 tab
+        if (candles && candles.length) {
+          CHART.drawMACD(candles);
+          CHART.drawKD(candles);
+        }
+        ORDER.calcSingle();
       }
     } else {
       // 無快取 → 顯示「分析中」
@@ -1298,6 +1305,36 @@ const APP = {
     // 更新按鈕狀態
     this.renderStockList();
     this._renderSignalOverview();
+  },
+
+  // 問題4: 開網頁後在背景依序分析所有持股和自選清單
+  async _backgroundAnalyzeAll() {
+    const all = [
+      ...this.portfolio.map(s => ({ code: s.code, source: 'portfolio' })),
+      ...this.watchlist.map(s => ({ code: s.code, source: 'watch' })),
+    ];
+    for (const item of all) {
+      // 跳過第一支（已在 init 分析）、以及已有快取的
+      if (item.code === this.activeSymbol) continue;
+      if (ANALYSIS._cache[item.code]) continue;
+      // 取得此股票模式
+      const mode = this.getStockMode(item.code);
+      const period = CHART.ANALYSIS_PERIODS[mode] || '6mo';
+      try {
+        const data = await DATA.fetchHistory(item.code, period);
+        if (data.length >= 15) {
+          // 背景分析：不更新 UI，只存快取
+          const ind = ANALYSIS._calcIndicators(data);
+          ANALYSIS._cache[item.code] = { ind, candles: data };
+        }
+      } catch(e) { /* 靜默失敗 */ }
+      // 每支間隔 800ms，避免 API 限速
+      await new Promise(r => setTimeout(r, 800));
+    }
+    // 全部分析完，重新渲染訊號
+    this.renderStockList();
+    this._renderSignalOverview();
+    showToast('所有持股分析完成');
   },
 
   removeStock(idx) {
@@ -1427,11 +1464,13 @@ function openSellStockModal(code, idx) {
 
 function addStock() {
   const code   = document.getElementById('m-code')?.value.trim();
-  const name   = document.getElementById('m-name')?.value.trim();
+  let   name   = document.getElementById('m-name')?.value.trim();
   const shares = parseFloat(document.getElementById('m-shares')?.value);
   const cost   = parseFloat(document.getElementById('m-cost')?.value);
   const date   = document.getElementById('m-date')?.value || '';
-  if (!code || !name || !shares || !cost) { showToast('請填寫必填欄位'); return; }
+  if (!code || !shares || !cost) { showToast('請填寫必填欄位（代號、股數、均價）'); return; }
+  // 名稱若空白或跟代號一樣，先用代號暫代，等 fetchQuote 回來後自動更新
+  if (!name || name === code) name = code;
   const existing = APP.portfolio.find(s => s.code === code);
   if (existing) {
     const totalShares = existing.shares + shares;
@@ -1447,7 +1486,16 @@ function addStock() {
   ['m-code','m-name','m-shares','m-cost'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   DATA.fetchQuote(code).then(q => {
     const s = APP.portfolio.find(x => x.code === code);
-    if (s && q.ok && q.price) { s.price = q.price; s.prevClose = q.prevClose; APP.renderAll(); PIE.render(); }
+    if (s && q.ok) {
+      if (q.price) { s.price = q.price; s.prevClose = q.prevClose; }
+      // 自動更新股票名稱（若原本是暫代的代號）
+      if (q.name && q.name !== code && (s.name === code || !s.name)) {
+        s.name = q.name;
+      }
+      APP.save();
+      APP.renderAll();
+      PIE.render();
+    }
   });
 }
 
@@ -1492,10 +1540,41 @@ function confirmSell() {
   showToast(`${s.name} 賣出 ${shares}股 @ $${price}，${pnl>=0?'獲利':'虧損'}${pnlDisplay}（稅費$${totalFee}）`);
 }
 
+function editStockName(code, idx) {
+  const s = APP.portfolio[idx];
+  if (!s) return;
+  const newName = prompt(`編輯 ${code} 的顯示名稱：`, s.name);
+  if (newName !== null && newName.trim()) {
+    s.name = newName.trim();
+    APP.save(); APP.renderAll();
+    showToast(`已更新：${code} → ${s.name}`);
+  }
+}
+
+function autoFetchStockName(code, targetId) {
+  code = (code || '').trim();
+  const nameEl = document.getElementById(targetId);
+  if (!nameEl || code.length < 4) return;
+  clearTimeout(_fetchNameTimer);
+  _fetchNameTimer = setTimeout(async () => {
+    nameEl.placeholder = '抓取中...';
+    try {
+      const q = await DATA.fetchQuote(code);
+      if (q.ok && q.name && q.name !== code) {
+        nameEl.placeholder = q.name;
+        if (!nameEl.value || nameEl.value === code) nameEl.value = q.name;
+      } else {
+        nameEl.placeholder = '請手動輸入名稱';
+      }
+    } catch(e) { nameEl.placeholder = '請手動輸入名稱'; }
+  }, 700);
+}
+
 function addWatchlist() {
   const code = document.getElementById('w-code')?.value.trim();
-  const name = document.getElementById('w-name')?.value.trim();
-  if (!code || !name) { showToast('請填寫代號與名稱'); return; }
+  let name = document.getElementById('w-name')?.value.trim();
+  if (!code) { showToast('請填寫股票代號'); return; }
+  if (!name) name = code; // 允許空名稱，用代號暫代
   if (APP.watchlist.find(x => x.code === code)) { showToast('已存在於自選清單'); return; }
   APP.watchlist.push({ code, name, price:0, prevClose:0 });
   APP.save(); APP.renderWatchlist(); closeModal('watch-modal');
@@ -1504,7 +1583,12 @@ function addWatchlist() {
   document.getElementById('w-name').value = '';
   DATA.fetchQuote(code).then(q => {
     const s = APP.watchlist.find(x => x.code === code);
-    if (s && q.ok && q.price) { s.price = q.price; s.prevClose = q.prevClose; APP.renderWatchlist(); }
+    if (s && q.ok) {
+      if (q.price) { s.price = q.price; s.prevClose = q.prevClose; }
+      if (q.name && q.name !== code && (s.name === code || !s.name)) s.name = q.name;
+      APP.save();
+      APP.renderWatchlist();
+    }
   });
 }
 

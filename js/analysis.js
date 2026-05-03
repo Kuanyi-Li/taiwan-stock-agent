@@ -221,7 +221,11 @@ const ANALYSIS = {
       chip.className = `confidence-chip ${confClass}`;
     }
     const bar = document.getElementById('meter-bar');
-    if (bar) { bar.style.width = Math.max(0,Math.min(100,pct)) + '%'; bar.style.background = adjScore>=2?'var(--red)':adjScore<=-2?'var(--green-l)':'var(--amber)'; }
+    if (bar) {
+      bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+      bar.style.background = adjScore >= 2 ? 'var(--red)' : adjScore <= -2 ? 'var(--green-l)' : 'var(--amber)';
+      bar.style.opacity = '1';
+    }
     const mv = document.getElementById('meter-value');
     if (mv) mv.textContent = `${pct}% / 100`;
 
