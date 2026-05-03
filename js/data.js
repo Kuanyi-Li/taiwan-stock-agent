@@ -1,6 +1,6 @@
 // ── data.js  ── Yahoo Finance fetcher (v2)
 // Supports multi-interval K-lines (5m/15m/60m/1d/1wk/1mo/3mo/6mo/1y)
- 
+
 const DATA = {
   proxies: [
     'https://corsproxy.io/?',
@@ -11,13 +11,13 @@ const DATA = {
   histCache: {},
   CACHE_TTL: 60000,
   HIST_TTL: 300000,
- 
+
   get corsProxy() { return this.proxies[this.activeProxy]; },
- 
+
   yUrl(path) {
     return `${this.corsProxy}${encodeURIComponent('https://query1.finance.yahoo.com' + path)}`;
   },
- 
+
   async _fetchWithFallback(url, opts = {}) {
     for (let p = 0; p < this.proxies.length; p++) {
       const idx = (this.activeProxy + p) % this.proxies.length;
@@ -29,7 +29,7 @@ const DATA = {
     }
     throw new Error('All proxies failed');
   },
- 
+
   async fetchQuote(symbol) {
     const now = Date.now();
     const c = this.cache[symbol];
@@ -62,7 +62,7 @@ const DATA = {
       return { price: null, prevClose: null, ok: false, error: e.message };
     }
   },
- 
+
   // period: '5m','15m','60m','1d','5d','1wk','1mo','3mo','6mo','1y'
   // maps to Yahoo interval + range
   _periodToParams(period) {
@@ -79,7 +79,7 @@ const DATA = {
     };
     return map[period] ?? { interval: '1d', range: '3mo' };
   },
- 
+
   async fetchHistory(symbol, period = '3mo') {
     const { interval, range } = this._periodToParams(period);
     const key = `${symbol}_${period}`;
@@ -116,7 +116,7 @@ const DATA = {
       return this._mockCandles(symbol, period);
     }
   },
- 
+
   async fetchIndexes() {
     const indexes = [
       { sym: '^TWII', id: 'taiex-badge', prefix: '加權' },
@@ -141,7 +141,7 @@ const DATA = {
       } catch(e) {}
     }
   },
- 
+
   async updateAllPrices(stocks, onUpdate) {
     const promises = stocks.map(async s => {
       const q = await this.fetchQuote(s.code);
@@ -156,13 +156,13 @@ const DATA = {
     });
     await Promise.allSettled(promises);
   },
- 
+
   _toYahooSymbol(code) {
     if (code.includes('.') || code.startsWith('^')) return code;
     if (!isNaN(parseInt(code))) return code + '.TW';
     return code;
   },
- 
+
   _mockCandles(symbol, period) {
     const counts = { '5m':78,'15m':40,'60m':30,'1d':22,'1wk':30,'1mo':45,'3mo':65,'6mo':130,'1y':250 };
     const n = counts[period] ?? 60;
