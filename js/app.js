@@ -1821,3 +1821,10 @@ window.addEventListener('DOMContentLoaded', () => {
   if (cashUSD && g.cashUSD) cashUSD.value = g.cashUSD;
 });
 window.addEventListener('resize', () => { if (CHART.currentData.length) CHART.draw(); });
+
+// 每5秒更新一次（唯一API入口）
+setInterval(() => {
+  DATA.updateAllPrices(APP.portfolio, () => {
+    APP.renderAll();
+  });
+}, 5000);
