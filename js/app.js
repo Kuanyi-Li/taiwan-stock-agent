@@ -1207,9 +1207,9 @@ const APP = {
             <span class="${pnl>=0?'up-color':'dn-color'}">${pnlDisplay}(${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%)</span>
           </div>
           <div class="si-row4">
-            ${Math.abs(chg) > 0.001
+            ${Math.abs(chg) > 0.01
               ? `<span class="${isUp?'up-color':'dn-color'}">${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)</span>`
-              : `<span style="color:var(--text-3);font-size:11px">今日變動待更新</span>`
+              : `<span style="color:var(--text-3);font-size:11px">今日 ±0（休市或待更新）</span>`
             }
             ${daysHeld !== null ? `<span class="si-days">${daysHeld}天${annualRoi!==null?` ${annualRoi>=0?'+':''}${annualRoi.toFixed(0)}%/年`:''}</span>` : ''}
           </div>
@@ -1275,8 +1275,14 @@ const APP = {
       const chgPct = prev ? chg/prev*100 : 0;
       document.getElementById('chart-price').textContent = price > 0 ? price.toFixed(2) : '—';
       const changeEl = document.getElementById('chart-change');
-      changeEl.textContent = price > 0 ? `${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)` : '';
-      changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
+      // 若 price === prevClose（休市或尚未更新），顯示說明
+      if (price > 0 && Math.abs(chg) < 0.01) {
+        changeEl.textContent = '+0.00 (休市/待更新)';
+        changeEl.className = 'chart-change neutral';
+      } else {
+        changeEl.textContent = price > 0 ? `${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)` : '';
+        changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
+      }
     }
 
     // ★ 問題1: 立刻更新 active 樣式，不重建整個清單

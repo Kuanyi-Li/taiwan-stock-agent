@@ -1,31 +1,28 @@
-// ── data.js  ── Yahoo Finance fetcher (v2)
-// Supports multi-interval K-lines (5m/15m/60m/1d/1wk/1mo/3mo/6mo/1y)
+// ── data.js  ── Yahoo Finance fetcher (v3)
+// 改用 v7/finance/quote API（比 v8/chart 更可靠的即時報價）
 
 const DATA = {
   proxies: [
     'https://corsproxy.io/?',
     'https://api.allorigins.win/raw?url=',
+    'https://corsproxy.org/?',
   ],
   activeProxy: 0,
   cache: {},
   histCache: {},
-  CACHE_TTL: 60000,
-  HIST_TTL: 300000,
+  CACHE_TTL: 20000,  // 報價快取 20秒
+  HIST_TTL:  120000, // 歷史資料快取 2分鐘
 
   get corsProxy() { return this.proxies[this.activeProxy]; },
-
-  yUrl(path) {
-    return `${this.corsProxy}${encodeURIComponent('https://query1.finance.yahoo.com' + path)}`;
-  },
 
   async _fetchWithFallback(url, opts = {}) {
     for (let p = 0; p < this.proxies.length; p++) {
       const idx = (this.activeProxy + p) % this.proxies.length;
-      const proxyUrl = this.proxies[idx] + encodeURIComponent(url.replace(/^https?:\/\/query1\.finance\.yahoo\.com/, 'https://query1.finance.yahoo.com'));
+      const proxyUrl = this.proxies[idx] + encodeURIComponent(url);
       try {
         const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(9000), ...opts });
         if (res.ok) { this.activeProxy = idx; return res; }
-      } catch (e) { /* try next */ }
+      } catch (e) { /* try next proxy */ }
     }
     throw new Error('All proxies failed');
   },
@@ -34,29 +31,62 @@ const DATA = {
     const now = Date.now();
     const c = this.cache[symbol];
     if (c && now - c.ts < this.CACHE_TTL) return c;
+
     const ySymbol = this._toYahooSymbol(symbol);
+
+    // ★ 優先用 v7/finance/quote（即時報價，比 v8/chart 更可靠）
     try {
-      const res = await this._fetchWithFallback(`https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1d&range=5d`);
+      const res = await this._fetchWithFallback(
+        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ySymbol}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,shortName,longName`
+      );
+      const json = await res.json();
+      const q = json?.quoteResponse?.result?.[0];
+      if (q && q.regularMarketPrice != null) {
+        const price = +parseFloat(q.regularMarketPrice).toFixed(2);
+        const prevClose = +parseFloat(q.regularMarketPreviousClose ?? price).toFixed(2);
+        console.log(`[DATA v7] ${symbol}: price=${price}, prevClose=${prevClose}`);
+        const data = {
+          price, prevClose,
+          open:   +(q.regularMarketOpen ?? prevClose).toFixed(2),
+          high:   +(q.regularMarketDayHigh ?? price).toFixed(2),
+          low:    +(q.regularMarketDayLow  ?? price).toFixed(2),
+          volume: q.regularMarketVolume ?? 0,
+          name:   q.shortName ?? q.longName ?? symbol,
+          currency: q.currency ?? 'TWD',
+          ts: now, ok: true,
+        };
+        this.cache[symbol] = data;
+        return data;
+      }
+    } catch(e) {
+      console.warn('[DATA v7] failed, fallback to v8:', e.message);
+    }
+
+    // Fallback：v8/finance/chart
+    try {
+      const res = await this._fetchWithFallback(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1d&range=5d`
+      );
       const json = await res.json();
       const q = json?.chart?.result?.[0];
       if (!q) throw new Error('No data');
       const meta = q.meta;
-      const price = meta.regularMarketPrice ?? meta.previousClose;
-      const prevClose = meta.previousClose ?? price;
+      const price    = +parseFloat(meta.regularMarketPrice ?? meta.previousClose).toFixed(2);
+      const prevClose = +parseFloat(meta.previousClose ?? price).toFixed(2);
+      console.log(`[DATA v8] ${symbol}: price=${price}, prevClose=${prevClose}`);
       const data = {
-        price: +price.toFixed(2),
-        prevClose: +prevClose.toFixed(2),
-        open: +(meta.regularMarketOpen ?? prevClose).toFixed(2),
-        high: +(meta.regularMarketDayHigh ?? price).toFixed(2),
-        low: +(meta.regularMarketDayLow ?? price).toFixed(2),
+        price, prevClose,
+        open:   +(meta.regularMarketOpen ?? prevClose).toFixed(2),
+        high:   +(meta.regularMarketDayHigh ?? price).toFixed(2),
+        low:    +(meta.regularMarketDayLow  ?? price).toFixed(2),
         volume: meta.regularMarketVolume ?? 0,
-        name: meta.shortName ?? meta.longName ?? symbol,
+        name:   meta.shortName ?? meta.longName ?? symbol,
         currency: meta.currency ?? 'TWD',
         ts: now, ok: true,
       };
       this.cache[symbol] = data;
       return data;
-    } catch (e) {
+    } catch(e) {
       console.warn('[DATA] fetchQuote failed:', symbol, e.message);
       if (c) return { ...c, stale: true };
       return { price: null, prevClose: null, ok: false, error: e.message };
@@ -86,7 +116,7 @@ const DATA = {
     const now = Date.now();
     const c = this.histCache[key];
     // Intraday shorter TTL
-    const ttl = ['5m','15m','60m'].includes(period) ? 60000 : this.HIST_TTL;
+    const ttl = ['5m','15m','60m'].includes(period) ? 15000 : this.HIST_TTL;
     if (c && now - c.ts < ttl) return c.data;
     const ySymbol = this._toYahooSymbol(symbol);
     try {
