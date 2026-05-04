@@ -1,11 +1,15 @@
-// ── data.js v4 ── 集中式批次報價架構
+// ── data.js v5 ── 集中式批次報價架構（修正版）
 //
-// 核心原則：
-// 1. 全域 priceStore：所有 UI 只讀 cache，不直接打 API
-// 2. TWSE 批次請求：一次抓所有股票（一個 request 解決）
-// 3. rate-limit queue：每次請求間隔 >= 1800ms（TWSE 限制 5秒3次）
-// 4. setInterval 集中控制，render / 切換股票不觸發 fetch
-// 5. TWSE 優先，Yahoo v8 備援，都走同一個 queue
+// 修正三個問題（v19 → v20）：
+// 1. 移除 Proxy：TWSE 直接打，不經 proxy
+// 2. 移除 Yahoo fallback：避免拖垮 queue
+// 3. TPEX 補送改走 queue，不手動 sleep + 改時間
+//
+// 架構：
+// - 全域 priceStore：所有 UI 只讀 cache
+// - TWSE 批次：一次 request 所有股票
+// - rate-limit queue：每次 >= 1800ms
+// - setInterval 集中控制，render/切換股票不觸發 fetch
 
 const DATA = {
 
@@ -35,78 +39,60 @@ const DATA = {
   },
 
   // ── 全域 PriceStore ───────────────────────────────────
-  // { code: { price, prevClose, open, high, low, volume, name, chg, chgPct, ts, source } }
   priceStore: {},
 
   _setPrice(code, fields) {
     this.priceStore[code] = { ...(this.priceStore[code] ?? {}), ...fields, ts: Date.now() };
   },
 
-  // ── CORS Proxy ────────────────────────────────────────
-  proxies: [
-    'https://corsproxy.io/?',
-    'https://api.allorigins.win/raw?url=',
-    'https://corsproxy.org/?',
-  ],
-  _proxyIdx: 0,
-
+  // ── ❌ 移除 Proxy，直接 fetch ─────────────────────────
+  // TWSE 支援直接從瀏覽器打（CORS 允許），不需要 proxy
+  // Yahoo K 線也用同樣的直接 fetch（有 CORS header）
   async _fetch(url) {
-    for (let i = 0; i < this.proxies.length; i++) {
-      const idx = (this._proxyIdx + i) % this.proxies.length;
-      try {
-        const res = await fetch(
-          this.proxies[idx] + encodeURIComponent(url),
-          { signal: AbortSignal.timeout(9000) }
-        );
-        if (res.ok) { this._proxyIdx = idx; return res; }
-      } catch(e) { /* try next */ }
-    }
-    throw new Error('All proxies failed');
+    const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res;
   },
 
   // ── TWSE 批次報價（主力）─────────────────────────────
-  // 一次請求涵蓋所有股票，嚴格遵守 rate limit
   async _twseBatch(codes) {
-    // 每個代號先試 tse_（上市），上櫃用 otc_
-    // 混合時：先全部送 tse_，回來後沒資料的補送 otc_
     const exCh = codes.map(c => `tse_${c}.tw`).join('|');
     const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`;
-
     const res = await this._fetch(url);
     const json = await res.json();
     const items = json?.msgArray ?? [];
-
     const found = new Set();
+
     items.forEach(item => {
       const code = item.c;
       if (!code) return;
       // z = 成交價；盤前或無成交時為 "-"
-      const priceRaw = item.z !== '-' ? parseFloat(item.z) : null;
+      const priceRaw  = item.z !== '-' ? parseFloat(item.z) : null;
       const prevClose = parseFloat(item.y) || 0;
-      const price = priceRaw ?? prevClose; // 無成交用昨收
+      const price     = priceRaw ?? prevClose; // 無成交用昨收暫代
       if (!price) return;
       const chg    = +(price - prevClose).toFixed(2);
       const chgPct = +(prevClose > 0 ? chg / prevClose * 100 : 0).toFixed(2);
       this._setPrice(code, {
-        price:    +price.toFixed(2),
+        price:     +price.toFixed(2),
         prevClose: +prevClose.toFixed(2),
-        open:     +(parseFloat(item.o) || prevClose).toFixed(2),
-        high:     +(parseFloat(item.h) || price).toFixed(2),
-        low:      +(parseFloat(item.l) || price).toFixed(2),
-        volume:   parseInt(item.v) || 0,
-        name:     item.n || code,
+        open:      +(parseFloat(item.o) || prevClose).toFixed(2),
+        high:      +(parseFloat(item.h) || price).toFixed(2),
+        low:       +(parseFloat(item.l) || price).toFixed(2),
+        volume:    parseInt(item.v) || 0,
+        name:      item.n || code,
         chg, chgPct,
-        noTrade: priceRaw === null, // 標記尚未成交
-        source:  'twse',
+        noTrade:   priceRaw === null,
+        source:    'twse',
       });
       found.add(code);
     });
 
-    // 回傳沒有資料的代號（可能是上櫃，再補送 otc_）
+    // 回傳沒有資料的代號（可能是上櫃，讓 caller 補送 otc_）
     return codes.filter(c => !found.has(c));
   },
 
-  // 上櫃補送
+  // ── TPEX 補送（上櫃）────────────────────────────────
   async _tpexBatch(codes) {
     if (!codes.length) return;
     const exCh = codes.map(c => `otc_${c}.tw`).join('|');
@@ -129,97 +115,43 @@ const DATA = {
         low:   +(parseFloat(item.l) || price).toFixed(2),
         volume: parseInt(item.v) || 0,
         name:  item.n || code,
-        chg, chgPct, noTrade: priceRaw === null, source: 'tpex',
+        chg, chgPct,
+        noTrade: priceRaw === null,
+        source: 'tpex',
       });
     });
   },
 
-  // ── Yahoo 備援（走 queue，一次一支）─────────────────
-  async _yahooFallback(code) {
-    const sym = isNaN(parseInt(code)) ? code : code + '.TW';
-    // v7 quote
-    try {
-      const res = await this._fetch(
-        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}` +
-        `&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketOpen,` +
-        `regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,shortName`
-      );
-      const q = (await res.json())?.quoteResponse?.result?.[0];
-      if (q?.regularMarketPrice != null) {
-        const p = +parseFloat(q.regularMarketPrice).toFixed(2);
-        const pc = +parseFloat(q.regularMarketPreviousClose ?? p).toFixed(2);
-        this._setPrice(code, {
-          price: p, prevClose: pc,
-          open:   +(q.regularMarketOpen ?? pc).toFixed(2),
-          high:   +(q.regularMarketDayHigh ?? p).toFixed(2),
-          low:    +(q.regularMarketDayLow  ?? p).toFixed(2),
-          volume: q.regularMarketVolume ?? 0,
-          name:   q.shortName ?? code,
-          chg:    +(p - pc).toFixed(2),
-          chgPct: +(pc > 0 ? (p - pc) / pc * 100 : 0).toFixed(2),
-          source: 'yahoo',
-        });
-        return true;
-      }
-    } catch(e) { /* try v8 */ }
-    // v8 chart fallback
-    try {
-      const res = await this._fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5d`
-      );
-      const meta = (await res.json())?.chart?.result?.[0]?.meta;
-      if (meta?.regularMarketPrice) {
-        const p  = +parseFloat(meta.regularMarketPrice).toFixed(2);
-        const pc = +parseFloat(meta.previousClose ?? p).toFixed(2);
-        this._setPrice(code, {
-          price: p, prevClose: pc,
-          open:   +(meta.regularMarketOpen ?? pc).toFixed(2),
-          high:   +(meta.regularMarketDayHigh ?? p).toFixed(2),
-          low:    +(meta.regularMarketDayLow  ?? p).toFixed(2),
-          volume: meta.regularMarketVolume ?? 0,
-          name:   meta.shortName ?? code,
-          chg:    +(p - pc).toFixed(2),
-          chgPct: +(pc > 0 ? (p - pc) / pc * 100 : 0).toFixed(2),
-          source: 'yahoo-v8',
-        });
-        return true;
-      }
-    } catch(e) { /* silent */ }
-    return false;
-  },
-
-  // ── 主要更新入口（由 APP 的 setInterval 集中呼叫）────
-  // ★ 這是唯一應該觸發 API 請求的地方
+  // ── 主要更新入口（由 APP setInterval 集中呼叫）────────
   async batchUpdate(codes) {
     if (!codes?.length) return;
     const unique = [...new Set(codes)];
+
     await this._enqueue(async () => {
       let missing = [];
       try {
         missing = await this._twseBatch(unique);
-        console.log(`[DATA] TWSE batch: ${unique.length - missing.length} updated, ${missing.length} missing`);
+        console.log(`[DATA] TWSE: ${unique.length - missing.length}筆成功, ${missing.length}筆未找到`);
       } catch(e) {
-        console.warn('[DATA] TWSE failed:', e.message);
-        missing = unique; // 全部當 missing 送 Yahoo
+        console.warn('[DATA] TWSE batch failed:', e.message);
+        missing = unique;
       }
-      // 上櫃補送（一次 request）
+
+      // ★ 修正3：TPEX 補送改走 queue，不手動 sleep
       if (missing.length > 0) {
-        await new Promise(r => setTimeout(r, this.MIN_INTERVAL));
-        this._lastReqTime = Date.now();
-        try {
-          await this._tpexBatch(missing);
-          missing = missing.filter(c => !this.priceStore[c]?.price);
-        } catch(e) { /* continue */ }
-      }
-      // 還剩沒有的 → Yahoo 備援（每支走 queue，受 rate limit 控制）
-      for (const code of missing) {
-        await this._enqueue(() => this._yahooFallback(code));
+        console.log('[DATA] TPEX fallback for:', missing);
+        // 直接進 queue，由 queue 控制間隔，不手動動 _lastReqTime
+        await this._enqueue(() => this._tpexBatch(missing));
+        // ❌ 移除 Yahoo fallback：missing 就記 log，不再打 Yahoo
+        const stillMissing = missing.filter(c => !this.priceStore[c]?.price);
+        if (stillMissing.length > 0) {
+          console.warn('[DATA] 找不到報價（非上市/上櫃或代號錯誤）:', stillMissing);
+        }
       }
     });
   },
 
   // ── 舊介面相容：updateAllPrices ──────────────────────
-  // 呼叫 batchUpdate，完成後同步回 stock 物件
   async updateAllPrices(stocks, onUpdate) {
     if (!stocks?.length) return;
     await this.batchUpdate(stocks.map(s => s.code));
@@ -228,16 +160,14 @@ const DATA = {
       if (q?.price) {
         s.price     = q.price;
         s.prevClose = q.prevClose ?? s.prevClose;
-        s.high      = q.high;
-        s.low       = q.low;
-        s.volume    = q.volume;
+        s.high = q.high; s.low = q.low; s.volume = q.volume;
         if (q.name && q.name !== s.code) s.marketName = q.name;
       }
       if (onUpdate) onUpdate(s);
     });
   },
 
-  // ── 舊介面相容：fetchQuote（只讀 store）──────────────
+  // ── 舊介面相容：fetchQuote（只讀 store，不打 API）────
   async fetchQuote(symbol) {
     const q = this.priceStore[symbol];
     if (q?.price) return { ...q, ok: true };
@@ -245,6 +175,7 @@ const DATA = {
   },
 
   // ── K 線資料（走 queue）──────────────────────────────
+  // Yahoo v8 chart 有 CORS header，直接打
   histCache: {},
   HIST_TTL: 120000,
 
@@ -262,8 +193,7 @@ const DATA = {
         const res = await this._fetch(
           `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=${interval}&range=${range}`
         );
-        const json   = await res.json();
-        const result = json?.chart?.result?.[0];
+        const result = (await res.json())?.chart?.result?.[0];
         if (!result) throw new Error('No chart data');
         const ts    = result.timestamp ?? [];
         const ohlcv = result.indicators?.quote?.[0] ?? {};
@@ -280,12 +210,12 @@ const DATA = {
           });
         }
         this.histCache[key] = { data: candles, ts: now };
-        // ★ K 線成功後順便更新 priceStore（最後一根 = 最新收盤）
+        // K 線成功後順便更新 store（最後一根 = 最新收盤）
+        // 只在沒有即時 TWSE 報價時才用（避免覆蓋盤中資料）
         if (candles.length >= 1 && period === '3mo') {
           const last = candles[candles.length - 1];
           const prev = candles.length >= 2 ? candles[candles.length - 2].c : last.c;
           const existing = this.priceStore[symbol];
-          // 只在沒有盤中報價時才用 K 線補（避免覆蓋即時 TWSE 資料）
           if (!existing?.price || existing?.source === 'candle') {
             this._setPrice(symbol, {
               price: last.c, prevClose: prev,
@@ -306,46 +236,25 @@ const DATA = {
     });
   },
 
-  // ── 大盤指數（獨立，不走 queue）─────────────────────
+  // ── 大盤指數（直接打 TWSE，不走 queue）───────────────
   async fetchIndexes() {
     try {
-      // 用 TWSE 抓大盤指數
       const res = await this._fetch(
         'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw&json=1&delay=0'
       );
-      const json  = await res.json();
-      const item  = json?.msgArray?.[0];
+      const item = (await res.json())?.msgArray?.[0];
       if (item) {
         const price = parseFloat(item.z !== '-' ? item.z : item.y) || 0;
         const prev  = parseFloat(item.y) || price;
         const chg   = price - prev;
         const pct   = prev > 0 ? chg / prev * 100 : 0;
-        const sign  = chg >= 0 ? '+' : '';
         const el = document.getElementById('taiex-badge');
         if (el) {
-          el.textContent = `加權 ${price.toLocaleString('zh-TW', {maximumFractionDigits:0})} (${sign}${pct.toFixed(2)}%)`;
+          el.textContent = `加權 ${price.toLocaleString('zh-TW', {maximumFractionDigits:0})} (${chg>=0?'+':''}${pct.toFixed(2)}%)`;
           el.className = `index-chip ${chg >= 0 ? 'up' : 'dn'}`;
         }
-        return;
       }
-    } catch(e) { /* fallback to Yahoo */ }
-    // Yahoo fallback for indexes
-    try {
-      const res = await this._fetch(
-        'https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=5d'
-      );
-      const meta  = (await res.json())?.chart?.result?.[0]?.meta ?? {};
-      const price = meta.regularMarketPrice ?? 0;
-      const prev  = meta.previousClose ?? price;
-      const chg   = price - prev;
-      const pct   = prev > 0 ? chg / prev * 100 : 0;
-      const sign  = chg >= 0 ? '+' : '';
-      const el = document.getElementById('taiex-badge');
-      if (el) {
-        el.textContent = `加權 ${price.toLocaleString('zh-TW', {maximumFractionDigits:0})} (${sign}${pct.toFixed(2)}%)`;
-        el.className = `index-chip ${chg >= 0 ? 'up' : 'dn'}`;
-      }
-    } catch(e) { /* silent */ }
+    } catch(e) { console.warn('[DATA] fetchIndexes failed:', e.message); }
   },
 
   // ── Helpers ───────────────────────────────────────────
@@ -364,7 +273,7 @@ const DATA = {
   },
 
   _mockCandles(symbol, period) {
-    console.warn('[DATA] mock candles for', symbol);
+    console.warn('[DATA] using mock candles for', symbol);
     const n = { '5m':78,'15m':40,'60m':30,'1d':22,'1wk':30,'1mo':45,'3mo':65,'6mo':130,'1y':250 }[period] ?? 60;
     const base = this.priceStore[symbol]?.price ?? 100;
     let price = base * 0.92;
@@ -372,9 +281,9 @@ const DATA = {
     const step = ['5m','15m','60m'].includes(period) ? 60000 * parseInt(period) : 86400000;
     return Array.from({ length: n }, (_, i) => {
       const o = price, r = o * 0.02;
-      const h = o + Math.random() * r, l = o - Math.random() * r, c = l + (h - l) * Math.random();
+      const h = o + Math.random() * r, l = o - Math.random() * r, c = l + (h-l) * Math.random();
       price = c;
-      return { t: now - (n-1-i)*step, o:+o.toFixed(2), h:+h.toFixed(2), l:+l.toFixed(2), c:+c.toFixed(2), v: Math.floor(1e5+Math.random()*5e5) };
+      return { t: now-(n-1-i)*step, o:+o.toFixed(2), h:+h.toFixed(2), l:+l.toFixed(2), c:+c.toFixed(2), v:Math.floor(1e5+Math.random()*5e5) };
     });
   },
 };
