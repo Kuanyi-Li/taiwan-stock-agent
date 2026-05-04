@@ -236,10 +236,9 @@ const DATA = {
     });
   },
 
-  // ── 大盤指數（不走 queue，獨立 fetch，避免卡住報價更新）─
+  // ── 大盤指數（直接打 TWSE，不走 queue）───────────────
   async fetchIndexes() {
     try {
-      // 直接打 TWSE，不進 queue（指數更新不需要跟報價搶 rate limit）
       const res = await this._fetch(
         'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw&json=1&delay=0'
       );

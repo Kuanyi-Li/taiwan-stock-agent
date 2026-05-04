@@ -792,41 +792,26 @@ const SYNC = {
   // 智能連接：只需 API Key，自動找到 Bin ID
   async smartConnect(apiKey) {
     if (!apiKey) return false;
-    showToast('🔍 搜尋中...');
     try {
-      // JSONBin v3：列出所有 bins
-      const res = await fetch(`${this.API_BASE}/b`, {
+      // 搜尋已有的 bins
+      const res = await fetch(`${this.API_BASE}/b?sortOrder=desc`, {
         headers: { 'X-Master-Key': apiKey },
       });
-      if (!res.ok) {
-        showToast(`API Key 無效或無法連線（HTTP ${res.status}）`);
-        return false;
-      }
+      if (!res.ok) { showToast(`API Key 無效（HTTP ${res.status}）`); return false; }
       const json = await res.json();
-      // v3 回傳格式：{ "success": true, "metadata": [{ "id": "...", "name": "...", ... }] }
-      const bins = json?.metadata ?? (Array.isArray(json) ? json : []);
+      const bins = json;
       // 找名為 twsa-data 的 bin
-      const found = bins.find(b =>
-        b.name === 'twsa-data' ||
-        b.snippetMeta?.name === 'twsa-data' ||
-        (b.id && bins.length === 1) // 只有一個 bin 時直接用
-      );
+      const found = Array.isArray(bins) ? bins.find(b => b.snippetMeta?.name === 'twsa-data') : null;
       if (found) {
-        const binId = found.id ?? found._id;
-        APP.settings.jsonbinBin = binId;
+        APP.settings.jsonbinBin = found.id;
         APP.settings.jsonbinKey = apiKey;
         localStorage.setItem('twsa-settings', JSON.stringify(APP.settings));
         const el = document.getElementById('jsonbin-bin');
-        if (el) el.value = binId;
-        showToast(`✅ 已找到雲端資料，Bin: ${binId}`);
+        if (el) el.value = found.id;
+        showToast(`✅ 已自動找到同步資料，Bin ID: ${found.id}`);
         return true;
       } else {
-        // 沒找到 twsa-data → 顯示所有 bin 供選擇，或提示
-        const names = bins.map(b => b.name ?? b.id ?? '未命名').join(', ');
-        showToast(bins.length > 0
-          ? `找不到 twsa-data，現有 bins：${names}。請先在電腦端上傳一次。`
-          : '此帳號尚無 bins，請先在電腦端上傳一次'
-        );
+        showToast('未找到現有資料，請先在電腦端上傳一次');
         return false;
       }
     } catch(e) {
@@ -1039,9 +1024,7 @@ const APP = {
     this.refreshTimer = setInterval(() => this.refreshPrices(), 5000); // TWSE 5秒批次更新
     setInterval(() => this.updateClock(), 1000);
     setInterval(() => this._updateMarketStatus(), 60000);
-    // 指數納入 batchUpdate，不另外獨立打 API（避免與報價同一秒發出超過3次請求）
-    // 首次 init 已有 refreshPrices() 會順帶更新，之後隨 120s 更新指數
-    setTimeout(() => DATA.fetchIndexes(), 3000); // 錯開 3 秒，避免 init 時集中
+    DATA.fetchIndexes();
     setInterval(() => DATA.fetchIndexes(), 120000);
     setInterval(() => CURRENCY.fetchUSDRate(), 3600000);
     setInterval(() => VIX.fetch(), 3600000); // VIX 每小時更新
