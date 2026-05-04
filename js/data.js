@@ -236,12 +236,13 @@ const DATA = {
     });
   },
 
-  // ── 大盤指數（走 queue，確保不超過 TWSE rate limit）──
+  // ── 大盤指數（不走 queue，獨立 fetch，避免卡住報價更新）─
   async fetchIndexes() {
     try {
-      const res = await this._enqueue(() => this._fetch(
+      // 直接打 TWSE，不進 queue（指數更新不需要跟報價搶 rate limit）
+      const res = await this._fetch(
         'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw&json=1&delay=0'
-      ));
+      );
       const item = (await res.json())?.msgArray?.[0];
       if (item) {
         const price = parseFloat(item.z !== '-' ? item.z : item.y) || 0;
