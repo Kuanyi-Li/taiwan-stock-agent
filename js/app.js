@@ -1,6 +1,28 @@
-// ── GOALS module 修正版 ──────────────────────────────────
+// ── app.js ── Main orchestration v5 (Excel Data Fully Integrated)
+// 修正：1. 休市停止更新 2. 歷史數據注入 3. 年化報酬公式修復
+
+// ── DATA & HISTORY (截圖數據注入) ────────────────────
+const EXCEL_SNAPSHOTS = [
+  { date: "2025-12-05", value: 36000 },
+  { date: "2025-12-18", value: 59997 },
+  { date: "2026-01-12", value: 95997 },
+  { date: "2026-01-13", value: 95997 },
+  { date: "2026-01-15", value: 119997 },
+  { date: "2026-01-28", value: 118435 },
+  { date: "2026-02-05", value: 151461 },
+  { date: "2026-02-15", value: 176873 },
+  { date: "2026-02-25", value: 179882 },
+  { date: "2026-03-03", value: 182808 },
+  { date: "2026-03-05", value: 212947 },
+  { date: "2026-03-15", value: 230947 },
+  { date: "2026-03-23", value: 233274 },
+  { date: "2026-04-16", value: 268851 },
+  { date: "2026-04-23", value: 280304 }
+];
+
+// ── GOALS module ────────────────────
 const GOALS = {
-  defaults: { target: 25000000, years: 2.5, purpose: '買房頭期款', strategy: 'long', cashTWD: 40405, cashUSD: 2100 },
+  defaults: { target: 25000000, years: 2.5, purpose: '買房頭期款', strategy: 'long', cashTWD: 65440, cashUSD: 2100 },
 
   get() { return JSON.parse(localStorage.getItem('twsa-goals') || 'null') || this.defaults; },
   save(data) {
@@ -9,14 +31,19 @@ const GOALS = {
     SYNC.markDirty();
   },
 
-  // 1. 修改資產快照：整合 Excel 資料與即時市值
+  // 1. 確保歷史曲線包含 Excel 數據
   recordSnapshot() {
-    const history = JSON.parse(localStorage.getItem('twsa-value-history') || '[]');
+    let history = JSON.parse(localStorage.getItem('twsa-value-history') || '[]');
+    
+    // 如果是第一次使用或資料太少，先載入 Excel 截圖數據
+    if (history.length < EXCEL_SNAPSHOTS.length) {
+      history = [...EXCEL_SNAPSHOTS];
+    }
+
     const today = new Date().toISOString().split('T')[0];
     const totalVal = this._calcTotal();
-    
-    // 如果今天還沒紀錄，則存入
     const last = history[history.length - 1];
+    
     if (!last || last.date !== today) {
       history.push({ date: today, value: totalVal });
       if (history.length > 365) history.shift();
@@ -26,36 +53,37 @@ const GOALS = {
 
   _calcTotal() {
     const g = this.get();
-    const stockVal = APP._calcTotalValue();
+    const stockVal = APP._calcTotalValue(); // 從 APP 模組計算持股總市值
     const cashTWD = parseFloat(g.cashTWD) || 0;
     const cashUSD = parseFloat(g.cashUSD) || 0;
-    return stockVal + cashTWD + CURRENCY.toTWD(cashUSD);
+    const usdRate = CURRENCY.usdRate || 31.5;
+    return stockVal + cashTWD + (cashUSD * usdRate);
   },
 
   updateDashboard() {
     const g = this.get();
     const totalVal = this._calcTotal();
     const target = g.target || 25000000;
-    const diff = target - totalVal;
     const pct = Math.min(100, (totalVal / target) * 100);
 
-    // 2. 修正：計算年化報酬 (CAGR) 與預計達標日
-    const history = JSON.parse(localStorage.getItem('twsa-value-history') || '[]');
+    // 2. 修正：計算年化報酬 (CAGR) 與 預計達標
+    let history = JSON.parse(localStorage.getItem('twsa-value-history') || '[]');
+    if (history.length < 2) history = [...EXCEL_SNAPSHOTS];
+
     let annualReturn = 0;
     let eta = '—';
 
     if (history.length >= 2) {
       const first = history[0];
       const last = history[history.length - 1];
-      const days = (new Date(last.date) - new Date(first.date)) / (86400000);
+      const days = (new Date(last.date) - new Date(first.date)) / (1000 * 60 * 60 * 24);
       
-      if (days > 7 && first.value > 0) {
-        // 使用複利公式計算年化報酬
-        annualReturn = (Math.pow((last.value / first.value), (365 / days)) - 1) * 100;
+      if (days > 1) {
+        // 使用複合年均成長率公式
+        annualReturn = (Math.pow((totalVal / first.value), (365 / days)) - 1) * 100;
         
-        // 計算預計達標時間 (Logarithmic Growth)
-        if (annualReturn > 0 && target > last.value) {
-          const yearsNeeded = Math.log(target / last.value) / Math.log(1 + annualReturn / 100);
+        if (annualReturn > 0) {
+          const yearsNeeded = Math.log(target / totalVal) / Math.log(1 + annualReturn / 100);
           const etaDate = new Date();
           etaDate.setDate(etaDate.getDate() + (yearsNeeded * 365));
           eta = etaDate.toLocaleDateString('zh-TW', { year: 'numeric', month: 'short' });
@@ -64,53 +92,90 @@ const GOALS = {
     }
 
     const fmtM = v => (v >= 1e4) ? (v / 1e4).toFixed(0) + '萬' : v.toFixed(0) + '元';
-
     const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
+
     set('goal-total-val', fmtM(totalVal));
     set('goal-pct', pct.toFixed(1) + '%');
-    set('goal-annual-return', annualReturn !== 0 ? (annualReturn > 0 ? '+' : '') + annualReturn.toFixed(1) + '%/年' : '—');
+    set('goal-annual-return', (annualReturn > 0) ? `+${annualReturn.toFixed(1)}%/年` : '—');
     set('goal-eta', eta);
     
-    // 更新進度條
     const barEl = document.getElementById('goal-progress-bar');
-    if (barEl) {
-      barEl.style.width = pct + '%';
-      barEl.style.background = pct >= 100 ? '#1D9E75' : '#EF9F27';
-    }
+    if (barEl) barEl.style.width = pct + '%';
 
-    this._drawValueChart();
+    this._drawValueChart(history);
   },
-  
-  // 圖表繪製保持原邏輯，資料來源已在快取中更新
-  _drawValueChart() { /* ... 同原始代碼 ... */ }
+
+  _drawValueChart(history) {
+    const canvas = document.getElementById('value-chart');
+    if (!canvas) return;
+    const W = canvas.parentElement?.clientWidth || 400;
+    const H = 100;
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    const vals = history.map(h => h.value);
+    const minV = Math.min(...vals) * 0.95;
+    const maxV = Math.max(...vals) * 1.05;
+    const n = history.length;
+    const xOf = i => (i / (n - 1)) * (W - 20) + 10;
+    const yOf = v => H - 10 - ((v - minV) / (maxV - minV || 1)) * (H - 20);
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#1D9E75';
+    ctx.lineWidth = 2;
+    history.forEach((h, i) => {
+      i === 0 ? ctx.moveTo(xOf(i), yOf(h.value)) : ctx.lineTo(xOf(i), yOf(h.value));
+    });
+    ctx.stroke();
+  }
 };
 
-// ── APP.refreshPrices 修正版 ─────────────────────────────
-APP.refreshPrices = async function() {
-    // 3. 修改：休市時不持續更新報價
+// ── APP module ────────────────────
+const APP = {
+  // ... 其他屬性保持不變 ...
+  
+  async init() {
+    this._updateMarketStatus();
+    // 初始化時自動載入一次歷史快照
+    GOALS.recordSnapshot();
+    GOALS.updateDashboard();
+    
+    // 設定定時器
+    setInterval(() => this.refreshPrices(), 10000); // 10秒檢查一次
+    setInterval(() => this._updateMarketStatus(), 60000);
+  },
+
+  _updateMarketStatus() {
     const now = new Date();
     const h = now.getHours(), m = now.getMinutes();
     const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
-    const isOpen = isWeekday && (h > 9 || (h === 9 && m >= 0)) && (h < 13 || (h === 13 && m <= 30));
+    // 台股盤中時間判定
+    const isOpen = isWeekday && (h > 9 || (h === 9 && m >= 0)) && (h < 13 || (h === 13 && m <= 35));
+    
+    this.isMarketOpen = isOpen;
+    const el = document.getElementById('mkt-status');
+    if (el) {
+      el.textContent = isOpen ? '開盤中' : '休市';
+      el.className = isOpen ? 'badge open' : 'badge closed';
+    }
+  },
 
-    if (!isOpen) {
-        console.log("[APP] 休市中，暫停 API 請求");
-        this._updateMarketStatus();
-        return; 
+  async refreshPrices() {
+    // 3. 修正：休市時不持續更新報價 (API 請求攔截)
+    if (!this.isMarketOpen) {
+      console.log("休市中，不更新報價。");
+      return;
     }
 
-    const btn = document.querySelector('.icon-btn[onclick="refreshAll()"]');
-    if (btn) btn.classList.add('spinning');
-
     const allCodes = [...this.portfolio.map(s => s.code), ...this.watchlist.map(s => s.code)];
+    if (allCodes.length === 0) return;
+
     await DATA.batchUpdate(allCodes);
-
-    [...this.portfolio, ...this.watchlist].forEach(s => {
-      const q = DATA.priceStore[s.code];
-      if (q?.price) { s.price = q.price; s.prevClose = q.prevClose ?? s.prevClose; }
-    });
-
-    if (btn) btn.classList.remove('spinning');
     this.renderAll();
-    showToast('報價已更新');
+    GOALS.updateDashboard();
+  },
+
+  _calcTotalValue() {
+    return this.portfolio.reduce((sum, s) => sum + (s.price || s.cost) * s.shares, 0);
+  }
 };
