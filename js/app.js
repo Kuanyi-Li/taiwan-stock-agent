@@ -792,39 +792,26 @@ const SYNC = {
   // 智能連接：只需 API Key，自動找到 Bin ID
   async smartConnect(apiKey) {
     if (!apiKey) return false;
-    showToast('🔍 搜尋中...');
     try {
-      // JSONBin v3 列出所有 bins：GET /v3/b，帶 X-Master-Key
-      const res = await fetch(`${this.API_BASE}/b`, {
+      // 搜尋已有的 bins
+      const res = await fetch(`${this.API_BASE}/b?sortOrder=desc`, {
         headers: { 'X-Master-Key': apiKey },
       });
-      if (!res.ok) {
-        showToast(`API Key 無效或連線失敗（HTTP ${res.status}）`);
-        return false;
-      }
+      if (!res.ok) { showToast(`API Key 無效（HTTP ${res.status}）`); return false; }
       const json = await res.json();
-      // v3 回傳格式：{ "success": true, "metadata": [{ "id": "...", "name": "twsa-data", ... }] }
-      const bins = json?.metadata ?? (Array.isArray(json) ? json : []);
-      const found = bins.find(b =>
-        b.name === 'twsa-data' ||
-        b.snippetMeta?.name === 'twsa-data' ||
-        bins.length === 1  // 只有一個 bin 時直接用
-      );
+      const bins = json;
+      // 找名為 twsa-data 的 bin
+      const found = Array.isArray(bins) ? bins.find(b => b.snippetMeta?.name === 'twsa-data') : null;
       if (found) {
-        const binId = found.id ?? found._id;
-        APP.settings.jsonbinBin = binId;
+        APP.settings.jsonbinBin = found.id;
         APP.settings.jsonbinKey = apiKey;
         localStorage.setItem('twsa-settings', JSON.stringify(APP.settings));
         const el = document.getElementById('jsonbin-bin');
-        if (el) el.value = binId;
-        showToast(`✅ 已找到雲端資料，Bin ID: ${binId}`);
+        if (el) el.value = found.id;
+        showToast(`✅ 已自動找到同步資料，Bin ID: ${found.id}`);
         return true;
       } else {
-        const names = bins.map(b => b.name ?? b.id ?? '未命名').join(', ');
-        showToast(bins.length > 0
-          ? `找不到 twsa-data，現有: ${names}。請先在電腦端上傳。`
-          : '此帳號尚無資料，請先在電腦端上傳一次'
-        );
+        showToast('未找到現有資料，請先在電腦端上傳一次');
         return false;
       }
     } catch(e) {
@@ -1498,7 +1485,7 @@ const APP = {
 
   _loadSettings() {
     const s = this.settings;
-    // DATA.proxies 已在新版 data.js 移除，忽略舊設定
+    if (s.corsProxy) DATA.proxies[0] = s.corsProxy;
     if (s.darkMode === false) document.body.classList.add('light-mode');
     const toggle = document.getElementById('dark-mode-toggle');
     if (toggle) toggle.checked = s.darkMode !== false;
