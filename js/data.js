@@ -1,252 +1,130 @@
-// ── data.js  ── Yahoo Finance fetcher (v3)
-// 改用 v7/finance/quote API（比 v8/chart 更可靠的即時報價）
+// ── data.js  ── TWSE Batch Version (Stable v1)
 
 const DATA = {
-  proxies: [
-    'https://corsproxy.io/?',
-    'https://api.allorigins.win/raw?url=',
-    'https://corsproxy.org/?',
-  ],
-  activeProxy: 0,
-  cache: {},
-  histCache: {},
-  CACHE_TTL: 20000,  // 報價快取 20秒
-  HIST_TTL:  120000, // 歷史資料快取 2分鐘
+  // ===== CONFIG =====
+  BATCH_TTL: 5000,     // 5秒 cache
+  CHUNK_SIZE: 10,      // 每批最多10檔
+  RATE_DELAY: 2000,    // 每批間隔（避免被ban）
 
-  get corsProxy() { return this.proxies[this.activeProxy]; },
+  // ===== CACHE =====
+  batchCache: {
+    data: {},
+    ts: 0
+  },
 
-  async _fetchWithFallback(url, opts = {}) {
-    for (let p = 0; p < this.proxies.length; p++) {
-      const idx = (this.activeProxy + p) % this.proxies.length;
-      const proxyUrl = this.proxies[idx] + encodeURIComponent(url);
+  // ===== MAIN BATCH FETCH =====
+  async fetchBatchQuotes(symbols) {
+    const results = {};
+
+    for (let i = 0; i < symbols.length; i += this.CHUNK_SIZE) {
+      const chunk = symbols.slice(i, i + this.CHUNK_SIZE);
+
+      const ex_ch = chunk
+        .map(code => `tse_${code}.tw`)
+        .join('|');
+
+      const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${ex_ch}`;
+
       try {
-        const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(9000), ...opts });
-        if (res.ok) { this.activeProxy = idx; return res; }
-      } catch (e) { /* try next proxy */ }
-    }
-    throw new Error('All proxies failed');
-  },
-
-  async fetchQuote(symbol) {
-    const now = Date.now();
-    const c = this.cache[symbol];
-    if (c && now - c.ts < this.CACHE_TTL) return c;
-
-    const ySymbol = this._toYahooSymbol(symbol);
-
-    // ★ 優先用 v7/finance/quote（即時報價，比 v8/chart 更可靠）
-    try {
-      const res = await this._fetchWithFallback(
-        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ySymbol}&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketOpen,regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,shortName,longName`
-      );
-      const json = await res.json();
-      const q = json?.quoteResponse?.result?.[0];
-      if (q && q.regularMarketPrice != null) {
-        const price = +parseFloat(q.regularMarketPrice).toFixed(2);
-        const prevClose = +parseFloat(q.regularMarketPreviousClose ?? price).toFixed(2);
-        console.log(`[DATA v7] ${symbol}: price=${price}, prevClose=${prevClose}`);
-        const data = {
-          price, prevClose,
-          open:   +(q.regularMarketOpen ?? prevClose).toFixed(2),
-          high:   +(q.regularMarketDayHigh ?? price).toFixed(2),
-          low:    +(q.regularMarketDayLow  ?? price).toFixed(2),
-          volume: q.regularMarketVolume ?? 0,
-          name:   q.shortName ?? q.longName ?? symbol,
-          currency: q.currency ?? 'TWD',
-          ts: now, ok: true,
-        };
-        this.cache[symbol] = data;
-        return data;
-      }
-    } catch(e) {
-      console.warn('[DATA v7] failed, fallback to v8:', e.message);
-    }
-
-    // Fallback：v8/finance/chart
-    try {
-      const res = await this._fetchWithFallback(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=1d&range=5d`
-      );
-      const json = await res.json();
-      const q = json?.chart?.result?.[0];
-      if (!q) throw new Error('No data');
-      const meta = q.meta;
-      const price    = +parseFloat(meta.regularMarketPrice ?? meta.previousClose).toFixed(2);
-      const prevClose = +parseFloat(meta.previousClose ?? price).toFixed(2);
-      console.log(`[DATA v8] ${symbol}: price=${price}, prevClose=${prevClose}`);
-      const data = {
-        price, prevClose,
-        open:   +(meta.regularMarketOpen ?? prevClose).toFixed(2),
-        high:   +(meta.regularMarketDayHigh ?? price).toFixed(2),
-        low:    +(meta.regularMarketDayLow  ?? price).toFixed(2),
-        volume: meta.regularMarketVolume ?? 0,
-        name:   meta.shortName ?? meta.longName ?? symbol,
-        currency: meta.currency ?? 'TWD',
-        ts: now, ok: true,
-      };
-      this.cache[symbol] = data;
-      return data;
-    } catch(e) {
-      console.warn('[DATA] fetchQuote failed:', symbol, e.message);
-    }
-
-    // ★ 最後 fallback：從已有的 K 線快取取最後一根收盤價
-    // fetchHistory 通常能成功（即使 fetchQuote 被封鎖），取最後一根 K 線的收盤
-    const histKey = symbol + '_3mo';
-    const histFallback = this.histCache[histKey];
-    if (histFallback?.data?.length) {
-      const last = histFallback.data[histFallback.data.length - 1];
-      const prev = histFallback.data.length >= 2 ? histFallback.data[histFallback.data.length - 2].c : last.c;
-      console.warn(`[DATA] fetchQuote failed for ${symbol}, using last candle: ${last.c}`);
-      const data = {
-        price: last.c,
-        prevClose: prev,
-        open: last.o, high: last.h, low: last.l, volume: last.v,
-        name: c?.name ?? symbol,
-        currency: 'TWD',
-        ts: now, ok: true, fromCandle: true,
-      };
-      this.cache[symbol] = data;
-      return data;
-    }
-    if (c) return { ...c, stale: true };
-    return { price: null, prevClose: null, ok: false, error: 'all sources failed' };
-  },
-
-  // period: '5m','15m','60m','1d','5d','1wk','1mo','3mo','6mo','1y'
-  // maps to Yahoo interval + range
-  _periodToParams(period) {
-    const map = {
-      '5m':  { interval: '5m',  range: '5d' },
-      '15m': { interval: '15m', range: '5d' },
-      '60m': { interval: '60m', range: '1mo' },
-      '1d':  { interval: '1d',  range: '1mo' },
-      '1wk': { interval: '1d',  range: '3mo' },
-      '1mo': { interval: '1d',  range: '6mo' },
-      '3mo': { interval: '1d',  range: '1y' },
-      '6mo': { interval: '1wk', range: '2y' },
-      '1y':  { interval: '1wk', range: '5y' },
-    };
-    return map[period] ?? { interval: '1d', range: '3mo' };
-  },
-
-  async fetchHistory(symbol, period = '3mo') {
-    const { interval, range } = this._periodToParams(period);
-    const key = `${symbol}_${period}`;
-    const now = Date.now();
-    const c = this.histCache[key];
-    // Intraday shorter TTL
-    const ttl = ['5m','15m','60m'].includes(period) ? 15000 : this.HIST_TTL;
-    if (c && now - c.ts < ttl) return c.data;
-    const ySymbol = this._toYahooSymbol(symbol);
-    try {
-      const res = await this._fetchWithFallback(`https://query1.finance.yahoo.com/v8/finance/chart/${ySymbol}?interval=${interval}&range=${range}`);
-      const json = await res.json();
-      const result = json?.chart?.result?.[0];
-      if (!result) throw new Error('No data');
-      const ts = result.timestamp ?? [];
-      const ohlcv = result.indicators?.quote?.[0] ?? {};
-      const candles = [];
-      for (let i = 0; i < ts.length; i++) {
-        if (ohlcv.close?.[i] == null) continue;
-        candles.push({
-          t: ts[i] * 1000,
-          o: +((ohlcv.open?.[i]   ?? ohlcv.close[i])).toFixed(2),
-          h: +((ohlcv.high?.[i]   ?? ohlcv.close[i])).toFixed(2),
-          l: +((ohlcv.low?.[i]    ?? ohlcv.close[i])).toFixed(2),
-          c: +ohlcv.close[i].toFixed(2),
-          v: ohlcv.volume?.[i] ?? 0,
-        });
-      }
-      this.histCache[key] = { data: candles, ts: now };
-      // ★ K 線成功後，順便更新 quote cache（解決 fetchQuote 被封鎖的問題）
-      if (candles.length >= 1 && period === '3mo') {
-        const last = candles[candles.length - 1];
-        const prev = candles.length >= 2 ? candles[candles.length - 2].c : last.c;
-        const existing = this.cache[symbol];
-        // 只在沒有有效 quote 快取時才覆蓋
-        if (!existing || existing.fromCandle || now - existing.ts > this.CACHE_TTL) {
-          this.cache[symbol] = {
-            price: last.c, prevClose: prev,
-            open: last.o, high: last.h, low: last.l, volume: last.v,
-            name: existing?.name ?? symbol,
-            currency: 'TWD',
-            ts: now, ok: true, fromCandle: true,
-          };
-          console.log(`[DATA] quote updated from candle ${symbol}: price=${last.c}`);
-        }
-      }
-      return candles;
-    } catch (e) {
-      console.warn('[DATA] fetchHistory failed:', symbol, e.message);
-      if (c) return c.data;
-      return this._mockCandles(symbol, period);
-    }
-  },
-
-  async fetchIndexes() {
-    const indexes = [
-      { sym: '^TWII', id: 'taiex-badge', prefix: '加權' },
-      { sym: '^TWO',  id: 'tpex-badge',  prefix: '櫃買' },
-    ];
-    for (const idx of indexes) {
-      try {
-        const res = await this._fetchWithFallback(`https://query1.finance.yahoo.com/v8/finance/chart/${idx.sym}?interval=1d&range=5d`);
+        const res = await fetch(url);
         const json = await res.json();
-        const meta = json?.chart?.result?.[0]?.meta;
-        if (!meta) continue;
-        const price = meta.regularMarketPrice ?? 0;
-        const prev = meta.previousClose ?? price;
-        const chg = price - prev;
-        const pct = (chg / prev * 100);
-        const sign = chg >= 0 ? '+' : '';
-        const el = document.getElementById(idx.id);
-        if (el) {
-          el.textContent = `${idx.prefix} ${price.toLocaleString('zh-TW',{maximumFractionDigits:0})} (${sign}${pct.toFixed(2)}%)`;
-          el.className = `index-chip ${chg >= 0 ? 'up' : 'dn'}`;
-        }
-      } catch(e) {}
+
+        if (!json.msgArray) continue;
+
+        json.msgArray.forEach(item => {
+          results[item.c] = {
+            price: parseFloat(item.z) || null,
+            prevClose: parseFloat(item.y) || null,
+            open: parseFloat(item.o) || null,
+            high: parseFloat(item.h) || null,
+            low: parseFloat(item.l) || null,
+            volume: parseInt(item.v) || 0,
+            name: item.n,
+            ts: Date.now(),
+            ok: true
+          };
+        });
+
+      } catch (e) {
+        console.warn('[TWSE] batch error:', e);
+      }
+
+      // ✅ 避免超過 TWSE 限制
+      await new Promise(r => setTimeout(r, this.RATE_DELAY));
     }
+
+    return results;
   },
 
+  // ===== CACHE LAYER =====
+  async getBatch(symbols) {
+    const now = Date.now();
+
+    // ✅ cache 命中
+    if (now - this.batchCache.ts < this.BATCH_TTL) {
+      return this.batchCache.data;
+    }
+
+    const data = await this.fetchBatchQuotes(symbols);
+
+    // 更新 cache
+    this.batchCache = {
+      data,
+      ts: now
+    };
+
+    return data;
+  },
+
+  // ===== UPDATE ALL STOCKS =====
   async updateAllPrices(stocks, onUpdate) {
-    const promises = stocks.map(async s => {
-      const q = await this.fetchQuote(s.code);
-      if (q.ok && q.price) {
+    if (!stocks || stocks.length === 0) return;
+
+    const codes = stocks.map(s => s.code);
+
+    const batchData = await this.getBatch(codes);
+
+    stocks.forEach(s => {
+      const q = batchData[s.code];
+
+      if (q && q.ok) {
         s.price = q.price;
-        s.prevClose = q.prevClose ?? s.prevClose;
-        s.high = q.high; s.low = q.low;
+        s.prevClose = q.prevClose;
+        s.open = q.open;
+        s.high = q.high;
+        s.low = q.low;
         s.volume = q.volume;
         s.marketName = q.name;
       }
+
       if (onUpdate) onUpdate(s);
     });
-    await Promise.allSettled(promises);
   },
 
-  _toYahooSymbol(code) {
-    if (code.includes('.') || code.startsWith('^')) return code;
-    if (!isNaN(parseInt(code))) return code + '.TW';
-    return code;
-  },
+  // ===== INDEX（可選，簡化版）=====
+  async fetchIndexes() {
+    try {
+      const url = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw";
+      const res = await fetch(url);
+      const json = await res.json();
 
-  _mockCandles(symbol, period) {
-    const counts = { '5m':78,'15m':40,'60m':30,'1d':22,'1wk':30,'1mo':45,'3mo':65,'6mo':130,'1y':250 };
-    const n = counts[period] ?? 60;
-    const base = this.cache[symbol]?.price ?? 100;
-    const data = [];
-    let price = base * 0.92;
-    const now = Date.now();
-    const stepMs = ['5m','15m','60m'].includes(period) ? 60000*parseInt(period) : 86400000;
-    for (let i = n-1; i >= 0; i--) {
-      const o = price;
-      const range = o * 0.02;
-      const h = o + Math.random()*range;
-      const l = o - Math.random()*range;
-      const c = l + (h-l)*Math.random();
-      data.push({ t: now-i*stepMs, o:+o.toFixed(2), h:+h.toFixed(2), l:+l.toFixed(2), c:+c.toFixed(2), v:Math.floor(100000+Math.random()*500000) });
-      price = c;
+      const idx = json.msgArray?.[0];
+      if (!idx) return;
+
+      const price = parseFloat(idx.z);
+      const prev = parseFloat(idx.y);
+
+      const chg = price - prev;
+      const pct = (chg / prev * 100).toFixed(2);
+
+      const el = document.getElementById('taiex-badge');
+      if (el) {
+        el.textContent = `加權 ${price} (${chg >= 0 ? '+' : ''}${pct}%)`;
+        el.className = `index-chip ${chg >= 0 ? 'up' : 'dn'}`;
+      }
+
+    } catch (e) {
+      console.warn('[TWSE] index error', e);
     }
-    return data;
-  },
+  }
 };
