@@ -1024,7 +1024,9 @@ const APP = {
     this.refreshTimer = setInterval(() => this.refreshPrices(), 5000); // TWSE 5秒批次更新
     setInterval(() => this.updateClock(), 1000);
     setInterval(() => this._updateMarketStatus(), 60000);
-    DATA.fetchIndexes();
+    // 指數納入 batchUpdate，不另外獨立打 API（避免與報價同一秒發出超過3次請求）
+    // 首次 init 已有 refreshPrices() 會順帶更新，之後隨 120s 更新指數
+    setTimeout(() => DATA.fetchIndexes(), 3000); // 錯開 3 秒，避免 init 時集中
     setInterval(() => DATA.fetchIndexes(), 120000);
     setInterval(() => CURRENCY.fetchUSDRate(), 3600000);
     setInterval(() => VIX.fetch(), 3600000); // VIX 每小時更新
