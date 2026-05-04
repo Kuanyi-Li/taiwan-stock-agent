@@ -1021,7 +1021,7 @@ const APP = {
       console.log('[SYNC] 自動上傳已解鎖');
     }, 12000);
 
-    this.refreshTimer = setInterval(() => this.refreshPrices(), 60000);
+    this.refreshTimer = setInterval(() => this.refreshPrices(), 5000); // TWSE 5秒批次更新
     setInterval(() => this.updateClock(), 1000);
     setInterval(() => this._updateMarketStatus(), 60000);
     DATA.fetchIndexes();
@@ -1074,20 +1074,27 @@ const APP = {
   async refreshPrices() {
     const btn = document.querySelector('.icon-btn[onclick="refreshAll()"]');
     if (btn) btn.classList.add('spinning');
-    await DATA.updateAllPrices(this.portfolio, () => {
-      this.renderPortfolioSummary();
-    });
-    // ★ fetchQuote 被封鎖時，從 K 線快取補強價格
-    this.portfolio.forEach(s => {
-      const q = DATA.cache[s.code];
-      if (q?.ok && q.price && Math.abs(q.price - s.cost) > 0.01) {
-        s.price = q.price;
+
+    // ★ 集中批次更新：一次請求涵蓋所有股票
+    const allCodes = [
+      ...this.portfolio.map(s => s.code),
+      ...this.watchlist.map(s => s.code),
+    ];
+    await DATA.batchUpdate(allCodes);
+
+    // 從 priceStore 同步回 stock 物件
+    [...this.portfolio, ...this.watchlist].forEach(s => {
+      const q = DATA.priceStore[s.code];
+      if (q?.price) {
+        s.price     = q.price;
         s.prevClose = q.prevClose ?? s.prevClose;
       }
     });
-    this.renderStockList();
-    await DATA.updateAllPrices(this.watchlist, () => { this.renderWatchlist(); });
+
     if (btn) btn.classList.remove('spinning');
+    this.renderPortfolioSummary();
+    this.renderStockList();
+    this.renderWatchlist();
     this._updateMarketStatus();
     PIE.render();
     GOALS.updateDashboard();
@@ -1821,10 +1828,3 @@ window.addEventListener('DOMContentLoaded', () => {
   if (cashUSD && g.cashUSD) cashUSD.value = g.cashUSD;
 });
 window.addEventListener('resize', () => { if (CHART.currentData.length) CHART.draw(); });
-
-// 每5秒更新一次（唯一API入口）
-setInterval(() => {
-  DATA.updateAllPrices(APP.portfolio, () => {
-    APP.renderAll();
-  });
-}, 5000);
