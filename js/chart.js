@@ -149,8 +149,9 @@ const CHART = {
     const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
     const yOf = p => PAD.t + (1 - (p - minP) / priceRange) * (H - PAD.t - PAD.b);
 
-    // Grid
+    // Grid - 水平線 + 垂直線
     ctx.strokeStyle = clr.grid; ctx.lineWidth = 1;
+    // 水平格線
     [0.25, 0.5, 0.75].forEach(r => {
       const y = PAD.t + r * (H - PAD.t - PAD.b);
       ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
@@ -158,6 +159,12 @@ const CHART = {
       ctx.fillStyle = clr.text; ctx.font = '10px monospace';
       ctx.textAlign = 'left'; ctx.fillText(p.toFixed(1), W - PAD.r + 3, y + 3);
     });
+    // 垂直格線（與 X 軸日期對齊）
+    const vStep = Math.max(1, Math.ceil(n / 6));
+    for (let i = 0; i < n; i += vStep) {
+      const x = xOf(i);
+      ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, H - PAD.b); ctx.stroke();
+    }
 
     if (this.currentType === 'line') {
       ctx.beginPath(); ctx.strokeStyle = clr.up; ctx.lineWidth = 1.5;
@@ -190,9 +197,17 @@ const CHART = {
     };
     drawMA(ma5v, clr.ma5); drawMA(ma20v, clr.ma20); drawMA(ma60v, clr.ma60);
 
+    // 垂直格線（問題7）
+    const step = Math.max(1, Math.ceil(n / 6));
+    ctx.strokeStyle = clr.grid; ctx.lineWidth = 0.5; ctx.setLineDash([2, 3]);
+    for (let i = 0; i < n; i += step) {
+      const x = xOf(i);
+      ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, H - PAD.b - 12); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
     // X axis labels - 根據資料密度自動決定格式
     ctx.fillStyle = clr.text; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
-    const step = Math.max(1, Math.ceil(n / 6));
     // 判斷是否需要顯示時間：intraday (資料間隔 < 2小時) 或高度縮放 (每格 < 2天)
     const timeSpanMs = data.length > 1 ? data[1].t - data[0].t : 86400000;
     const isIntraday = timeSpanMs < 2 * 3600 * 1000;        // 2小時以內

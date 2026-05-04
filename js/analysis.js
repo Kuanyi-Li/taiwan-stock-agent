@@ -27,6 +27,7 @@ const ANALYSIS = {
     this._updateSignals(ind, candles);
     this._updatePatterns(ind, candles);
     this._updateSellEngine(ind);
+    this._updateInfoGrid(ind);   // 問題4: 確保個股資訊 tab 更新
     CHART.drawMACD(candles);
     CHART.drawKD(candles);
     ORDER.calcPortfolio();
@@ -222,9 +223,9 @@ const ANALYSIS = {
     }
     const bar = document.getElementById('meter-bar');
     if (bar) {
-      bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
-      bar.style.background = adjScore >= 2 ? 'var(--red)' : adjScore <= -2 ? 'var(--green-l)' : 'var(--amber)';
-      bar.style.opacity = '1';
+      const barColor = adjScore >= 3 ? '#E24B4A' : adjScore >= 1 ? '#1D9E75' : adjScore <= -3 ? '#378ADD' : adjScore <= -1 ? '#D4537E' : '#EF9F27';
+      const barPct = Math.max(5, Math.min(100, pct));
+      bar.style.cssText = `width:${barPct}%;background:${barColor};height:100%;border-radius:99px;transition:width 0.6s ease;opacity:1;min-width:8px;`;
     }
     const mv = document.getElementById('meter-value');
     if (mv) mv.textContent = `${pct}% / 100`;
@@ -294,7 +295,8 @@ const ANALYSIS = {
 
   _updateInfoGrid(ind) {
     const grid = document.getElementById('info-grid');
-    if (!grid) return;
+    if (!grid || !ind) return;
+    // 問題4: 清除"選擇股票後顯示"的預設文字，直接填入資料
     const items = [
       { label:'當前價格', value:ind.last.c.toFixed(2) },
       { label:'今日漲跌', value:(ind.chg>=0?'+':'')+ind.chg+' ('+(ind.chgPct>=0?'+':'')+ind.chgPct+'%)' },

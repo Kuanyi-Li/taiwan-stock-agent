@@ -393,7 +393,21 @@ const ORDER = {
       const remain = budget - totalCost;
       const totalDisp = totalCost >= 10000 ? `${(totalCost/10000).toFixed(2)}萬` : `${totalCost.toFixed(0)}元`;
       const remDisp = Math.abs(remain) >= 10000 ? `${(remain/10000).toFixed(2)}萬` : `${remain.toFixed(0)}元`;
-      footer.innerHTML = `<span>合計：<strong>${totalShares}股</strong>，含手續費 <strong>${totalDisp}</strong></span><span>剩餘：${remDisp}（${(remain/budget*100).toFixed(0)}%）</span>`;
+      // 問題5: 掛單建議
+      const stock = APP.getActiveStock();
+      let orderHint = '';
+      if (stock && this.suggestEntry > 0) {
+        const action = this.score >= 1 ? '限價買進' : this.score <= -1 ? '限價賣出' : '';
+        if (action) {
+          const hintColor = action === '限價買進' ? 'var(--green-l)' : 'var(--red)';
+          orderHint = `<div class="order-hint" style="margin-top:6px;font-size:11px;padding:6px 8px;background:var(--bg-3);border-radius:6px;border-left:3px solid ${hintColor}">
+            📋 掛單參考：<span style="color:${hintColor};font-weight:600">${action}</span>
+            ${totalShares}股 @ <strong>$${this.suggestEntry}</strong>
+            ｜停損 $${this.suggestSL} ｜停利 $${this.suggestTP}
+          </div>`;
+        }
+      }
+      footer.innerHTML = `<span>合計：<strong>${totalShares}股</strong>，含手續費 <strong>${totalDisp}</strong></span><span>剩餘：${remDisp}（${(remain/budget*100).toFixed(0)}%）</span>${orderHint}`;
     }
   },
 
@@ -687,9 +701,25 @@ const SYNC = {
   },
 
   async _autoUpload() {
-    const { apiKey } = this.getConfig();
+    const { apiKey, binId } = this.getConfig();
     if (!apiKey || !this._dirty) return;
     this._dirty = false;
+    // 問題10: 先比較雲端時間戳，確保只上傳比雲端更新的資料
+    if (binId) {
+      try {
+        const res = await fetch(`${this.API_BASE}/b/${binId}/latest`, { headers: { 'X-Master-Key': apiKey } });
+        if (res.ok) {
+          const json = await res.json();
+          const remoteTime = new Date(json.record?.syncedAt || 0).getTime();
+          const localTime = new Date(GOALS.get()._lastSyncedAt || 0).getTime();
+          if (remoteTime >= localTime + 5000) {
+            // 雲端比本機新5秒以上，不要上傳（避免覆蓋更新的資料）
+            this._updateStatus('雲端資料較新，跳過上傳');
+            return;
+          }
+        }
+      } catch(e) { /* 靜默，繼續上傳 */ }
+    }
     const ok = await this.upload(true); // silent = true
     if (ok) this._updateStatus('已同步 ' + new Date().toLocaleTimeString('zh-TW', {hour:'2-digit',minute:'2-digit'}));
   },
@@ -792,9 +822,14 @@ const SYNC = {
     const { apiKey, binId } = this.getConfig();
     if (!apiKey || !binId) return;
     try {
+      // 問題11: 加入 timeout 和直接請求加速下載
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒 timeout
       const res = await fetch(`${this.API_BASE}/b/${binId}/latest`, {
         headers: { 'X-Master-Key': apiKey },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (!res.ok) return;
       const json = await res.json();
       const remote = json.record;
@@ -873,7 +908,7 @@ const RECOMMEND = {
     { code:'2412',  name:'中華電',         sector:'電信',  type:'存股',   risk:'低',   horizon:'長線', reason:'台灣最大電信，現金流穩定，殖利率4-5%。', logic:'景氣不佳時的避風港，防禦部位。', shortNote:null },
   ],
 
-  run() {
+  async run() {
     const el = document.getElementById('rec-result');
     if (!el) return;
     const portfolio = APP.portfolio;
@@ -887,6 +922,7 @@ const RECOMMEND = {
       if (match) sectorMap[match.sector] = (sectorMap[match.sector]||0) + 1;
     });
 
+    // 確保 scored 有 price 欄位
     const scored = this.CANDIDATES
       .filter(c => !ownedCodes.has(c.code))
       .filter(c => {
@@ -911,6 +947,14 @@ const RECOMMEND = {
       el.innerHTML = '<div class="rec-card"><div class="rec-body">你已持有所有推薦標的！</div></div>';
       return;
     }
+    // 問題12: 自動抓取推薦標的的報價
+    el.innerHTML = '<div class="rec-meta" style="padding:12px;color:var(--text-3)">⏳ 正在抓取最新報價...</div>';
+    await Promise.allSettled(scored.map(async c => {
+      try {
+        const q = await DATA.fetchQuote(c.code);
+        if (q.ok && q.price) c.price = q.price;
+      } catch(e) {}
+    }));
 
     const riskColor = { '低':'#1D9E75','低中':'#5DCAA5','中':'#EF9F27','中高':'#E24B4A','高':'#E24B4A' };
     const horizonLabel = { '長線':'長期', '短線':'短線', '長短':'長短' };
@@ -971,7 +1015,12 @@ const APP = {
     this._loadSettings();
     this._setupTabs();
     this._setupMainTabs();
-    this.portfolio.forEach(s => { s.price = s.price ?? s.cost; s.prevClose = s.prevClose ?? s.cost; });
+    this.portfolio.forEach(s => {
+      // 問題8: 若 price 等於 cost（初始預設值），強制清空讓 refreshPrices 重抓真實報價
+      if (s.price === s.cost && !s._priceVerified) s.price = null;
+      s.price = s.price ?? s.cost;
+      s.prevClose = s.prevClose ?? s.cost;
+    });
     this.watchlist.forEach(s => { s.price = s.price ?? 0; s.prevClose = s.prevClose ?? 0; });
     this.renderAll();
     this.updateClock();
@@ -986,7 +1035,8 @@ const APP = {
     await SYNC.autoDownloadOnStart();
     if (this.portfolio.length > 0) this.selectStock(this.portfolio[0].code, 0, 'portfolio');
     // 問題4: 開網頁自動分析所有持股和自選清單（背景非同步執行）
-    setTimeout(() => this._backgroundAnalyzeAll(), 2000);
+    // 問題2: 頁面重整後立刻對所有股票重新分析（不等待使用者點擊）
+    setTimeout(() => this._backgroundAnalyzeAll(true), 500);
 
     this.refreshTimer = setInterval(() => this.refreshPrices(), 60000);
     setInterval(() => this.updateClock(), 1000);
@@ -1041,7 +1091,10 @@ const APP = {
   async refreshPrices() {
     const btn = document.querySelector('.icon-btn[onclick="refreshAll()"]');
     if (btn) btn.classList.add('spinning');
-    await DATA.updateAllPrices(this.portfolio, () => { this.renderPortfolioSummary(); this.renderStockList(); });
+    await DATA.updateAllPrices(this.portfolio, (s) => {
+      s._priceVerified = true; // 問題8: 標記已從 Yahoo 取得真實報價
+      this.renderPortfolioSummary(); this.renderStockList();
+    });
     await DATA.updateAllPrices(this.watchlist, () => { this.renderWatchlist(); });
     if (btn) btn.classList.remove('spinning');
     this._updateMarketStatus();
@@ -1271,6 +1324,13 @@ const APP = {
       if (sellHint) sellHint.style.display = 'none';
     }
 
+    // 問題1: 立刻更新 active class，不等 K 線載入
+    this._updateActiveClass(code);
+    // ★ 問題1修正：立刻更新 sidebar active class，不等 renderStockList 重建 DOM
+    document.querySelectorAll('.stock-item').forEach(el => {
+      const c = el.querySelector('.si-main')?.dataset?.code;
+      el.classList.toggle('active', c === code);
+    });
     this.renderStockList();
 
     const activePeriod = document.querySelector('.period-btn.active')?.dataset.period ?? '3mo';
@@ -1279,7 +1339,21 @@ const APP = {
 
     if (this.activeSymbol !== requestedCode) return;
     ORDER.calcSingle();
+    this._updateActiveClass(code);
     this.renderStockList();
+  },
+
+  // 立刻更新持股清單的 active 樣式（不重建 DOM）
+  _updateActiveClass(code) {
+    document.querySelectorAll('.stock-item').forEach(el => {
+      const elCode = el.querySelector('.si-code')?.textContent?.trim();
+      if (elCode === code) {
+        el.classList.add('active');
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      } else {
+        el.classList.remove('active');
+      }
+    });
   },
 
   getActiveStock() {
@@ -1308,28 +1382,39 @@ const APP = {
   },
 
   // 問題4: 開網頁後在背景依序分析所有持股和自選清單
-  async _backgroundAnalyzeAll() {
+  async _backgroundAnalyzeAll(force = false) {
     const all = [
       ...this.portfolio.map(s => ({ code: s.code, source: 'portfolio' })),
       ...this.watchlist.map(s => ({ code: s.code, source: 'watch' })),
     ];
     for (const item of all) {
-      // 跳過第一支（已在 init 分析）、以及已有快取的
-      if (item.code === this.activeSymbol) continue;
-      if (ANALYSIS._cache[item.code]) continue;
+      // force=true 時無論有無快取都重新分析；否則跳過已有快取的
+      if (!force && ANALYSIS._cache[item.code]) continue;
       // 取得此股票模式
       const mode = this.getStockMode(item.code);
       const period = CHART.ANALYSIS_PERIODS[mode] || '6mo';
       try {
         const data = await DATA.fetchHistory(item.code, period);
         if (data.length >= 15) {
-          // 背景分析：不更新 UI，只存快取
           const ind = ANALYSIS._calcIndicators(data);
           ANALYSIS._cache[item.code] = { ind, candles: data };
+          // 若此股票是當前選中的，立刻更新 UI（問題2/4）
+          if (item.code === this.activeSymbol) {
+            ANALYSIS.lastSymbol = item.code;
+            ANALYSIS.lastInd = ind;
+            ANALYSIS.lastData = data;
+            ANALYSIS._updateIndicatorCards(ind);
+            ANALYSIS._updateSignals(ind, data);
+            ANALYSIS._updatePatterns(ind, data);
+            ANALYSIS._updateSellEngine(ind);
+            ANALYSIS._updateInfoGrid(ind);
+            CHART.drawMACD(data);
+            CHART.drawKD(data);
+          }
         }
       } catch(e) { /* 靜默失敗 */ }
       // 每支間隔 800ms，避免 API 限速
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 300)); // 問題3: 加速分析間隔
     }
     // 全部分析完，重新渲染訊號
     this.renderStockList();
