@@ -708,6 +708,12 @@ const SYNC = {
   async _autoUpload() {
     const { apiKey } = this.getConfig();
     if (!apiKey || !this._dirty) return;
+    // ★ 保護：若 portfolio 是空的但有交易記錄，疑似資料遺失，不上傳避免覆蓋雲端有效資料
+    if (APP.portfolio.length === 0 && TRADES.get().length > 0) {
+      console.warn('[SYNC] 上傳取消：portfolio 為空但有交易記錄，疑似資料遺失');
+      this._dirty = false;
+      return;
+    }
     this._dirty = false;
     const ok = await this.upload(true); // silent = true
     if (ok) this._updateStatus('已同步 ' + new Date().toLocaleTimeString('zh-TW', {hour:'2-digit',minute:'2-digit'}));
