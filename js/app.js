@@ -1077,7 +1077,15 @@ const APP = {
     await DATA.updateAllPrices(this.portfolio, () => {
       this.renderPortfolioSummary();
     });
-    this.renderStockList(); // ★ 問題4: 報價全部完成後才重建清單一次
+    // ★ fetchQuote 被封鎖時，從 K 線快取補強價格
+    this.portfolio.forEach(s => {
+      const q = DATA.cache[s.code];
+      if (q?.ok && q.price && Math.abs(q.price - s.cost) > 0.01) {
+        s.price = q.price;
+        s.prevClose = q.prevClose ?? s.prevClose;
+      }
+    });
+    this.renderStockList();
     await DATA.updateAllPrices(this.watchlist, () => { this.renderWatchlist(); });
     if (btn) btn.classList.remove('spinning');
     this._updateMarketStatus();
@@ -1332,6 +1340,32 @@ const APP = {
     await CHART.load(code, activePeriod);
 
     if (this.activeSymbol !== requestedCode) return;
+
+    // ★ K 線載入後，重新取最新 quote（可能已從 K 線資料更新）
+    const freshQuote = DATA.cache[code];
+    if (freshQuote?.ok && freshQuote.price) {
+      const s2 = this.portfolio.find(x => x.code === code) || this.watchlist.find(x => x.code === code);
+      if (s2) {
+        s2.price = freshQuote.price;
+        s2.prevClose = freshQuote.prevClose ?? s2.prevClose;
+      }
+      // 更新頂部大價格顯示
+      const priceEl = document.getElementById('chart-price');
+      if (priceEl) priceEl.textContent = freshQuote.price.toFixed(2);
+      const chg = freshQuote.price - (freshQuote.prevClose ?? freshQuote.price);
+      const chgPct = freshQuote.prevClose ? chg / freshQuote.prevClose * 100 : 0;
+      const changeEl = document.getElementById('chart-change');
+      if (changeEl) {
+        if (Math.abs(chg) < 0.01) {
+          changeEl.textContent = '+0.00 (休市/待更新)';
+          changeEl.className = 'chart-change neutral';
+        } else {
+          changeEl.textContent = `${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)`;
+          changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
+        }
+      }
+    }
+
     ORDER.calcSingle();
     this.renderStockList();
   },

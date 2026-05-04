@@ -88,9 +88,29 @@ const DATA = {
       return data;
     } catch(e) {
       console.warn('[DATA] fetchQuote failed:', symbol, e.message);
-      if (c) return { ...c, stale: true };
-      return { price: null, prevClose: null, ok: false, error: e.message };
     }
+
+    // ★ 最後 fallback：從已有的 K 線快取取最後一根收盤價
+    // fetchHistory 通常能成功（即使 fetchQuote 被封鎖），取最後一根 K 線的收盤
+    const histKey = symbol + '_3mo';
+    const histFallback = this.histCache[histKey];
+    if (histFallback?.data?.length) {
+      const last = histFallback.data[histFallback.data.length - 1];
+      const prev = histFallback.data.length >= 2 ? histFallback.data[histFallback.data.length - 2].c : last.c;
+      console.warn(`[DATA] fetchQuote failed for ${symbol}, using last candle: ${last.c}`);
+      const data = {
+        price: last.c,
+        prevClose: prev,
+        open: last.o, high: last.h, low: last.l, volume: last.v,
+        name: c?.name ?? symbol,
+        currency: 'TWD',
+        ts: now, ok: true, fromCandle: true,
+      };
+      this.cache[symbol] = data;
+      return data;
+    }
+    if (c) return { ...c, stale: true };
+    return { price: null, prevClose: null, ok: false, error: 'all sources failed' };
   },
 
   // period: '5m','15m','60m','1d','5d','1wk','1mo','3mo','6mo','1y'
@@ -139,6 +159,23 @@ const DATA = {
         });
       }
       this.histCache[key] = { data: candles, ts: now };
+      // ★ K 線成功後，順便更新 quote cache（解決 fetchQuote 被封鎖的問題）
+      if (candles.length >= 1 && period === '3mo') {
+        const last = candles[candles.length - 1];
+        const prev = candles.length >= 2 ? candles[candles.length - 2].c : last.c;
+        const existing = this.cache[symbol];
+        // 只在沒有有效 quote 快取時才覆蓋
+        if (!existing || existing.fromCandle || now - existing.ts > this.CACHE_TTL) {
+          this.cache[symbol] = {
+            price: last.c, prevClose: prev,
+            open: last.o, high: last.h, low: last.l, volume: last.v,
+            name: existing?.name ?? symbol,
+            currency: 'TWD',
+            ts: now, ok: true, fromCandle: true,
+          };
+          console.log(`[DATA] quote updated from candle ${symbol}: price=${last.c}`);
+        }
+      }
       return candles;
     } catch (e) {
       console.warn('[DATA] fetchHistory failed:', symbol, e.message);
