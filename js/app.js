@@ -690,6 +690,7 @@ const SYNC = {
   API_BASE: 'https://api.jsonbin.io/v3',
   _timer: null,
   _dirty: false,
+  _initialized: false,  // ★ 開啟時不允許上傳，直到 init 完成 10 秒後
 
   getConfig() {
     return {
@@ -700,6 +701,7 @@ const SYNC = {
 
   // 標記資料已變更，3秒後自動上傳（debounce）
   markDirty() {
+    if (!this._initialized) return; // ★ init 完成前不允許排程上傳
     this._dirty = true;
     clearTimeout(this._timer);
     this._timer = setTimeout(() => this._autoUpload(), 3000);
@@ -1008,8 +1010,16 @@ const APP = {
     // 先顯示本機資料，背景同步雲端
     SYNC.autoDownloadOnStart(); // 不 await，背景執行
     if (this.portfolio.length > 0) this.selectStock(this.portfolio[0].code, 0, 'portfolio');
-    // 問題2: 開網頁後 500ms 立刻背景分析所有持股（不等使用者點擊）
+    // 背景分析所有持股
     setTimeout(() => this._backgroundAnalyzeAll(), 500);
+
+    // ★ 核心修正：init 完成後 12 秒才解鎖自動上傳
+    // 確保 refreshPrices、renderAll 等所有初始化動作都不會觸發上傳
+    // 避免「開啟時 portfolio 還是空的就上傳」覆蓋雲端資料
+    setTimeout(() => {
+      SYNC._initialized = true;
+      console.log('[SYNC] 自動上傳已解鎖');
+    }, 12000);
 
     this.refreshTimer = setInterval(() => this.refreshPrices(), 60000);
     setInterval(() => this.updateClock(), 1000);
