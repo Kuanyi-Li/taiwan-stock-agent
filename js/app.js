@@ -813,34 +813,25 @@ const SYNC = {
   },
 
   // 自動下載：開啟時如果雲端比本機新則自動套用
-  async autoDownloadOnStart() {
-    const { apiKey, binId } = this.getConfig();
-    if (!apiKey || !binId) return;
-    try {
-      const res = await fetch(`${this.API_BASE}/b/${binId}/latest`, {
-        headers: { 'X-Master-Key': apiKey },
-      });
-      if (!res.ok) return;
-      const json = await res.json();
-      const remote = json.record;
-      if (!remote?.syncedAt) return;
-      const remoteTime = new Date(remote.syncedAt).getTime();
-      const localGoals = GOALS.get();
-      const localTime = localGoals._lastSyncedAt ? new Date(localGoals._lastSyncedAt).getTime() : 0;
-      if (remoteTime > localTime + 60000) { // 雲端至少比本機新1分鐘才同步
-        this._unpack(remote);
-        APP.renderAll(); TRADES.render(); GOALS.updateDashboard();
-        showToast(`✅ 已從雲端載入最新資料（${new Date(remote.syncedAt).toLocaleString('zh-TW')}）`);
-      }
-    } catch(e) { /* 靜默失敗 */ }
+  // autoDownloadOnStart 已移除：開啟時不自動下載，避免卡住畫面
+  // 改用「強制下載」按鈕手動同步，或「自動搜尋資料」按鈕
+  autoDownloadOnStart() {
+    // 移除自動下載，改為靜默檢查是否有未上傳資料
+    setTimeout(() => {
+      const { apiKey } = this.getConfig();
+      if (apiKey && this._dirty) this._autoUpload();
+    }, 5000); // 5秒後再檢查，不影響開啟速度
   },
 
   async manualDownload() {
     const { apiKey, binId } = this.getConfig();
     if (!apiKey || !binId) { showToast('請先設定 API Key 和 Bin ID'); return; }
     try {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 8000);
       const res = await fetch(`${this.API_BASE}/b/${binId}/latest`, {
         headers: { 'X-Master-Key': apiKey },
+        signal: ctrl.signal,
       });
       if (!res.ok) { showToast(`下載失敗：HTTP ${res.status}`); return; }
       const json = await res.json();
