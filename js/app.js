@@ -6,7 +6,7 @@ const CURRENCY = {
   usdRate: null,
   async fetchUSDRate() {
     try {
-      const res = await DATA._fetchWithFallback('https://query1.finance.yahoo.com/v8/finance/chart/USDTWD=X?interval=1d&range=5d');
+      const res = await DATA._fetch('https://query1.finance.yahoo.com/v8/finance/chart/USDTWD=X?interval=1d&range=5d');
       const json = await res.json();
       const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
       if (price) { this.usdRate = +price.toFixed(2); this._updateDisplay(); }
@@ -29,7 +29,7 @@ const VIX = {
   async fetch() {
     try {
       // 用 ^TWII 的日線計算20日歷史波動率估算恐慌指數
-      const res = await DATA._fetchWithFallback('https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=3mo');
+      const res = await DATA._fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=3mo');
       const json = await res.json();
       const closes = json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
       if (closes.length < 21) return;
@@ -1368,8 +1368,8 @@ const APP = {
     if (this.activeSymbol !== requestedCode) return;
 
     // ★ K 線載入後，重新取最新 quote（可能已從 K 線資料更新）
-    const freshQuote = DATA.cache[code];
-    if (freshQuote?.ok && freshQuote.price) {
+    const freshQuote = DATA.priceStore[code];
+    if (freshQuote?.price) {
       const s2 = this.portfolio.find(x => x.code === code) || this.watchlist.find(x => x.code === code);
       if (s2) {
         s2.price = freshQuote.price;
@@ -1504,7 +1504,7 @@ const APP = {
 
   _loadSettings() {
     const s = this.settings;
-    if (s.corsProxy) DATA.proxies[0] = s.corsProxy;
+    // CORS Proxy 設定已移除（由 data.js 內部管理）
     if (s.darkMode === false) document.body.classList.add('light-mode');
     const toggle = document.getElementById('dark-mode-toggle');
     if (toggle) toggle.checked = s.darkMode !== false;
@@ -1737,7 +1737,6 @@ function saveSettings() {
   // 儲存現金
   saveCashSettings();
   localStorage.setItem('twsa-settings', JSON.stringify(s));
-  if (s.corsProxy) DATA.proxies[0] = s.corsProxy;
   closeModal('settings-modal');
   GOALS.updateDashboard();
   SYNC.updateStatus();
