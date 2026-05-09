@@ -1,38 +1,49 @@
-// ── analysis.js  ── Technical analysis & AI signal engine
+// ── analysis.js  ── Technical analysis, AI signals, sell engine (v2)
 
 const ANALYSIS = {
   lastData: [],
   lastSymbol: '',
+  lastInd: null,
+  // ★ 每支股票各自快取分析結果，解決多股票訊號衝突問題
+  _cache: {},      // { code: { ind, candles } }
 
-  // ── Entry point ───────────────────────────────────────
   run(candles, symbol) {
     if (!candles || candles.length < 15) {
-      document.getElementById('reasoning-text').textContent = '資料點不足，無法進行完整分析（至少需要 15 根 K 線）';
+      const el = document.getElementById('reasoning-text');
+      if (el) el.textContent = '資料點不足，無法進行完整分析（至少需要 15 根 K 線）';
       return;
     }
+    // Race condition guard：只有當前 activeSymbol 才更新 UI
+    if (symbol && APP.activeSymbol && symbol !== APP.activeSymbol) return;
+
     this.lastData = candles;
     if (symbol) this.lastSymbol = symbol;
 
     const ind = this._calcIndicators(candles);
+    this.lastInd = ind;
+    // ★ 每股快取 ind + candles，切換股票時立刻用
+    if (symbol) this._cache[symbol] = { ind, candles };
     this._updateIndicatorCards(ind);
     this._updateSignals(ind, candles);
     this._updatePatterns(ind, candles);
+    this._updateSellEngine(ind);
+    this._updateInfoGrid(ind);   // 問題4: 確保個股資訊 tab 更新
     CHART.drawMACD(candles);
     CHART.drawKD(candles);
-    ORDER.calc();
+    ORDER.calcPortfolio();
+    // 分析完成後重新渲染持股清單和訊號總覽，確保訊號一致
+    APP.renderStockList();
+    APP._renderSignalOverview();
   },
 
-  // ── Calculate all indicators ──────────────────────────
   _calcIndicators(data) {
     const closes = data.map(d => d.c);
     const n = closes.length;
     const last = data[n - 1];
     const prev = data[n - 2] ?? last;
 
-    // RSI(14)
     const rsi = this._rsi(closes, 14);
 
-    // MACD
     const ema12 = this._ema(closes, 12);
     const ema26 = this._ema(closes, 26);
     const macdVal = +(ema12[n-1] - ema26[n-1]).toFixed(3);
@@ -40,16 +51,15 @@ const ANALYSIS = {
     const sigArr  = this._ema(macdArr, 9);
     const signal  = sigArr[sigArr.length - 1];
     const hist    = macdArr[macdArr.length - 1] - signal;
-    const prevHist = macdArr.length > 10 ? macdArr[macdArr.length-2] - sigArr[sigArr.length-2] : 0;
+    const prevHist = macdArr.length > 2 ? macdArr[macdArr.length-2] - sigArr[sigArr.length-2] : 0;
     const macdGolden = hist > 0 && prevHist <= 0;
     const macdDead   = hist < 0 && prevHist >= 0;
 
-    // KD(9,3,3)
     const { K, D } = this._kd(data, 9);
-    const kdGolden = K > D && this._kd_prev(data, 9).K <= this._kd_prev(data, 9).D;
-    const kdDead   = K < D && this._kd_prev(data, 9).K >= this._kd_prev(data, 9).D;
+    const prev_kd = this._kd(data.slice(0, -1), 9);
+    const kdGolden = K > D && prev_kd.K <= prev_kd.D;
+    const kdDead   = K < D && prev_kd.K >= prev_kd.D;
 
-    // Bollinger Bands(20,2)
     const slice20 = closes.slice(-20);
     const mean = slice20.reduce((a, b) => a + b) / 20;
     const std  = Math.sqrt(slice20.reduce((a, b) => a + (b - mean) ** 2, 0) / 20);
@@ -58,140 +68,64 @@ const ANALYSIS = {
     const bbMid = +mean.toFixed(2);
     const bbPos = last.c > bbUp ? 'overbought' : last.c < bbDn ? 'oversold' : 'normal';
 
-    // MA positions
     const ma5  = closes.slice(-5).reduce((a,b)=>a+b)/5;
-    const ma20 = closes.slice(-20).reduce((a,b)=>a+b)/20;
-    const ma60 = n >= 60 ? closes.slice(-60).reduce((a,b)=>a+b)/60 : null;
-    const maBull = ma5 > ma20 && (ma60 === null || ma20 > ma60);
+    const ma20v = closes.slice(-20).reduce((a,b)=>a+b)/20;
+    const ma60v = n >= 60 ? closes.slice(-60).reduce((a,b)=>a+b)/60 : null;
+    const maBull = ma5 > ma20v && (ma60v === null || ma20v > ma60v);
 
-    // Volume surge
     const avgVol = data.slice(-10, -1).reduce((a, d) => a + d.v, 0) / 9;
     const volRatio = last.v / (avgVol || 1);
     const volSurge = volRatio > 1.5;
 
-    // Trend
-    const trend = last.c > ma20 ? 'up' : last.c < ma20 ? 'down' : 'flat';
-
-    // Price change
+    const trend = last.c > ma20v ? 'up' : last.c < ma20v ? 'down' : 'flat';
     const chg = +(last.c - prev.c).toFixed(2);
     const chgPct = +((chg / prev.c) * 100).toFixed(2);
 
-    // Support / Resistance
     const recent = data.slice(-20);
     const support = +Math.min(...recent.map(d => d.l)).toFixed(2);
     const resistance = +Math.max(...recent.map(d => d.h)).toFixed(2);
-
-    // ── TradingView 式額外指標 ───────────────────────────
-
-    // CCI(20)：CCI < -100 且回升 = 買；CCI > 100 且回落 = 賣
-    const cci = this._cci(data, 20);
-    const cciPrev = this._cci(data.slice(0,-1), 20);
-    const cciSignal = (cci < -100 && cci > cciPrev) ? 1 : (cci > 100 && cci < cciPrev) ? -1 : 0;
-
-    // ADX(14)：+DI > -DI 且 ADX > 20 且上升 = 買；反之 = 賣
-    const { adx, pdi, mdi } = this._adx(data, 14);
-    const adxSignal = (adx > 20 && pdi > mdi) ? 1 : (adx > 20 && pdi < mdi) ? -1 : 0;
-
-    // Williams %R(14)：< -80 且回升 = 買；> -20 且回落 = 賣
-    const willR = this._williamsR(data, 14);
-    const willRPrev = this._williamsR(data.slice(0,-1), 14);
-    const willRSignal = (willR < -80 && willR > willRPrev) ? 1 : (willR > -20 && willR < willRPrev) ? -1 : 0;
-
-    // Momentum(10)：當前 > 前值 = 買
-    const mom = closes[n-1] - closes[Math.max(0,n-11)];
-    const momSignal = mom > 0 ? 1 : mom < 0 ? -1 : 0;
-
-    // MA 多頭排列分數（TradingView MA 評分）
-    const ma10  = n>=10  ? closes.slice(-10).reduce((a,b)=>a+b)/10 : null;
-    const ma50  = n>=50  ? closes.slice(-50).reduce((a,b)=>a+b)/50 : null;
-    const ma100 = n>=100 ? closes.slice(-100).reduce((a,b)=>a+b)/100 : null;
-    const ma200 = n>=200 ? closes.slice(-200).reduce((a,b)=>a+b)/200 : null;
-    const price = last.c;
-    let maScore = 0, maCount = 0;
-    [[ma5,'MA5'],[ma10,'MA10'],[ma20,'MA20'],[ma50,'MA50'],[ma100,'MA100'],[ma200,'MA200']].forEach(([ma]) => {
-      if (ma != null) { maScore += price > ma ? 1 : -1; maCount++; }
-    });
-    const maNorm = maCount > 0 ? maScore / maCount : 0; // -1 到 +1
-
-    // 綜合 TradingView 評分（仿 indicator summary）
-    // 震盪：RSI, KD, CCI, Williams %R, Momentum, MACD
-    const oscSignals = [
-      ind => ind.rsi > 70 ? -1 : ind.rsi < 30 ? 1 : 0,
-      ind => ind.K > 80 && ind.D > 80 ? -1 : ind.K < 20 && ind.D < 20 ? 1 : 0,
-    ].map(f => f({rsi, K, D}));
-    oscSignals.push(cciSignal, willRSignal, momSignal, (hist > 0 ? 1 : hist < 0 ? -1 : 0));
-    const oscScore = oscSignals.reduce((a,b)=>a+b,0) / oscSignals.length;
-
-    // 總評分（移動平均 + 震盪）
-    const tvScore = (maNorm + oscScore) / 2; // -1 到 +1
-    const tvRating = tvScore > 0.5 ? '強力買進' : tvScore > 0.1 ? '買進' : tvScore < -0.5 ? '強力賣出' : tvScore < -0.1 ? '賣出' : '中性';
 
     return {
       rsi, macdVal, macdGolden, macdDead, hist,
       K: +K.toFixed(2), D: +D.toFixed(2), kdGolden, kdDead,
       bbUp, bbDn, bbMid, bbPos, maBull,
-      ma5: +ma5.toFixed(2), ma10: ma10?+ma10.toFixed(2):null,
-      ma20: +ma20.toFixed(2), ma50: ma50?+ma50.toFixed(2):null,
-      ma60: ma60?+ma60.toFixed(2):null,
-      ma100: ma100?+ma100.toFixed(2):null, ma200: ma200?+ma200.toFixed(2):null,
+      ma5: +ma5.toFixed(2), ma20: +ma20v.toFixed(2), ma60: ma60v ? +ma60v.toFixed(2) : null,
       volRatio: +volRatio.toFixed(2), volSurge, trend,
       last, chg, chgPct, support, resistance,
-      // 新增指標
-      cci: +cci.toFixed(2), cciSignal,
-      adx: +adx.toFixed(2), pdi: +pdi.toFixed(2), mdi: +mdi.toFixed(2), adxSignal,
-      willR: +willR.toFixed(2), willRSignal,
-      mom: +mom.toFixed(2), momSignal,
-      maNorm: +maNorm.toFixed(3),
-      oscScore: +oscScore.toFixed(3),
-      tvScore: +tvScore.toFixed(3),
-      tvRating,
     };
   },
 
-  // ── Update indicator cards ────────────────────────────
+  _calcScore(ind) {
+    let score = 0;
+    if (ind.rsi < 30) score += 2;
+    else if (ind.rsi < 45) score += 1;
+    else if (ind.rsi > 70) score -= 2;
+    else if (ind.rsi > 60) score -= 1;
+    if (ind.macdGolden) score += 2;
+    else if (ind.macdDead) score -= 2;
+    else if (ind.hist > 0) score += 1;
+    else score -= 1;
+    if (ind.kdGolden) score += 1.5;
+    else if (ind.kdDead) score -= 1.5;
+    if (ind.bbPos === 'oversold') score += 1;
+    else if (ind.bbPos === 'overbought') score -= 1;
+    if (ind.maBull) score += 1;
+    else score -= 1;
+    if (ind.volSurge && ind.chg > 0) score += 0.5;
+    return Math.max(-5, Math.min(5, score));
+  },
+
   _updateIndicatorCards(ind) {
     const row = document.getElementById('ind-row');
     if (!row) return;
-
     const items = [
-      {
-        name: 'RSI(14)',
-        value: ind.rsi.toFixed(1),
-        signal: ind.rsi > 70 ? { label: '超買', cls: 'bull' } : ind.rsi < 30 ? { label: '超賣', cls: 'bear' } : { label: '中性', cls: 'neu' },
-        color: ind.rsi > 70 ? 'var(--red)' : ind.rsi < 30 ? 'var(--green-l)' : 'var(--text-1)',
-      },
-      {
-        name: 'MACD',
-        value: (ind.hist >= 0 ? '+' : '') + ind.hist.toFixed(3),
-        signal: ind.macdGolden ? { label: '黃金交叉', cls: 'bull' } : ind.macdDead ? { label: '死亡交叉', cls: 'bear' } : { label: '觀察中', cls: 'neu' },
-        color: ind.hist >= 0 ? 'var(--red)' : 'var(--green-l)',
-      },
-      {
-        name: 'KD(9)',
-        value: `K${ind.K} D${ind.D}`,
-        signal: ind.kdGolden ? { label: 'K 穿 D↑', cls: 'bull' } : ind.kdDead ? { label: 'K 穿 D↓', cls: 'bear' } : { label: `K${ind.K>ind.D?'>':'<'}D`, cls: 'neu' },
-        color: ind.K > ind.D ? 'var(--red)' : 'var(--green-l)',
-      },
-      {
-        name: '布林帶(20)',
-        value: ind.bbPos === 'overbought' ? '超買區' : ind.bbPos === 'oversold' ? '超賣區' : '帶內',
-        signal: ind.bbPos === 'oversold' ? { label: '近下軌', cls: 'bear' } : ind.bbPos === 'overbought' ? { label: '近上軌', cls: 'bull' } : { label: `中軌${ind.bbMid}`, cls: 'neu' },
-        color: ind.bbPos === 'overbought' ? 'var(--red)' : ind.bbPos === 'oversold' ? 'var(--green-l)' : 'var(--text-1)',
-      },
-      {
-        name: '均線排列',
-        value: ind.maBull ? '多頭' : '空頭',
-        signal: ind.maBull ? { label: `5>${ind.ma5}`, cls: 'bull' } : { label: `5<${ind.ma5}`, cls: 'bear' },
-        color: ind.maBull ? 'var(--red)' : 'var(--green-l)',
-      },
-      {
-        name: '量比',
-        value: ind.volRatio.toFixed(2) + 'x',
-        signal: ind.volSurge ? { label: '放量', cls: 'bull' } : { label: '縮量', cls: 'neu' },
-        color: ind.volSurge ? 'var(--amber)' : 'var(--text-1)',
-      },
+      { name:'RSI(14)', value:ind.rsi.toFixed(1), signal: ind.rsi>70?{label:'超買',cls:'bull'}:ind.rsi<30?{label:'超賣',cls:'bear'}:{label:'中性',cls:'neu'}, color: ind.rsi>70?'var(--red)':ind.rsi<30?'var(--green-l)':'var(--text-1)' },
+      { name:'MACD', value:(ind.hist>=0?'+':'')+ind.hist.toFixed(3), signal: ind.macdGolden?{label:'黃金交叉',cls:'bull'}:ind.macdDead?{label:'死亡交叉',cls:'bear'}:{label:'觀察中',cls:'neu'}, color: ind.hist>=0?'var(--red)':'var(--green-l)' },
+      { name:'KD(9)', value:`K${ind.K} D${ind.D}`, signal: ind.kdGolden?{label:'K穿D↑',cls:'bull'}:ind.kdDead?{label:'K穿D↓',cls:'bear'}:{label:`K${ind.K>ind.D?'>':'<'}D`,cls:'neu'}, color: ind.K>ind.D?'var(--red)':'var(--green-l)' },
+      { name:'布林帶', value:ind.bbPos==='overbought'?'超買區':ind.bbPos==='oversold'?'超賣區':'帶內', signal: ind.bbPos==='oversold'?{label:'近下軌',cls:'bear'}:ind.bbPos==='overbought'?{label:'近上軌',cls:'bull'}:{label:`中軌${ind.bbMid}`,cls:'neu'}, color: ind.bbPos==='overbought'?'var(--red)':ind.bbPos==='oversold'?'var(--green-l)':'var(--text-1)' },
+      { name:'均線排列', value:ind.maBull?'多頭':'空頭', signal: ind.maBull?{label:'MA5>MA20',cls:'bull'}:{label:'MA5<MA20',cls:'bear'}, color: ind.maBull?'var(--red)':'var(--green-l)' },
+      { name:'量比', value:ind.volRatio.toFixed(2)+'x', signal: ind.volSurge?{label:'放量',cls:'bull'}:{label:'縮量',cls:'neu'}, color: ind.volSurge?'var(--amber)':'var(--text-1)' },
     ];
-
     row.innerHTML = items.map(it => `
       <div class="ind-card">
         <div class="ind-name">${it.name}</div>
@@ -200,193 +134,197 @@ const ANALYSIS = {
       </div>`).join('');
   },
 
-  // ── Compute buy/sell/hold score & update signals ──────
   _updateSignals(ind, data) {
-    let score = 0; // -5 (strong sell) to +5 (strong buy)
+    const score = this._calcScore(ind);
+    // VIX 調整
+    const vixAdj = (typeof VIX !== 'undefined' ? VIX.score : 0) || 0;
+    const adjScore = score + vixAdj * 0.5;
+    const pct = Math.round(((adjScore + 5) / 10) * 100);
+    const confidence = adjScore >= 3 ? '強烈買進' : adjScore >= 1.5 ? '偏多' : adjScore <= -3 ? '強烈賣出' : adjScore <= -1.5 ? '偏空' : '中性觀望';
+    const confClass  = adjScore >= 2 ? 'high' : adjScore <= -2 ? 'low' : 'mid';
+    const action = adjScore >= 2 ? '買進' : adjScore >= 1 ? '觀察買' : adjScore <= -2 ? '賣出' : adjScore <= -1 ? '觀察賣' : '持有';
 
-    // 原有指標
-    if (ind.rsi < 30) score += 2;
-    else if (ind.rsi < 45) score += 1;
-    else if (ind.rsi > 70) score -= 2;
-    else if (ind.rsi > 60) score -= 1;
+    // 建構詳細原因清單
+    const bullReasons = [], bearReasons = [];
+    if (ind.rsi < 30) bullReasons.push(`RSI ${ind.rsi} 超賣`);
+    else if (ind.rsi < 45) bullReasons.push(`RSI ${ind.rsi} 偏低`);
+    else if (ind.rsi > 70) bearReasons.push(`RSI ${ind.rsi} 超買`);
+    else if (ind.rsi > 60) bearReasons.push(`RSI ${ind.rsi} 偏高`);
+    if (ind.macdGolden) bullReasons.push('MACD 黃金交叉');
+    else if (ind.macdDead) bearReasons.push('MACD 死亡交叉');
+    else if (ind.hist > 0) bullReasons.push('MACD 柱狀正值');
+    else bearReasons.push('MACD 柱狀負值');
+    if (ind.kdGolden) bullReasons.push('KD 黃金交叉');
+    else if (ind.kdDead) bearReasons.push('KD 死亡交叉');
+    if (ind.bbPos === 'oversold') bullReasons.push('布林下軌支撐');
+    else if (ind.bbPos === 'overbought') bearReasons.push('布林上軌壓力');
+    if (ind.maBull) bullReasons.push(`均線多頭（MA5 ${ind.ma5} > MA20 ${ind.ma20}）`);
+    else bearReasons.push(`均線空頭（MA5 ${ind.ma5} < MA20 ${ind.ma20}）`);
+    if (ind.volSurge && ind.chg > 0) bullReasons.push(`放量上漲（量比 ${ind.volRatio}x）`);
+    else if (ind.volSurge && ind.chg < 0) bearReasons.push(`放量下跌（量比 ${ind.volRatio}x）`);
+    // VIX
+    if (typeof VIX !== 'undefined' && VIX.label) {
+      if (vixAdj > 0) bullReasons.push(`市場恐慌（VIX ${VIX.level}%）逆向機會`);
+      else if (vixAdj < 0) bearReasons.push(`市場過熱（VIX ${VIX.level}%）注意回調`);
+    }
+    // 持股損益
+    const stock = APP.getActiveStock();
+    if (stock) {
+      const gainPct = (ind.last.c - stock.cost) / stock.cost * 100;
+      if (gainPct >= 20) bearReasons.push(`已獲利 +${gainPct.toFixed(1)}%，建議部分了結`);
+      else if (gainPct <= -6) bearReasons.push(`虧損 ${gainPct.toFixed(1)}%，接近停損`);
+      else if (gainPct > 0) bullReasons.push(`持有獲利 +${gainPct.toFixed(1)}%`);
+    }
 
-    if (ind.macdGolden) score += 2;
-    else if (ind.macdDead) score -= 2;
-    else if (ind.hist > 0) score += 1;
-    else score -= 1;
+    const reasonHtml = `
+      <div class="sig-reasons">
+        ${bullReasons.length ? `<div class="sig-reason-group bull">${bullReasons.map(r=>`<span class="sr-tag bull">↑ ${r}</span>`).join('')}</div>` : ''}
+        ${bearReasons.length ? `<div class="sig-reason-group bear">${bearReasons.map(r=>`<span class="sr-tag bear">↓ ${r}</span>`).join('')}</div>` : ''}
+      </div>`;
 
-    if (ind.kdGolden) score += 1.5;
-    else if (ind.kdDead) score -= 1.5;
-
-    if (ind.bbPos === 'oversold') score += 1;
-    else if (ind.bbPos === 'overbought') score -= 1;
-
-    if (ind.maBull) score += 1;
-    else score -= 1;
-
-    if (ind.volSurge && ind.chg > 0) score += 0.5;
-
-    // ★ 融合 TradingView 式新指標（CCI, ADX, Williams %R, Momentum, MA 多層）
-    if (ind.cciSignal)  score += ind.cciSignal * 0.8;
-    if (ind.adxSignal)  score += ind.adxSignal * 0.8;
-    if (ind.willRSignal) score += ind.willRSignal * 0.6;
-    if (ind.momSignal)  score += ind.momSignal * 0.5;
-    // MA 多層評分（-1 到 +1）映射到 ±1.5
-    if (ind.maNorm != null) score += ind.maNorm * 1.5;
-
-    // Clamp
-    score = Math.max(-5, Math.min(5, score));
-    const pct = Math.round(((score + 5) / 10) * 100);
-    const confidence = score >= 3 ? '強烈買進' : score >= 1.5 ? '偏多' : score <= -3 ? '強烈賣出' : score <= -1.5 ? '偏空' : '中性觀望';
-    const confClass  = score >= 2 ? 'high' : score <= -2 ? 'low' : 'mid';
-
-    // Action
-    const action = score >= 2 ? '買進' : score >= 1 ? '觀察買' : score <= -2 ? '賣出' : score <= -1 ? '觀察賣' : '持有';
-    const actionDesc = score >= 2 ? '多項技術指標同步看多' : score >= 1 ? '偏多但未確認，建議小量試單' : score <= -2 ? '多項指標轉空，注意風險' : score <= -1 ? '偏空，考慮減碼' : '技術面中性，等待方向確認';
-
-    // Entry price suggestion: 1-3% below current or at support
     const curPrice = ind.last.c;
-    const entryPct = score >= 2 ? 0.99 : score >= 1 ? 0.975 : 0.97;
+    const entryPct = adjScore >= 2 ? 0.99 : adjScore >= 1 ? 0.975 : 0.97;
     const suggestEntry = +(curPrice * entryPct).toFixed(1);
-    const entryDesc = `支撐 ${ind.support}，進場區間 ${(curPrice * 0.96).toFixed(1)}~${(curPrice * 1.002).toFixed(1)}`;
-
-    // TP / SL
-    const tpMulti = score >= 2 ? 1.12 : 1.08;
-    const slMulti = 0.94;
+    const tpMulti = adjScore >= 2 ? 1.12 : 1.08;
     const tp = +(curPrice * tpMulti).toFixed(1);
-    const sl = +(curPrice * slMulti).toFixed(1);
-    const tpDesc = `目標 +${((tpMulti-1)*100).toFixed(0)}%，壓力 ${ind.resistance}`;
-    const slDesc = `嚴格停損 -6%`;
+    const sl = +(curPrice * 0.94).toFixed(1);
 
-    // Update DOM
-    document.getElementById('sig-action').textContent = action;
-    document.getElementById('sig-action-desc').textContent = actionDesc;
-    document.getElementById('sig-entry').textContent = `$${suggestEntry}`;
-    document.getElementById('sig-entry-desc').textContent = entryDesc;
-    document.getElementById('sig-tp').textContent = `$${tp}`;
-    document.getElementById('sig-tp-desc').textContent = tpDesc;
-    document.getElementById('sig-sl').textContent = `$${sl}`;
-    document.getElementById('sig-sl-desc').textContent = slDesc;
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    const setHTML = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
+
+    // 根據動作設顏色：買入=綠色，賣出=紅色，持有=琥珀色
+    const actionColors = {
+      '買進':    'var(--green-l)',
+      '觀察買':  'var(--green-l)',
+      '賣出':    'var(--red)',
+      '觀察賣':  'var(--red-l)',
+      '持有':    'var(--amber)',
+    };
+    const actionEl = document.getElementById('sig-action');
+    if (actionEl) {
+      actionEl.textContent = action;
+      actionEl.style.color = actionColors[action] || 'var(--amber)';
+    }
+    setHTML('sig-action-desc', reasonHtml);
+    set('sig-entry', `$${suggestEntry}`);
+    set('sig-entry-desc', `支撐${ind.support}，進場區間 ${(curPrice*0.96).toFixed(1)}~${(curPrice*1.002).toFixed(1)}`);
+    set('sig-tp', `$${tp}`);
+    set('sig-tp-desc', `目標+${((tpMulti-1)*100).toFixed(0)}%，壓力${ind.resistance}`);
+    set('sig-sl', `$${sl}`);
+    set('sig-sl-desc', '嚴格停損 -6%');
 
     const chip = document.getElementById('conf-chip');
-    chip.textContent = `${confidence} ${pct}%`;
-    chip.className = `confidence-chip ${confClass}`;
+    if (chip) {
+      const modeLabel = (typeof APP !== 'undefined' && symbol)
+        ? (APP.getStockMode(symbol) === 'short' ? '短線' : '長線')
+        : '長線';
+      chip.textContent = `${confidence} ${pct}% ｜${modeLabel}`;
+      chip.className = `confidence-chip ${confClass}`;
+    }
+    const bar = document.getElementById('meter-bar');
+    if (bar) {
+      const barColor = adjScore >= 3 ? '#E24B4A' : adjScore >= 1 ? '#1D9E75' : adjScore <= -3 ? '#378ADD' : adjScore <= -1 ? '#D4537E' : '#EF9F27';
+      const barPct = Math.max(5, Math.min(100, pct));
+      bar.style.cssText = `width:${barPct}%;background:${barColor};height:100%;border-radius:99px;transition:width 0.6s ease;opacity:1;min-width:8px;`;
+    }
+    const mv = document.getElementById('meter-value');
+    if (mv) mv.textContent = `${pct}% / 100`;
 
-    document.getElementById('meter-bar').style.width = pct + '%';
-    document.getElementById('meter-bar').style.background =
-      score >= 2 ? 'var(--red)' : score <= -2 ? 'var(--green-l)' : 'var(--amber)';
-    document.getElementById('meter-value').textContent = `${pct}% / 100`;
-
-    // Update info grid
     this._updateInfoGrid(ind);
-
-    // Store for ORDER calc
     ORDER.suggestEntry = suggestEntry;
     ORDER.suggestSL = sl;
     ORDER.suggestTP = tp;
-    ORDER.score = score;
+    ORDER.score = adjScore;
   },
 
-  // ── Pattern matching ──────────────────────────────────
+  _updateSellEngine(ind) {
+    const stock = APP.getActiveStock();
+    const currentPrice = ind.last.c;
+    const result = SELL.evaluate({ techInd: ind, stock, currentPrice });
+    if (result) {
+      // 整併到下單建議 tab 的賣出區塊
+      renderSellSignals(result);
+      // 同時更新下單建議中的整合賣出提示
+      const mergedEl = document.getElementById('sig-sell-hint');
+      if (mergedEl) {
+        if (result.urgency === 'none') {
+          mergedEl.style.display = 'none';
+        } else {
+          const urgLabels = { watch:'◎ 觀察減碼', sell:'▼ 建議出場', urgent:'⚠ 緊急減碼', emergency:'🔴 緊急離場' };
+          const urgColors = { watch:'var(--blue)', sell:'var(--amber)', urgent:'var(--red)', emergency:'var(--red)' };
+          const topSignal = result.signals[0];
+          mergedEl.style.display = 'block';
+          mergedEl.innerHTML = `<span style="color:${urgColors[result.urgency]};font-weight:600">${urgLabels[result.urgency]}</span>${topSignal ? `：${topSignal.label} — ${topSignal.desc}` : ''}`;
+        }
+      }
+    }
+  },
+
   _updatePatterns(ind, data) {
     const patterns = [];
     const n = data.length;
-
-    // Double bottom check
-    if (ind.rsi < 40 && ind.bbPos === 'oversold') patterns.push({ label: '雙底型態', strength: 'strong' });
-    // Hammer candlestick
     const last = data[n-1];
     const bodySize = Math.abs(last.c - last.o);
     const lowerWick = Math.min(last.o, last.c) - last.l;
-    if (lowerWick > bodySize * 2 && last.c > last.o) patterns.push({ label: '錘形反轉', strength: 'strong' });
-    // Golden cross
-    if (ind.macdGolden) patterns.push({ label: 'MACD 黃金交叉', strength: 'strong' });
-    if (ind.kdGolden) patterns.push({ label: 'KD 黃金交叉', strength: 'match' });
-    // Volume surge with up close
-    if (ind.volSurge && last.c > last.o) patterns.push({ label: '量增價漲', strength: 'match' });
-    // MA bullish alignment
-    if (ind.maBull) patterns.push({ label: '均線多頭排列', strength: 'match' });
-    // BB oversold
-    if (ind.bbPos === 'oversold') patterns.push({ label: '布林帶下軌支撐', strength: 'match' });
-    // Rising from support
-    if (ind.last.c > ind.support * 1.02 && ind.last.c < ind.support * 1.05) {
-      patterns.push({ label: '近期支撐反彈', strength: 'match' });
-    }
-    // Neutral patterns
-    const neutrals = ['波動收斂', '籌碼集中', '底部放量', '月線支撐', '季線扣抵'];
-    neutrals.slice(0, 3 - patterns.filter(p => p.strength !== 'neutral').length).forEach(p => {
-      patterns.push({ label: p, strength: 'neutral' });
-    });
+    if (lowerWick > bodySize * 2 && last.c > last.o) patterns.push({ label:'錘形反轉', strength:'strong' });
+    if (ind.rsi < 40 && ind.bbPos === 'oversold') patterns.push({ label:'雙底型態', strength:'strong' });
+    if (ind.macdGolden) patterns.push({ label:'MACD黃金交叉', strength:'strong' });
+    if (ind.kdGolden) patterns.push({ label:'KD黃金交叉', strength:'match' });
+    if (ind.volSurge && last.c > last.o) patterns.push({ label:'量增價漲', strength:'match' });
+    if (ind.maBull) patterns.push({ label:'均線多頭排列', strength:'match' });
+    if (ind.bbPos === 'oversold') patterns.push({ label:'布林帶下軌支撐', strength:'match' });
+    if (ind.last.c > ind.support * 1.02 && ind.last.c < ind.support * 1.05) patterns.push({ label:'近期支撐反彈', strength:'match' });
+    ['波動收斂','籌碼集中','底部放量'].forEach(p => patterns.push({ label:p, strength:'neutral' }));
 
     const tagsEl = document.getElementById('pattern-tags');
-    tagsEl.innerHTML = patterns.map(p =>
-      `<span class="ptag ${p.strength}">${p.label}</span>`
-    ).join('');
+    if (tagsEl) tagsEl.innerHTML = patterns.map(p => `<span class="ptag ${p.strength}">${p.label}</span>`).join('');
 
-    // AI Reasoning
-    const strongPatterns = patterns.filter(p => p.strength === 'strong').map(p => p.label);
-    const matchPatterns  = patterns.filter(p => p.strength === 'match').map(p => p.label);
+    const strongP = patterns.filter(p=>p.strength==='strong').map(p=>p.label);
+    const matchP  = patterns.filter(p=>p.strength==='match').map(p=>p.label);
     let reason = '';
-    if (strongPatterns.length) reason += `偵測到強訊號：${strongPatterns.join('、')}；`;
-    if (matchPatterns.length)  reason += `輔助訊號：${matchPatterns.join('、')}；`;
-    reason += `RSI(14) 目前 ${ind.rsi.toFixed(1)}，`;
-    reason += `MACD 柱狀 ${ind.hist >= 0 ? '正值（多頭動能）' : '負值（空頭動能）'}，`;
-    reason += `KD ${ind.K > ind.D ? 'K 在 D 上方，偏多' : 'K 在 D 下方，偏空'}。`;
-    reason += `均線${ind.maBull ? '多頭排列，趨勢向上' : '空頭排列，注意風險'}。`;
-    if (ind.volSurge) reason += `今日成交量為均量 ${ind.volRatio.toFixed(1)} 倍，屬放量行為。`;
-    reason += `建議進場參考支撐 $${ind.support}，壓力 $${ind.resistance}。`;
-
-    // 加入 TradingView 式評分摘要到分析說明
-    const tvLine = ind.tvRating
-      ? `📊 TradingView式綜合評分：${ind.tvRating}（MA:${(ind.maNorm*100).toFixed(0)}分 / 震盪:${(ind.oscScore*100).toFixed(0)}分）\n`
-      : '';
-    // CCI/ADX/威廉指標補充
-    const extraLine = [
-      ind.cci != null ? `CCI ${ind.cci.toFixed(0)}${ind.cciSignal>0?'↑超賣回升':ind.cciSignal<0?'↓超買回落':''}` : '',
-      ind.adx != null ? `ADX ${ind.adx.toFixed(0)}${ind.adxSignal>0?' 趨勢向上':ind.adxSignal<0?' 趨勢向下':''}` : '',
-      ind.willR != null ? `W%R ${ind.willR.toFixed(0)}${ind.willRSignal>0?' 超賣':ind.willRSignal<0?' 超買':''}` : '',
-    ].filter(Boolean).join('｜');
-    document.getElementById('reasoning-text').textContent = tvLine + (extraLine ? extraLine + '\n' : '') + reason;
+    if (strongP.length) reason += `偵測到強訊號：${strongP.join('、')}；`;
+    if (matchP.length)  reason += `輔助訊號：${matchP.join('、')}；`;
+    reason += `RSI(14) ${ind.rsi.toFixed(1)}，MACD柱狀${ind.hist>=0?'正值（多頭動能）':'負值（空頭動能）'}，`;
+    reason += `KD ${ind.K>ind.D?'K在D上方偏多':'K在D下方偏空'}。`;
+    reason += `均線${ind.maBull?'多頭排列，趨勢向上':'空頭排列，注意風險'}。`;
+    if (ind.volSurge) reason += `成交量為均量${ind.volRatio.toFixed(1)}倍，屬放量行為。`;
+    reason += `進場參考支撐$${ind.support}，壓力$${ind.resistance}。`;
+    const rt = document.getElementById('reasoning-text');
+    if (rt) rt.textContent = reason;
   },
 
-  // ── Info grid ─────────────────────────────────────────
   _updateInfoGrid(ind) {
     const grid = document.getElementById('info-grid');
-    if (!grid) return;
+    if (!grid || !ind) return;
+    // 問題4: 清除"選擇股票後顯示"的預設文字，直接填入資料
     const items = [
-      { label: '當前價格', value: ind.last.c.toFixed(2) },
-      { label: '今日漲跌', value: (ind.chg >= 0 ? '+' : '') + ind.chg + ' (' + (ind.chgPct >= 0 ? '+' : '') + ind.chgPct + '%)' },
-      { label: '今日最高', value: ind.last.h.toFixed(2) },
-      { label: '今日最低', value: ind.last.l.toFixed(2) },
-      { label: 'MA5', value: ind.ma5.toFixed(2) },
-      { label: 'MA20', value: ind.ma20.toFixed(2) },
-      { label: 'MA60', value: ind.ma60 ? ind.ma60.toFixed(2) : '—' },
-      { label: 'RSI(14)', value: ind.rsi.toFixed(1) },
-      { label: 'KD K值', value: ind.K },
-      { label: 'KD D值', value: ind.D },
-      { label: '布林上軌', value: ind.bbUp },
-      { label: '布林下軌', value: ind.bbDn },
-      { label: '近20日支撐', value: ind.support },
-      { label: '近20日壓力', value: ind.resistance },
-      { label: '量比（今/均）', value: ind.volRatio + 'x' },
+      { label:'當前價格', value:ind.last.c.toFixed(2) },
+      { label:'今日漲跌', value:(ind.chg>=0?'+':'')+ind.chg+' ('+(ind.chgPct>=0?'+':'')+ind.chgPct+'%)' },
+      { label:'今日最高', value:ind.last.h.toFixed(2) },
+      { label:'今日最低', value:ind.last.l.toFixed(2) },
+      { label:'MA5', value:ind.ma5.toFixed(2) },
+      { label:'MA20', value:ind.ma20.toFixed(2) },
+      { label:'MA60', value:ind.ma60?ind.ma60.toFixed(2):'—' },
+      { label:'RSI(14)', value:ind.rsi.toFixed(1) },
+      { label:'KD K值', value:ind.K },
+      { label:'KD D值', value:ind.D },
+      { label:'布林上軌', value:ind.bbUp },
+      { label:'布林下軌', value:ind.bbDn },
+      { label:'近20日支撐', value:ind.support },
+      { label:'近20日壓力', value:ind.resistance },
+      { label:'量比', value:ind.volRatio+'x' },
     ];
-    grid.innerHTML = items.map(it => `
-      <div class="info-item">
-        <div class="info-label">${it.label}</div>
-        <div class="info-value">${it.value}</div>
-      </div>`).join('');
+    grid.innerHTML = items.map(it => `<div class="info-item"><div class="info-label">${it.label}</div><div class="info-value">${it.value}</div></div>`).join('');
   },
 
-  // ── Math helpers ──────────────────────────────────────
+  // ── Math helpers ──
   _ema(arr, period) {
     const k = 2 / (period + 1);
     const res = new Array(arr.length).fill(0);
     let sum = 0;
     for (let i = 0; i < period; i++) sum += arr[i];
     res[period - 1] = sum / period;
-    for (let i = period; i < arr.length; i++) {
-      res[i] = arr[i] * k + res[i-1] * (1 - k);
-    }
+    for (let i = period; i < arr.length; i++) res[i] = arr[i] * k + res[i-1] * (1-k);
     return res;
   },
 
@@ -394,7 +332,7 @@ const ANALYSIS = {
     if (closes.length < period + 1) return 50;
     let gains = 0, losses = 0;
     for (let i = closes.length - period; i < closes.length; i++) {
-      const d = closes[i] - closes[i - 1];
+      const d = closes[i] - closes[i-1];
       if (d > 0) gains += d; else losses -= d;
     }
     if (losses === 0) return 100;
@@ -416,54 +354,83 @@ const ANALYSIS = {
     }
     return { K, D };
   },
+};
 
-  _kd_prev(data, period = 9) {
-    return this._kd(data.slice(0, -1), period);
-  },
-  // ── CCI(n) ───────────────────────────────────────────
-  _cci(data, n = 20) {
-    const slice = data.slice(-n);
-    if (slice.length < n) return 0;
-    const tp = slice.map(d => (d.h + d.l + d.c) / 3);
-    const mean = tp.reduce((a,b)=>a+b,0) / n;
-    const md = tp.reduce((a,b) => a + Math.abs(b-mean), 0) / n;
-    return md === 0 ? 0 : (tp[tp.length-1] - mean) / (0.015 * md);
-  },
+// ── SELL module ──────────────────────────────────────────
+const SELL = {
+  evaluate({ techInd, stock, currentPrice }) {
+    if (!techInd || !currentPrice) return null;
+    const signals = [];
+    let urgency = 'none';
 
-  // ── ADX(n) ───────────────────────────────────────────
-  _adx(data, n = 14) {
-    if (data.length < n + 2) return { adx: 0, pdi: 0, mdi: 0 };
-    const tr = [], pdm = [], mdm = [];
-    for (let i = 1; i < data.length; i++) {
-      const h = data[i].h, l = data[i].l, ph = data[i-1].h, pl = data[i-1].l, pc = data[i-1].c;
-      tr.push(Math.max(h-l, Math.abs(h-pc), Math.abs(l-pc)));
-      pdm.push(h-ph > pl-l && h-ph > 0 ? h-ph : 0);
-      mdm.push(pl-l > h-ph && pl-l > 0 ? pl-l : 0);
+    if (stock) {
+      const gainPct = (currentPrice - stock.cost) / stock.cost * 100;
+      if (gainPct >= 30) {
+        signals.push({ label:`獲利+${gainPct.toFixed(1)}%超高`, desc:'建議至少出清50%倉位，保留獲利', urgency:'sell' });
+        urgency = this._esc(urgency, 'sell');
+      } else if (gainPct >= 20) {
+        signals.push({ label:`已獲利+${gainPct.toFixed(1)}%`, desc:'達20%目標，建議分批了結', urgency:'sell' });
+        urgency = this._esc(urgency, 'sell');
+      }
+      if (gainPct <= -6) {
+        signals.push({ label:`虧損${gainPct.toFixed(1)}%`, desc:'已觸及停損線，建議執行停損', urgency:'urgent' });
+        urgency = this._esc(urgency, 'urgent');
+      }
     }
-    const atr = this._ema(tr, n);
-    const apdi = this._ema(pdm, n);
-    const amdi = this._ema(mdm, n);
-    const last = atr.length - 1;
-    const pdi = atr[last] > 0 ? apdi[last]/atr[last]*100 : 0;
-    const mdi = atr[last] > 0 ? amdi[last]/atr[last]*100 : 0;
-    const dx = pdi+mdi > 0 ? Math.abs(pdi-mdi)/(pdi+mdi)*100 : 0;
-    const dxArr = atr.map((_,i) => {
-      const p = atr[i]>0?apdi[i]/atr[i]*100:0, m=atr[i]>0?amdi[i]/atr[i]*100:0;
-      return p+m>0?Math.abs(p-m)/(p+m)*100:0;
-    });
-    const adxArr = this._ema(dxArr, n);
-    return { adx: adxArr[adxArr.length-1] ?? dx, pdi, mdi };
+
+    if (techInd.rsi > 80) { signals.push({ label:`RSI超買${techInd.rsi}`, desc:'極端超買，回壓風險高', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
+    else if (techInd.rsi > 72) { signals.push({ label:`RSI${techInd.rsi}超買區`, desc:'RSI進入超買，建議輕倉', urgency:'watch' }); urgency = this._esc(urgency,'watch'); }
+    if (techInd.macdDead) { signals.push({ label:'MACD死亡交叉', desc:'動能轉弱，建議減碼', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
+    if (techInd.kdDead && techInd.K > 80) { signals.push({ label:`KD高檔死叉K=${techInd.K}`, desc:'高檔死叉，回檔機率高', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
+    if (currentPrice < techInd.ma20 * 0.97 && !techInd.maBull) { signals.push({ label:'跌破MA20且空頭排列', desc:'中線趨勢向下', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
+    if (currentPrice < techInd.support * 0.98) { signals.push({ label:'跌破近期支撐', desc:`跌破支撐$${techInd.support}`, urgency:'urgent' }); urgency = this._esc(urgency,'urgent'); }
+    if (techInd.volSurge && techInd.chg < 0) { signals.push({ label:'爆量下跌（主力出貨）', desc:'量增價跌為出貨訊號', urgency:'urgent' }); urgency = this._esc(urgency,'urgent'); }
+
+    const plan = this._buildPlan(urgency, currentPrice, stock, techInd);
+    return { signals, urgency, plan };
   },
 
-  // ── Williams %R(n) ───────────────────────────────────
-  _williamsR(data, n = 14) {
-    const slice = data.slice(-n);
-    if (slice.length < n) return -50;
-    const hh = Math.max(...slice.map(d=>d.h));
-    const ll = Math.min(...slice.map(d=>d.l));
-    const last = slice[slice.length-1].c;
-    return hh === ll ? -50 : (hh-last)/(hh-ll)*-100;
+  _esc(cur, next) {
+    const o = ['none','watch','sell','urgent','emergency'];
+    return o.indexOf(next) > o.indexOf(cur) ? next : cur;
   },
 
+  _buildPlan(urgency, price, stock, ind) {
+    if (urgency === 'none') return null;
+    const shares = stock?.shares ?? 1;
+    const gainPct = stock ? ((price - stock.cost) / stock.cost * 100) : 0;
 
+    // 智慧顯示：1000股以上才說「張」
+    const sharesDisp = n => n >= 1000
+      ? `${(n/1000).toFixed(n%1000===0?0:1)}張`
+      : `${Math.ceil(n)}股`;
+
+    if (urgency === 'urgent') return {
+      title:'緊急減碼計畫', color:'urgent',
+      rows:[
+        { batch:'今日盤中', action:`先出${sharesDisp(shares*0.5)}（50%）`, desc:`建議賣價$${(price*0.995).toFixed(1)}附近` },
+        { batch:'明日開盤', action:`再視情況出${sharesDisp(shares*0.3)}`, desc:'若繼續下跌則全出' },
+        { batch:'剩餘部位', action:`${sharesDisp(shares*0.2)}設停損`, desc:`停損線$${ind?.support?.toFixed(1)??'—'}` },
+      ],
+      note:`已獲利${gainPct>=0?'+':''}${gainPct.toFixed(1)}%，優先保護獲利`,
+    };
+    if (urgency === 'sell') {
+      const firstPct = gainPct >= 20 ? 0.4 : 0.25;
+      const firstShares = shares * firstPct;
+      return {
+        title:'分批獲利了結計畫', color:'sell',
+        rows:[
+          { batch:'第一批', action:`出${sharesDisp(firstShares)}（${Math.round(firstPct*100)}%）`, desc:'鎖住部分獲利' },
+          { batch:'第二批', action:`出${sharesDisp(shares*0.3)}`, desc:`跌破MA20$${ind?.ma20?.toFixed(1)??'—'}執行` },
+          { batch:'剩餘部位', action:'持有觀察', desc:`停損$${ind?.support?.toFixed(1)??'—'}` },
+        ],
+        note:`建議先實現${gainPct>=0?gainPct.toFixed(1)+'%':'部分'}獲利`,
+      };
+    }
+    return {
+      title:'觀察減碼提示', color:'watch',
+      rows:[{ batch:'密切觀察', action:'不動', desc:`跌破$${(price*0.97).toFixed(1)}開始出` }],
+      note:'目前尚未到強賣訊號，保持警戒',
+    };
+  },
 };

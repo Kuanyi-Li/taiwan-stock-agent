@@ -6,7 +6,7 @@ const CURRENCY = {
   usdRate: null,
   async fetchUSDRate() {
     try {
-      const res = await DATA._fetch('https://query1.finance.yahoo.com/v8/finance/chart/USDTWD=X?interval=1d&range=5d');
+      const res = await DATA._fetchWithFallback('https://query1.finance.yahoo.com/v8/finance/chart/USDTWD=X?interval=1d&range=5d');
       const json = await res.json();
       const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
       if (price) { this.usdRate = +price.toFixed(2); this._updateDisplay(); }
@@ -29,7 +29,7 @@ const VIX = {
   async fetch() {
     try {
       // 用 ^TWII 的日線計算20日歷史波動率估算恐慌指數
-      const res = await DATA._fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=3mo');
+      const res = await DATA._fetchWithFallback('https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=3mo');
       const json = await res.json();
       const closes = json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
       if (closes.length < 21) return;
@@ -1021,7 +1021,10 @@ const APP = {
       console.log('[SYNC] 自動上傳已解鎖');
     }, 12000);
 
-    this.refreshTimer = setInterval(() => this.refreshPrices(), 5000); // TWSE 5秒批次更新
+    // ★ 問題1: 只在開盤時才定時更新，頻率改為每3分鐘
+    this.refreshTimer = setInterval(() => {
+      if (this.isTWMarketOpen()) this.refreshPrices();
+    }, 180000);
     setInterval(() => this.updateClock(), 1000);
     setInterval(() => this._updateMarketStatus(), 60000);
     DATA.fetchIndexes();
@@ -1060,18 +1063,30 @@ const APP = {
     if (el) el.textContent = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
   },
 
-  _updateMarketStatus() {
+  // 判斷台股是否開盤中（09:00–13:30，平日）
+  isTWMarketOpen() {
     const now = new Date();
     const h = now.getHours(), m = now.getMinutes();
-    const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
-    const isOpen = isWeekday && (h > 9 || (h === 9 && m >= 0)) && (h < 13 || (h === 13 && m <= 30));
+    const day = now.getDay();
+    return day >= 1 && day <= 5
+      && (h > 9 || (h === 9 && m >= 0))
+      && (h < 13 || (h === 13 && m <= 30));
+  },
+
+  _updateMarketStatus() {
+    const isOpen = this.isTWMarketOpen();
     const el = document.getElementById('mkt-status');
     if (el) { el.textContent = isOpen ? '開盤中' : '休市'; el.className = isOpen ? 'badge open' : 'badge closed'; }
     const dot = document.getElementById('live-dot');
     if (dot) dot.style.opacity = isOpen ? '1' : '0.3';
   },
 
-  async refreshPrices() {
+  async refreshPrices(force = false) {
+    // ★ 問題1: 休市時不更新報價（手動強制刷新除外）
+    if (!force && !this.isTWMarketOpen()) {
+      this._updateMarketStatus();
+      return;
+    }
     const btn = document.querySelector('.icon-btn[onclick="refreshAll()"]');
     if (btn) btn.classList.add('spinning');
 
@@ -1349,7 +1364,7 @@ const APP = {
     if (this.activeSymbol !== requestedCode) return;
 
     // ★ K 線載入後，重新取最新 quote（可能已從 K 線資料更新）
-    const freshQuote = DATA.priceStore[code];
+    const freshQuote = DATA.cache[code];
     if (freshQuote?.ok && freshQuote.price) {
       const s2 = this.portfolio.find(x => x.code === code) || this.watchlist.find(x => x.code === code);
       if (s2) {
@@ -1524,7 +1539,7 @@ const APP = {
 };
 
 // ── Global functions ──────────────────────────────────
-function refreshAll() { APP.refreshPrices(); }
+function refreshAll() { APP.refreshPrices(true); }
 function openSettings() { document.getElementById('settings-modal')?.classList.add('show'); }
 function runAnalysis() {
   const code = APP.activeSymbol;

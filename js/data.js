@@ -1,22 +1,19 @@
-// ── data.js v6 ── FinMind + TWSE 集中式架構
+// ── data.js v4 ── 集中式批次報價架構
 //
-// 架構：
-// 1. 全域 priceStore：所有 UI 只讀
-// 2. 台股：TWSE 批次（盤中）+ FinMind（收盤後/歷史）
-// 3. 美股：Yahoo Finance v8 chart（直接打，有 CORS）
-// 4. rate-limit queue：TWSE 5秒3次限制
-// 5. 休市時不主動更新（由 APP 判斷）
+// 核心原則：
+// 1. 全域 priceStore：所有 UI 只讀 cache，不直接打 API
+// 2. TWSE 批次請求：一次抓所有股票（一個 request 解決）
+// 3. rate-limit queue：每次請求間隔 >= 1800ms（TWSE 限制 5秒3次）
+// 4. setInterval 集中控制，render / 切換股票不觸發 fetch
+// 5. TWSE 優先，Yahoo v8 備援，都走同一個 queue
 
 const DATA = {
-
-  // FinMind token（從設定讀取）
-  get finmindToken() { return APP?.settings?.finmindToken || ''; },
 
   // ── Rate-limit Queue ──────────────────────────────────
   _queue: [],
   _queueBusy: false,
   _lastReqTime: 0,
-  MIN_INTERVAL: 1800,
+  MIN_INTERVAL: 1800, // ms：TWSE 5秒3次 → 每次至少 1700ms，留 100ms 緩衝
 
   async _enqueue(fn) {
     return new Promise((resolve, reject) => {
@@ -38,15 +35,14 @@ const DATA = {
   },
 
   // ── 全域 PriceStore ───────────────────────────────────
+  // { code: { price, prevClose, open, high, low, volume, name, chg, chgPct, ts, source } }
   priceStore: {},
 
   _setPrice(code, fields) {
     this.priceStore[code] = { ...(this.priceStore[code] ?? {}), ...fields, ts: Date.now() };
   },
 
-  // ── Fetch with proxy for TWSE, direct for others ─────
-  // mis.twse.com.tw 需要 Referer/Origin header 才允許跨域，用 proxy 繞過
-  // Yahoo Finance 有正確的 CORS header，直接打
+  // ── CORS Proxy ────────────────────────────────────────
   proxies: [
     'https://corsproxy.io/?',
     'https://api.allorigins.win/raw?url=',
@@ -54,99 +50,63 @@ const DATA = {
   ],
   _proxyIdx: 0,
 
-  async _fetch(url, opts = {}) {
-    const isTWSE = url.includes('mis.twse.com.tw');
-    if (isTWSE) {
-      // TWSE 需要 proxy
-      for (let i = 0; i < this.proxies.length; i++) {
-        const idx = (this._proxyIdx + i) % this.proxies.length;
-        const proxyUrl = this.proxies[idx] + encodeURIComponent(url);
-        try {
-          const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000), ...opts });
-          if (res.ok) { this._proxyIdx = idx; return res; }
-        } catch(e) { /* try next proxy */ }
-      }
-      throw new Error('TWSE: all proxies failed');
+  async _fetch(url) {
+    for (let i = 0; i < this.proxies.length; i++) {
+      const idx = (this._proxyIdx + i) % this.proxies.length;
+      try {
+        const res = await fetch(
+          this.proxies[idx] + encodeURIComponent(url),
+          { signal: AbortSignal.timeout(9000) }
+        );
+        if (res.ok) { this._proxyIdx = idx; return res; }
+      } catch(e) { /* try next */ }
     }
-    // 非 TWSE 直接打（Yahoo Finance 等）
-    const res = await fetch(url, { signal: AbortSignal.timeout(9000), ...opts });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res;
+    throw new Error('All proxies failed');
   },
 
-  // ── 判斷是否為美股 ────────────────────────────────────
-  _isUSStock(code) {
-    // 純英文字母 = 美股（AAPL, TSLA, NVDA...），數字 = 台股
-    return /^[A-Za-z]+$/.test(code);
-  },
-
-  // ── 主要更新入口 ──────────────────────────────────────
-  async batchUpdate(codes) {
-    if (!codes?.length) return;
-    const unique = [...new Set(codes)];
-    const twCodes = unique.filter(c => !this._isUSStock(c));
-    const usCodes = unique.filter(c => this._isUSStock(c));
-
-    // 台股：TWSE 批次
-    if (twCodes.length > 0) {
-      await this._enqueue(async () => {
-        let missing = [];
-        try {
-          missing = await this._twseBatch(twCodes);
-          console.log(`[DATA] TWSE: ${twCodes.length - missing.length} OK, ${missing.length} missing`);
-        } catch(e) {
-          console.warn('[DATA] TWSE failed:', e.message);
-          missing = twCodes;
-        }
-        // 上櫃補送
-        if (missing.length > 0) {
-          await this._enqueue(() => this._tpexBatch(missing));
-          const stillMissing = missing.filter(c => !this.priceStore[c]?.price);
-          if (stillMissing.length > 0) console.warn('[DATA] missing:', stillMissing);
-        }
-      });
-    }
-
-    // 美股：Yahoo 直接打（不走 queue，不受 TWSE rate limit）
-    if (usCodes.length > 0) {
-      await Promise.allSettled(usCodes.map(c => this._fetchUSQuote(c)));
-    }
-  },
-
-  // ── TWSE 批次（上市）────────────────────────────────
+  // ── TWSE 批次報價（主力）─────────────────────────────
+  // 一次請求涵蓋所有股票，嚴格遵守 rate limit
   async _twseBatch(codes) {
+    // 每個代號先試 tse_（上市），上櫃用 otc_
+    // 混合時：先全部送 tse_，回來後沒資料的補送 otc_
     const exCh = codes.map(c => `tse_${c}.tw`).join('|');
     const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`;
+
     const res = await this._fetch(url);
     const json = await res.json();
     const items = json?.msgArray ?? [];
+
     const found = new Set();
     items.forEach(item => {
       const code = item.c;
       if (!code) return;
-      const priceRaw  = item.z !== '-' ? parseFloat(item.z) : null;
+      // z = 成交價；盤前或無成交時為 "-"
+      const priceRaw = item.z !== '-' ? parseFloat(item.z) : null;
       const prevClose = parseFloat(item.y) || 0;
-      const price     = priceRaw ?? prevClose;
+      const price = priceRaw ?? prevClose; // 無成交用昨收
       if (!price) return;
       const chg    = +(price - prevClose).toFixed(2);
       const chgPct = +(prevClose > 0 ? chg / prevClose * 100 : 0).toFixed(2);
       this._setPrice(code, {
-        price: +price.toFixed(2), prevClose: +prevClose.toFixed(2),
-        open:  +(parseFloat(item.o) || prevClose).toFixed(2),
-        high:  +(parseFloat(item.h) || price).toFixed(2),
-        low:   +(parseFloat(item.l) || price).toFixed(2),
-        volume: parseInt(item.v) || 0,
-        name:  item.n || code,
+        price:    +price.toFixed(2),
+        prevClose: +prevClose.toFixed(2),
+        open:     +(parseFloat(item.o) || prevClose).toFixed(2),
+        high:     +(parseFloat(item.h) || price).toFixed(2),
+        low:      +(parseFloat(item.l) || price).toFixed(2),
+        volume:   parseInt(item.v) || 0,
+        name:     item.n || code,
         chg, chgPct,
-        noTrade: priceRaw === null,
-        source: 'twse',
+        noTrade: priceRaw === null, // 標記尚未成交
+        source:  'twse',
       });
       found.add(code);
     });
+
+    // 回傳沒有資料的代號（可能是上櫃，再補送 otc_）
     return codes.filter(c => !found.has(c));
   },
 
-  // ── TPEX 補送（上櫃）────────────────────────────────
+  // 上櫃補送
   async _tpexBatch(codes) {
     if (!codes.length) return;
     const exCh = codes.map(c => `otc_${c}.tw`).join('|');
@@ -174,84 +134,92 @@ const DATA = {
     });
   },
 
-  // ── 美股報價（Yahoo Finance，直接打）─────────────────
-  async _fetchUSQuote(code) {
+  // ── Yahoo 備援（走 queue，一次一支）─────────────────
+  async _yahooFallback(code) {
+    const sym = isNaN(parseInt(code)) ? code : code + '.TW';
+    // v7 quote
     try {
       const res = await this._fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${code}?interval=1d&range=5d`
+        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sym}` +
+        `&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketOpen,` +
+        `regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,shortName`
+      );
+      const q = (await res.json())?.quoteResponse?.result?.[0];
+      if (q?.regularMarketPrice != null) {
+        const p = +parseFloat(q.regularMarketPrice).toFixed(2);
+        const pc = +parseFloat(q.regularMarketPreviousClose ?? p).toFixed(2);
+        this._setPrice(code, {
+          price: p, prevClose: pc,
+          open:   +(q.regularMarketOpen ?? pc).toFixed(2),
+          high:   +(q.regularMarketDayHigh ?? p).toFixed(2),
+          low:    +(q.regularMarketDayLow  ?? p).toFixed(2),
+          volume: q.regularMarketVolume ?? 0,
+          name:   q.shortName ?? code,
+          chg:    +(p - pc).toFixed(2),
+          chgPct: +(pc > 0 ? (p - pc) / pc * 100 : 0).toFixed(2),
+          source: 'yahoo',
+        });
+        return true;
+      }
+    } catch(e) { /* try v8 */ }
+    // v8 chart fallback
+    try {
+      const res = await this._fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=5d`
       );
       const meta = (await res.json())?.chart?.result?.[0]?.meta;
-      if (!meta?.regularMarketPrice) throw new Error('No price');
-      const price    = +parseFloat(meta.regularMarketPrice).toFixed(2);
-      const prevClose = +parseFloat(meta.previousClose ?? price).toFixed(2);
-      this._setPrice(code, {
-        price, prevClose,
-        open:    +(meta.regularMarketOpen ?? prevClose).toFixed(2),
-        high:    +(meta.regularMarketDayHigh ?? price).toFixed(2),
-        low:     +(meta.regularMarketDayLow  ?? price).toFixed(2),
-        volume:  meta.regularMarketVolume ?? 0,
-        name:    meta.shortName ?? code,
-        chg:     +(price - prevClose).toFixed(2),
-        chgPct:  +(prevClose > 0 ? (price-prevClose)/prevClose*100 : 0).toFixed(2),
-        currency: meta.currency ?? 'USD',
-        source:  'yahoo-us',
-      });
-      console.log(`[DATA] US ${code}: $${price}`);
-    } catch(e) {
-      console.warn('[DATA] US quote failed:', code, e.message);
-    }
-  },
-
-  // ── FinMind 技術指標（走 queue，需要 token）─────────
-  // 用於增強技術分析
-  async fetchFinMindIndicators(stockId, startDate) {
-    const token = this.finmindToken;
-    if (!token) return null;
-    try {
-      const datasets = [
-        'TaiwanStockTechnicalIndicators',  // RSI, MACD, KD...
-        'TaiwanStockMomentumTables',        // 動能指標
-      ];
-      const results = {};
-      for (const dataset of datasets) {
-        const url = `https://api.finmindtrade.com/api/v4/data?dataset=${dataset}&data_id=${stockId}&start_date=${startDate}&token=${token}`;
-        const res = await this._fetch(url);
-        const json = await res.json();
-        if (json.status === 200 && json.data?.length) {
-          results[dataset] = json.data;
-        }
+      if (meta?.regularMarketPrice) {
+        const p  = +parseFloat(meta.regularMarketPrice).toFixed(2);
+        const pc = +parseFloat(meta.previousClose ?? p).toFixed(2);
+        this._setPrice(code, {
+          price: p, prevClose: pc,
+          open:   +(meta.regularMarketOpen ?? pc).toFixed(2),
+          high:   +(meta.regularMarketDayHigh ?? p).toFixed(2),
+          low:    +(meta.regularMarketDayLow  ?? p).toFixed(2),
+          volume: meta.regularMarketVolume ?? 0,
+          name:   meta.shortName ?? code,
+          chg:    +(p - pc).toFixed(2),
+          chgPct: +(pc > 0 ? (p - pc) / pc * 100 : 0).toFixed(2),
+          source: 'yahoo-v8',
+        });
+        return true;
       }
-      return results;
-    } catch(e) {
-      console.warn('[FinMind] indicators failed:', e.message);
-      return null;
-    }
+    } catch(e) { /* silent */ }
+    return false;
   },
 
-  // ── FinMind 台股歷史 K 線（備援，有 token 才用）──────
-  async fetchFinMindHistory(stockId, startDate, endDate) {
-    const token = this.finmindToken;
-    if (!token) return null;
-    try {
-      const url = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=${stockId}&start_date=${startDate}&end_date=${endDate}&token=${token}`;
-      const res = await this._fetch(url);
-      const json = await res.json();
-      if (json.status !== 200 || !json.data?.length) return null;
-      return json.data.map(d => ({
-        t: new Date(d.date).getTime(),
-        o: +d.open.toFixed(2),
-        h: +d.max.toFixed(2),
-        l: +d.min.toFixed(2),
-        c: +d.close.toFixed(2),
-        v: d.Trading_Volume || 0,
-      }));
-    } catch(e) {
-      console.warn('[FinMind] history failed:', e.message);
-      return null;
-    }
+  // ── 主要更新入口（由 APP 的 setInterval 集中呼叫）────
+  // ★ 這是唯一應該觸發 API 請求的地方
+  async batchUpdate(codes) {
+    if (!codes?.length) return;
+    const unique = [...new Set(codes)];
+    await this._enqueue(async () => {
+      let missing = [];
+      try {
+        missing = await this._twseBatch(unique);
+        console.log(`[DATA] TWSE batch: ${unique.length - missing.length} updated, ${missing.length} missing`);
+      } catch(e) {
+        console.warn('[DATA] TWSE failed:', e.message);
+        missing = unique; // 全部當 missing 送 Yahoo
+      }
+      // 上櫃補送（一次 request）
+      if (missing.length > 0) {
+        await new Promise(r => setTimeout(r, this.MIN_INTERVAL));
+        this._lastReqTime = Date.now();
+        try {
+          await this._tpexBatch(missing);
+          missing = missing.filter(c => !this.priceStore[c]?.price);
+        } catch(e) { /* continue */ }
+      }
+      // 還剩沒有的 → Yahoo 備援（每支走 queue，受 rate limit 控制）
+      for (const code of missing) {
+        await this._enqueue(() => this._yahooFallback(code));
+      }
+    });
   },
 
-  // ── 舊介面相容 ────────────────────────────────────────
+  // ── 舊介面相容：updateAllPrices ──────────────────────
+  // 呼叫 batchUpdate，完成後同步回 stock 物件
   async updateAllPrices(stocks, onUpdate) {
     if (!stocks?.length) return;
     await this.batchUpdate(stocks.map(s => s.code));
@@ -260,24 +228,20 @@ const DATA = {
       if (q?.price) {
         s.price     = q.price;
         s.prevClose = q.prevClose ?? s.prevClose;
-        s.high = q.high; s.low = q.low; s.volume = q.volume;
+        s.high      = q.high;
+        s.low       = q.low;
+        s.volume    = q.volume;
         if (q.name && q.name !== s.code) s.marketName = q.name;
       }
       if (onUpdate) onUpdate(s);
     });
   },
 
+  // ── 舊介面相容：fetchQuote（只讀 store）──────────────
   async fetchQuote(symbol) {
     const q = this.priceStore[symbol];
     if (q?.price) return { ...q, ok: true };
-    // 若 store 沒有，試著抓一次
-    if (this._isUSStock(symbol)) {
-      await this._fetchUSQuote(symbol);
-    } else {
-      await this._enqueue(() => this._twseBatch([symbol]));
-    }
-    const q2 = this.priceStore[symbol];
-    return q2?.price ? { ...q2, ok: true } : { price: null, ok: false };
+    return { price: null, prevClose: null, ok: false };
   },
 
   // ── K 線資料（走 queue）──────────────────────────────
@@ -293,14 +257,14 @@ const DATA = {
     if (cached && now - cached.ts < ttl) return cached.data;
 
     return this._enqueue(async () => {
-      // 美股和 ETF 直接用 Yahoo
-      const sym = this._isUSStock(symbol) ? symbol : symbol + '.TW';
+      const sym = isNaN(parseInt(symbol)) ? symbol : symbol + '.TW';
       try {
         const res = await this._fetch(
           `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=${interval}&range=${range}`
         );
-        const result = (await res.json())?.chart?.result?.[0];
-        if (!result) throw new Error('No data');
+        const json   = await res.json();
+        const result = json?.chart?.result?.[0];
+        if (!result) throw new Error('No chart data');
         const ts    = result.timestamp ?? [];
         const ohlcv = result.indicators?.quote?.[0] ?? {};
         const candles = [];
@@ -316,17 +280,18 @@ const DATA = {
           });
         }
         this.histCache[key] = { data: candles, ts: now };
-        // K 線資料更新 priceStore
+        // ★ K 線成功後順便更新 priceStore（最後一根 = 最新收盤）
         if (candles.length >= 1 && period === '3mo') {
           const last = candles[candles.length - 1];
           const prev = candles.length >= 2 ? candles[candles.length - 2].c : last.c;
           const existing = this.priceStore[symbol];
+          // 只在沒有盤中報價時才用 K 線補（避免覆蓋即時 TWSE 資料）
           if (!existing?.price || existing?.source === 'candle') {
             this._setPrice(symbol, {
               price: last.c, prevClose: prev,
               open: last.o, high: last.h, low: last.l, volume: last.v,
               chg:    +(last.c - prev).toFixed(2),
-              chgPct: +(prev > 0 ? (last.c-prev)/prev*100 : 0).toFixed(2),
+              chgPct: +(prev > 0 ? (last.c - prev) / prev * 100 : 0).toFixed(2),
               source: 'candle',
             });
           }
@@ -341,25 +306,46 @@ const DATA = {
     });
   },
 
-  // ── 大盤指數 ─────────────────────────────────────────
+  // ── 大盤指數（獨立，不走 queue）─────────────────────
   async fetchIndexes() {
     try {
+      // 用 TWSE 抓大盤指數
       const res = await this._fetch(
         'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw&json=1&delay=0'
       );
-      const item = (await res.json())?.msgArray?.[0];
+      const json  = await res.json();
+      const item  = json?.msgArray?.[0];
       if (item) {
         const price = parseFloat(item.z !== '-' ? item.z : item.y) || 0;
         const prev  = parseFloat(item.y) || price;
         const chg   = price - prev;
         const pct   = prev > 0 ? chg / prev * 100 : 0;
+        const sign  = chg >= 0 ? '+' : '';
         const el = document.getElementById('taiex-badge');
         if (el) {
-          el.textContent = `加權 ${price.toLocaleString('zh-TW',{maximumFractionDigits:0})} (${chg>=0?'+':''}${pct.toFixed(2)}%)`;
+          el.textContent = `加權 ${price.toLocaleString('zh-TW', {maximumFractionDigits:0})} (${sign}${pct.toFixed(2)}%)`;
           el.className = `index-chip ${chg >= 0 ? 'up' : 'dn'}`;
         }
+        return;
       }
-    } catch(e) { console.warn('[DATA] fetchIndexes failed:', e.message); }
+    } catch(e) { /* fallback to Yahoo */ }
+    // Yahoo fallback for indexes
+    try {
+      const res = await this._fetch(
+        'https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII?interval=1d&range=5d'
+      );
+      const meta  = (await res.json())?.chart?.result?.[0]?.meta ?? {};
+      const price = meta.regularMarketPrice ?? 0;
+      const prev  = meta.previousClose ?? price;
+      const chg   = price - prev;
+      const pct   = prev > 0 ? chg / prev * 100 : 0;
+      const sign  = chg >= 0 ? '+' : '';
+      const el = document.getElementById('taiex-badge');
+      if (el) {
+        el.textContent = `加權 ${price.toLocaleString('zh-TW', {maximumFractionDigits:0})} (${sign}${pct.toFixed(2)}%)`;
+        el.className = `index-chip ${chg >= 0 ? 'up' : 'dn'}`;
+      }
+    } catch(e) { /* silent */ }
   },
 
   // ── Helpers ───────────────────────────────────────────
@@ -373,7 +359,7 @@ const DATA = {
       '1mo': { interval:'1d',  range:'6mo' },
       '3mo': { interval:'1d',  range:'1y'  },
       '6mo': { interval:'1wk', range:'2y'  },
-      '1y':  { interval:'1d',  range:'2y'  },
+      '1y':  { interval:'1wk', range:'2y'  },
     })[period] ?? { interval:'1d', range:'1y' };
   },
 
@@ -383,12 +369,12 @@ const DATA = {
     const base = this.priceStore[symbol]?.price ?? 100;
     let price = base * 0.92;
     const now = Date.now();
-    const step = ['5m','15m','60m'].includes(period) ? 60000*parseInt(period) : 86400000;
+    const step = ['5m','15m','60m'].includes(period) ? 60000 * parseInt(period) : 86400000;
     return Array.from({ length: n }, (_, i) => {
       const o = price, r = o * 0.02;
-      const h = o+Math.random()*r, l = o-Math.random()*r, c = l+(h-l)*Math.random();
+      const h = o + Math.random() * r, l = o - Math.random() * r, c = l + (h - l) * Math.random();
       price = c;
-      return { t:now-(n-1-i)*step, o:+o.toFixed(2), h:+h.toFixed(2), l:+l.toFixed(2), c:+c.toFixed(2), v:Math.floor(1e5+Math.random()*5e5) };
+      return { t: now - (n-1-i)*step, o:+o.toFixed(2), h:+h.toFixed(2), l:+l.toFixed(2), c:+c.toFixed(2), v: Math.floor(1e5+Math.random()*5e5) };
     });
   },
 };
