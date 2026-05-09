@@ -323,17 +323,8 @@ const SIGNAL = {
       return this.fromScore(score, gainPct, supportBreak);
     }
 
-    // 當前選中股票但尚未分析完 → 顯示「分析中」
-    if (APP.activeSymbol === stock.code) {
-      return { ...this.LEVELS[3], label:'分析中', short:'⏳ —' };
-    }
-
-    // 其他股票無快取 → 純損益%估算，不顯示買進，避免誤導
-    const gainPct = stock.cost ? (stock.price - stock.cost) / stock.cost * 100 : 0;
-    if (gainPct <= -8)  return this.LEVELS[0];
-    if (gainPct <= -5)  return this.LEVELS[2];
-    if (gainPct >= 30)  return this.LEVELS[1];
-    if (gainPct >= 20)  return this.LEVELS[2];
+    // 沒有快取 → 顯示「待分析」，不做任何買賣估算避免誤導
+    // 背景分析完成後會自動更新
     return { ...this.LEVELS[3], label:'待分析', short:'⚪ —' };
   },
 };
@@ -897,7 +888,7 @@ const RECOMMEND = {
     { code:'2412',  name:'中華電',         sector:'電信',  type:'存股',   risk:'低',   horizon:'長線', reason:'台灣最大電信，現金流穩定，殖利率4-5%。', logic:'景氣不佳時的避風港，防禦部位。', shortNote:null },
   ],
 
-  run() {
+  async run() {
     const el = document.getElementById('rec-result');
     if (!el) return;
     const portfolio = APP.portfolio;
@@ -935,6 +926,13 @@ const RECOMMEND = {
       el.innerHTML = '<div class="rec-card"><div class="rec-body">你已持有所有推薦標的！</div></div>';
       return;
     }
+    // 問題8: 自動抓取推薦標的報價
+    el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">⏳ 抓取報價中...</div>';
+    await DATA.batchUpdate(scored.map(c => c.code));
+    scored.forEach(c => {
+      const q = DATA.priceStore[c.code];
+      if (q?.price) c.price = q.price;
+    });
 
     const riskColor = { '低':'#1D9E75','低中':'#5DCAA5','中':'#EF9F27','中高':'#E24B4A','高':'#E24B4A' };
     const horizonLabel = { '長線':'長期', '短線':'短線', '長短':'長短' };
@@ -991,6 +989,16 @@ const APP = {
   settings: JSON.parse(localStorage.getItem('twsa-settings') || '{}'),
 
   async init() {
+    // ★ 一次性初始化：只在 localStorage 沒有交易記錄時才寫入
+    // 之後修改資料都用網站介面操作，不會再觸發
+    if (!localStorage.getItem('twsa-trades') || JSON.parse(localStorage.getItem('twsa-trades') || '[]').length === 0) {
+      localStorage.setItem('twsa-trades', JSON.stringify([{"date":"2025-12-11","code":"2330","name":"台積電","action":"buy","shares":3,"price":1470.0,"fee":20,"id":1777800000000},{"date":"2025-12-15","code":"0050","name":"元大台灣50","action":"buy","shares":40,"price":62.75,"fee":20,"id":1777800000001},{"date":"2025-12-16","code":"2330","name":"台積電","action":"buy","shares":1,"price":1435.0,"fee":20,"id":1777800000002},{"date":"2025-12-16","code":"0050","name":"元大台灣50","action":"buy","shares":25,"price":61.8,"fee":20,"id":1777800000003},{"date":"2026-01-15","code":"0050","name":"元大台灣50","action":"buy","shares":30,"price":70.2,"fee":20,"id":1777800000004},{"date":"2026-01-19","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":71.8,"fee":20,"id":1777800000005},{"date":"2026-01-19","code":"0050","name":"元大台灣50","action":"buy","shares":30,"price":71.9,"fee":20,"id":1777800000006},{"date":"2026-01-19","code":"0050","name":"元大台灣50","action":"buy","shares":40,"price":71.8,"fee":20,"id":1777800000007},{"date":"2026-01-19","code":"0050","name":"元大台灣50","action":"buy","shares":30,"price":72.0,"fee":20,"id":1777800000008},{"date":"2026-02-06","code":"0050","name":"元大台灣50","action":"buy","shares":70,"price":71.1,"fee":20,"id":1777800000009},{"date":"2026-02-06","code":"0050","name":"元大台灣50","action":"buy","shares":70,"price":71.1,"fee":20,"id":1777800000010},{"date":"2026-02-25","code":"0050","name":"元大台灣50","action":"buy","shares":70,"price":81.0,"fee":20,"id":1777800000011},{"date":"2026-02-25","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":81.1,"fee":20,"id":1777800000012},{"date":"2026-03-02","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":80.5,"fee":20,"id":1777800000013},{"date":"2026-03-03","code":"2330","name":"台積電","action":"buy","shares":1,"price":1960.0,"fee":20,"id":1777800000014},{"date":"2026-03-03","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":79.8,"fee":20,"id":1777800000015},{"date":"2026-03-03","code":"0050","name":"元大台灣50","action":"buy","shares":80,"price":79.6,"fee":20,"id":1777800000016},{"date":"2026-03-04","code":"0050","name":"元大台灣50","action":"buy","shares":100,"price":76.0,"fee":20,"id":1777800000017},{"date":"2026-03-04","code":"2330","name":"台積電","action":"buy","shares":1,"price":1880.0,"fee":20,"id":1777800000018},{"date":"2026-03-04","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":76.3,"fee":20,"id":1777800000019},{"date":"2026-03-19","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":76.5,"fee":20,"id":1777800000020},{"date":"2026-03-19","code":"2330","name":"台積電","action":"buy","shares":1,"price":1860.0,"fee":20,"id":1777800000021},{"date":"2026-03-23","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":74.0,"fee":20,"id":1777800000022},{"date":"2026-03-30","code":"0050","name":"元大台灣50","action":"buy","shares":65,"price":73.5,"fee":20,"id":1777800000023},{"date":"2026-03-31","code":"0050","name":"元大台灣50","action":"buy","shares":30,"price":72.9,"fee":20,"id":1777800000024},{"date":"2026-04-02","code":"0050","name":"元大台灣50","action":"buy","shares":100,"price":74.1,"fee":20,"id":1777800000025},{"date":"2026-04-08","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":79.15,"fee":20,"id":1777800000026},{"date":"2026-04-15","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":84.5,"fee":20,"id":1777800000027},{"date":"2026-04-16","code":"2330","name":"台積電","action":"buy","shares":1,"price":2065.0,"fee":20,"id":1777800000028},{"date":"2026-04-20","code":"0050","name":"元大台灣50","action":"buy","shares":50,"price":85.0,"fee":20,"id":1777800000029},{"date":"2026-04-23","code":"0050","name":"元大台灣50","action":"buy","shares":100,"price":86.0,"fee":20,"id":1777800000030}]));
+      console.log('[INIT] 已寫入 31 筆交易記錄');
+    }
+    if (!localStorage.getItem('twsa-portfolio') || JSON.parse(localStorage.getItem('twsa-portfolio') || '[]').length === 0) {
+      localStorage.setItem('twsa-portfolio', JSON.stringify([{"code":"2330","name":"台積電","shares":8,"cost":1716.25,"date":"2025-12-11","price":1716.25,"prevClose":1716.25},{"code":"0050","name":"元大台灣50","shares":1380,"cost":76.7,"date":"2025-12-15","price":76.7,"prevClose":76.7}]));
+      console.log('[INIT] 已寫入持股清單（2330 × 8股、0050 × 1380股）');
+    }
     CHART.init();
     this._loadSettings();
     this._setupTabs();
@@ -1005,7 +1013,7 @@ const APP = {
 
     // Load USD rate + VIX
     await Promise.all([CURRENCY.fetchUSDRate(), VIX.fetch()]);
-    await this.refreshPrices();
+    await this.refreshPrices(true); // 開網站時強制更新一次
     // 問題1修正：雲端同步改為非阻塞，不卡住 init 流程
     // 先顯示本機資料，背景同步雲端
     SYNC.autoDownloadOnStart(); // 不 await，背景執行
@@ -1021,7 +1029,7 @@ const APP = {
       console.log('[SYNC] 自動上傳已解鎖');
     }, 12000);
 
-    this.refreshTimer = setInterval(() => this.refreshPrices(), 5000); // TWSE 5秒批次更新
+    this.refreshTimer = setInterval(() => this.refreshPrices(), 30000); // 每30秒，休市自動跳過
     setInterval(() => this.updateClock(), 1000);
     setInterval(() => this._updateMarketStatus(), 60000);
     DATA.fetchIndexes();
@@ -1039,6 +1047,7 @@ const APP = {
     const s = this.settings;
     if (s.jsonbinKey) { const el = document.getElementById('jsonbin-key'); if(el) el.value = s.jsonbinKey; }
     if (s.jsonbinBin) { const el = document.getElementById('jsonbin-bin'); if(el) el.value = s.jsonbinBin; }
+    if (s.finmindToken) { const el = document.getElementById('finmind-token'); if(el) el.value = s.finmindToken; }
   },
 
   _calcTotalValue() {
@@ -1060,29 +1069,43 @@ const APP = {
     if (el) el.textContent = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
   },
 
-  _updateMarketStatus() {
+  _isMarketOpen() {
+    // 用台灣時間（UTC+8）判斷，不管用戶在哪個時區
     const now = new Date();
-    const h = now.getHours(), m = now.getMinutes();
-    const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
-    const isOpen = isWeekday && (h > 9 || (h === 9 && m >= 0)) && (h < 13 || (h === 13 && m <= 30));
+    const twNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+    const h = twNow.getHours(), m = twNow.getMinutes();
+    const isWeekday = twNow.getDay() >= 1 && twNow.getDay() <= 5;
+    // 台股 09:00-13:30（含）
+    const afterOpen  = h > 9 || (h === 9 && m >= 0);
+    const beforeClose = h < 13 || (h === 13 && m <= 30);
+    return isWeekday && afterOpen && beforeClose;
+  },
+
+  _updateMarketStatus() {
+    const isOpen = this._isMarketOpen();
     const el = document.getElementById('mkt-status');
     if (el) { el.textContent = isOpen ? '開盤中' : '休市'; el.className = isOpen ? 'badge open' : 'badge closed'; }
     const dot = document.getElementById('live-dot');
     if (dot) dot.style.opacity = isOpen ? '1' : '0.3';
+    return isOpen;
   },
 
-  async refreshPrices() {
+  async refreshPrices(force = false) {
+    // 問題1: 休市時不更新（除非強制）
+    const isOpen = this._isMarketOpen();
+    if (!force && !isOpen) {
+      console.log('[refreshPrices] 休市，跳過更新');
+      return;
+    }
     const btn = document.querySelector('.icon-btn[onclick="refreshAll()"]');
     if (btn) btn.classList.add('spinning');
 
-    // ★ 集中批次更新：一次請求涵蓋所有股票
     const allCodes = [
       ...this.portfolio.map(s => s.code),
       ...this.watchlist.map(s => s.code),
     ];
     await DATA.batchUpdate(allCodes);
 
-    // 從 priceStore 同步回 stock 物件
     [...this.portfolio, ...this.watchlist].forEach(s => {
       const q = DATA.priceStore[s.code];
       if (q?.price) {
@@ -1096,11 +1119,11 @@ const APP = {
     this.renderStockList();
     this.renderWatchlist();
     this._updateMarketStatus();
-    PIE.render();
+    // 問題3: PIE 不在報價更新時刷新（只在買賣操作後更新）
     GOALS.updateDashboard();
     GOALS.recordSnapshot();
     this._renderSignalOverview();
-    showToast('報價已更新');
+    // 問題5: 移除「報價已更新」toast
   },
 
   renderAll() {
@@ -1584,6 +1607,7 @@ function addStock() {
   const fee = Math.max(20, Math.round(cost * shares * 0.001425));
   TRADES.add({ date: date||new Date().toISOString().split('T')[0], code, name, action:'buy', shares, price:cost, fee });
   APP.save(); APP.renderAll(); closeModal('add-modal');
+  PIE.render();
   showToast(`已新增 ${name} (${code}) × ${shares}股`);
   ['m-code','m-name','m-shares','m-cost'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   DATA.fetchQuote(code).then(q => {
@@ -1616,6 +1640,7 @@ function confirmBuy() {
   const fee = Math.max(20, Math.round(price * shares * 0.001425));
   TRADES.add({ date, code:s.code, name:s.name, action:'buy', shares, price, fee });
   APP.save(); APP.renderAll(); closeModal('buy-modal');
+  PIE.render();
   showToast(`${s.name} 加碼 ${shares}股 @ $${price}，新均價 $${s.cost.toFixed(2)}`);
 }
 
@@ -1639,6 +1664,7 @@ function confirmSell() {
   s.shares = +(s.shares - shares).toFixed(0);
   if (s.shares <= 0) { APP.portfolio.splice(idx, 1); if (APP.activeSymbol === s.code) APP.activeSymbol = ''; }
   APP.save(); APP.renderAll(); closeModal('sell-modal'); TRADES.render();
+  PIE.render();
   showToast(`${s.name} 賣出 ${shares}股 @ $${price}，${pnl>=0?'獲利':'虧損'}${pnlDisplay}（稅費$${totalFee}）`);
 }
 
@@ -1702,6 +1728,7 @@ function saveSettings() {
   s.ejsPubkey   = document.getElementById('ejs-pubkey')?.value.trim();
   s.jsonbinKey  = document.getElementById('jsonbin-key')?.value.trim();
   s.jsonbinBin  = document.getElementById('jsonbin-bin')?.value.trim();
+  s.finmindToken = document.getElementById('finmind-token')?.value.trim();
   const gTarget = parseFloat(document.getElementById('goal-target-input')?.value) * 10000;
   const gYears  = parseFloat(document.getElementById('goal-years-input')?.value);
   if (gTarget && gYears) {

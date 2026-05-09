@@ -1,474 +1,500 @@
-// ── chart.js  ── Canvas K-line renderer v3
-// 新增：滑鼠滾輪縮放、拖曳平移
+// ── chart.js  ── K-line + Volume + MACD + KD renderer ──
 
 const CHART = {
+  mainCtx: null,
+  volCtx: null,
+  macdChart: null,
+  kdChart: null,
   currentData: [],
-  currentPeriod: '3mo',
-  currentType: 'candle',
-  // Zoom/pan state
-  zoomStart: 0,    // 顯示起始 index（0 = 最舊）
-  zoomEnd: 0,      // 顯示結束 index
-  isDragging: false,
-  dragStartX: 0,
-  dragStartZoom: { start: 0, end: 0 },
+  chartType: 'candle',   // 'candle' | 'line'
+  hoveredIdx: -1,
 
+  // ── Init ─────────────────────────────────────────────
   init() {
-    const tabs = document.getElementById('period-tabs');
-    if (tabs) {
-      tabs.addEventListener('click', e => {
-        const btn = e.target.closest('.period-btn');
-        if (!btn) return;
-        tabs.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.currentPeriod = btn.dataset.period;
-        if (APP.activeSymbol) this.load(APP.activeSymbol, this.currentPeriod);
-      });
-    }
-    document.querySelectorAll('.type-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.currentType = btn.dataset.type;
-        if (this.currentData.length) this.draw();
-      });
-    });
-    // Zoom reset button
-    const resetBtn = document.getElementById('zoom-reset-btn');
-    if (resetBtn) resetBtn.addEventListener('click', () => { this._resetZoom(); this.draw(); });
+    this.mainCtx = document.getElementById('mainChart').getContext('2d');
+    this.volCtx  = document.getElementById('volChart').getContext('2d');
+    this._setupEvents();
+    this._setupPeriodTabs();
+    this._setupTypeTabs();
   },
 
-  // 分析週期設定（專業角度）
-  // 長線：6月日線（~125根），足以計算 MA60、長期趨勢、支撐壓力
-  // 短線：1月日線（~22根），著重近期 RSI、MACD 動能、KD 超買超賣
+  // ── Load data & render ────────────────────────────────
+  // 分析週期（長線/短線按鈕用）
   ANALYSIS_PERIODS: {
-    long:  '6mo',
-    short: '1mo',
+    long:  '1y',   // 長線：1年日線（~252根）
+    short: '1mo',  // 短線：1個月日線（~22根）
   },
 
-  async load(symbol, period) {
-    this.currentPeriod = period;
-    const loadEl = document.getElementById('chart-loading');
-    if (loadEl) loadEl.style.display = 'flex';
-    const data = await DATA.fetchHistory(symbol, period);
-    if (loadEl) loadEl.style.display = 'none';
-    this.currentData = data;
-    this._resetZoom();
+  _loadingSymbol: null, // 追蹤正在載入的股票，防止 race condition
+
+  async load(symbol, period = '3mo') {
+    // ★ 問題12修正：記錄本次載入目標，防止 race condition
+    this._loadingSymbol = symbol;
+
+    let interval = '1d';
+    if (period === '1d') interval = '15m';
+    else if (period === '1wk') interval = '60m';
+
+    const candles = await DATA.fetchHistory(symbol, period, interval);
+
+    // 若已切換到其他股票，丟棄此次結果
+    if (this._loadingSymbol !== symbol) {
+      console.log(`[CHART] race condition: discard ${symbol}, current=${this._loadingSymbol}`);
+      return;
+    }
+
+    this.currentData = candles;
     this.draw();
-
-    // ★ 技術分析完全不跟 K 線顯示週期走
-    // 只有在「此股票還沒有快取」時才自動拉資料分析
-    // 長線/短線切換由 runAnalysisForSymbol() 處理
+    // 分析只跑分析用週期資料（不跟顯示週期混用）
     if (!ANALYSIS._cache[symbol]) {
-      this._runAnalysis(symbol);
+      ANALYSIS.run(candles, symbol);
     }
   },
 
-  // 用指定模式的資料分析（外部呼叫）
-  async runAnalysisForSymbol(symbol, mode) {
-    const period = this.ANALYSIS_PERIODS[mode] || this.ANALYSIS_PERIODS.long;
-    const loadEl = document.getElementById('chart-loading');
-    if (loadEl) loadEl.style.display = 'flex';
-    const data = await DATA.fetchHistory(symbol, period);
-    if (loadEl) loadEl.style.display = 'none';
-    if (data.length >= 15 && APP.activeSymbol === symbol) {
-      ANALYSIS.run(data, symbol);
-    }
-  },
-
-  // 內部自動分析（預設長線）
-  _runAnalysis(symbol) {
-    const mode = APP.getStockMode(symbol);
-    const period = this.ANALYSIS_PERIODS[mode] || this.ANALYSIS_PERIODS.long;
-    DATA.fetchHistory(symbol, period).then(data => {
-      if (data.length >= 15) ANALYSIS.run(data, symbol);
-    });
-  },
-
-  _resetZoom() {
-    const n = this.currentData.length;
-    this.zoomStart = 0;
-    this.zoomEnd = n - 1;
-  },
-
-  _visibleData() {
-    const n = this.currentData.length;
-    if (!n) return [];
-    const s = Math.max(0, Math.min(n-2, this.zoomStart));
-    const e = Math.max(s+1, Math.min(n-1, this.zoomEnd));
-    return this.currentData.slice(s, e + 1);
-  },
-
+  // ── Main draw ─────────────────────────────────────────
   draw() {
     this._drawMain();
-    this._drawVol();
+    this._drawVolume();
   },
 
   _drawMain() {
     const canvas = document.getElementById('mainChart');
-    if (!canvas || !this.currentData.length) return;
     const wrap = document.getElementById('candle-wrap');
-    const W = wrap.clientWidth || 600;
-    const H = 300;
+    const data = this.currentData;
+    if (!data.length || !wrap) return;
+
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr; canvas.height = H * dpr;
+    const W = wrap.clientWidth;
+    const H = wrap.clientHeight || 320;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const isDark = !document.body.classList.contains('light-mode');
+    const PAD = { l: 58, r: 12, t: 18, b: 28 };
+    const CW = W - PAD.l - PAD.r;
+    const CH = H - PAD.t - PAD.b;
+    const n = data.length;
+
+    // Price range
+    const highs  = data.map(d => d.h);
+    const lows   = data.map(d => d.l);
+    let maxP = Math.max(...highs);
+    let minP = Math.min(...lows);
+    const pad = (maxP - minP) * 0.08;
+    maxP += pad; minP -= pad;
+    const pY = p => PAD.t + CH * (1 - (p - minP) / (maxP - minP));
+
+    // Candle width
+    const cw = Math.max(2, Math.floor(CW / n * 0.72));
+    const xAt = i => PAD.l + (i + 0.5) * (CW / n);
+
+    // Grid
+    const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+    const textColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
+    ctx.font = `10px IBM Plex Mono, monospace`;
+    for (let i = 0; i <= 5; i++) {
+      const y = PAD.t + CH * (i / 5);
+      const price = maxP - (maxP - minP) * (i / 5);
+      ctx.strokeStyle = gridColor;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
+      ctx.fillStyle = textColor;
+      ctx.textAlign = 'right';
+      ctx.fillText(price.toFixed(1), PAD.l - 4, y + 4);
+    }
+
+    // MA lines
+    const maConfigs = [
+      { period: 5,  color: '#EF9F27' },
+      { period: 20, color: '#378ADD' },
+      { period: 60, color: '#D4537E' },
+    ];
+    for (const ma of maConfigs) {
+      if (data.length < ma.period) continue;
+      ctx.beginPath();
+      ctx.strokeStyle = ma.color;
+      ctx.lineWidth = 1.2;
+      ctx.globalAlpha = 0.8;
+      let started = false;
+      for (let i = ma.period - 1; i < n; i++) {
+        let sum = 0;
+        for (let j = 0; j < ma.period; j++) sum += data[i - j].c;
+        const avg = sum / ma.period;
+        const x = xAt(i), y = pY(avg);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Bollinger Bands (20,2)
+    if (data.length >= 20) {
+      ctx.beginPath();
+      ctx.strokeStyle = isDark ? 'rgba(127,119,221,0.35)' : 'rgba(83,74,183,0.3)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      let started = false;
+      for (let i = 19; i < n; i++) {
+        const slice = data.slice(i - 19, i + 1).map(d => d.c);
+        const mean = slice.reduce((a, b) => a + b) / 20;
+        const std  = Math.sqrt(slice.reduce((a, b) => a + (b - mean) ** 2, 0) / 20);
+        const upper = mean + 2 * std;
+        const x = xAt(i), y = pY(upper);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.beginPath(); started = false;
+      for (let i = 19; i < n; i++) {
+        const slice = data.slice(i - 19, i + 1).map(d => d.c);
+        const mean = slice.reduce((a, b) => a + b) / 20;
+        const std  = Math.sqrt(slice.reduce((a, b) => a + (b - mean) ** 2, 0) / 20);
+        const lower = mean - 2 * std;
+        const x = xAt(i), y = pY(lower);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Candles or Line
+    if (this.chartType === 'candle') {
+      for (let i = 0; i < n; i++) {
+        const d = data[i];
+        const x = xAt(i);
+        const isUp = d.c >= d.o;
+        const color = isUp ? '#E24B4A' : '#5DCAA5';
+        const bodyTop    = pY(Math.max(d.o, d.c));
+        const bodyBottom = pY(Math.min(d.o, d.c));
+        const bodyH      = Math.max(1.5, bodyBottom - bodyTop);
+
+        // Highlight hovered
+        if (i === this.hoveredIdx) {
+          ctx.fillStyle = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)';
+          ctx.fillRect(x - CW / n / 2, PAD.t, CW / n, CH);
+        }
+
+        // Wick
+        ctx.strokeStyle = color; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, pY(d.h));
+        ctx.lineTo(x, pY(d.l));
+        ctx.stroke();
+
+        // Body
+        ctx.fillStyle = color;
+        ctx.fillRect(x - cw / 2, bodyTop, cw, bodyH);
+      }
+    } else {
+      // Line chart
+      ctx.beginPath();
+      ctx.strokeStyle = '#378ADD'; ctx.lineWidth = 1.8;
+      for (let i = 0; i < n; i++) {
+        const x = xAt(i), y = pY(data[i].c);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      // Area fill
+      ctx.lineTo(xAt(n - 1), H - PAD.b);
+      ctx.lineTo(xAt(0), H - PAD.b);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, PAD.t, 0, H - PAD.b);
+      grad.addColorStop(0, 'rgba(55,138,221,0.18)');
+      grad.addColorStop(1, 'rgba(55,138,221,0)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+
+    // X axis labels
+    const labelStep = Math.max(1, Math.ceil(n / 7));
+    for (let i = 0; i < n; i += labelStep) {
+      const d = data[i];
+      const x = xAt(i);
+      const date = new Date(d.t);
+      const label = `${date.getMonth() + 1}/${date.getDate()}`;
+      ctx.fillStyle = textColor; ctx.textAlign = 'center'; ctx.font = '10px IBM Plex Mono,monospace';
+      ctx.fillText(label, x, H - PAD.b + 14);
+    }
+
+    // Price line at last close
+    if (data.length) {
+      const lastC = data[data.length - 1].c;
+      const prevC = data.length > 1 ? data[data.length - 2].c : lastC;
+      const lineColor = lastC >= prevC ? '#E24B4A' : '#5DCAA5';
+      ctx.strokeStyle = lineColor + '88';
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(PAD.l, pY(lastC));
+      ctx.lineTo(W - PAD.r, pY(lastC));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = lineColor;
+      ctx.textAlign = 'left'; ctx.font = '10px IBM Plex Mono,monospace';
+      ctx.fillText(lastC.toFixed(1), W - PAD.r + 2, pY(lastC) + 4);
+    }
+  },
+
+  _drawVolume() {
+    const canvas = document.getElementById('volChart');
+    const wrap   = document.getElementById('volChart').parentElement;
+    const data = this.currentData;
+    if (!data.length) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const W = wrap.clientWidth;
+    const H = 80;
+    canvas.width  = W * dpr; canvas.height = H * dpr;
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
 
     const isDark = !document.body.classList.contains('light-mode');
-    const clr = {
-      up:'#E24B4A', dn:'#1D9E75',
-      grid: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-      text: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)',
-      ma5:'#EF9F27', ma20:'#378ADD', ma60:'#D4537E',
-    };
-
-    const data = this._visibleData();
-    if (!data.length) return;
+    const PAD = { l: 58, r: 12, t: 6, b: 18 };
+    const CW = W - PAD.l - PAD.r;
+    const CH = H - PAD.t - PAD.b;
     const n = data.length;
-    const allCloses = this.currentData.map(d => d.c);
-    const ma5  = this._ma(allCloses, 5);
-    const ma20 = this._ma(allCloses, 20);
-    const ma60 = this._ma(allCloses, 60);
-    // Map to visible slice
-    const visStart = this.zoomStart;
-    const ma5v  = ma5.slice(visStart, visStart + n);
-    const ma20v = ma20.slice(visStart, visStart + n);
-    const ma60v = ma60.slice(visStart, visStart + n);
+    const maxV = Math.max(...data.map(d => d.v));
+    const cw = Math.max(2, Math.floor(CW / n * 0.72));
+    const xAt = i => PAD.l + (i + 0.5) * (CW / n);
+    const textColor = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)';
 
-    const PAD = { l:6, r:56, t:16, b:28 };
-    const chartW = W - PAD.l - PAD.r;
-    const barW = Math.max(1, Math.min(16, Math.floor(chartW / n) - 1));
-    const gap = Math.max(0, (chartW - barW * n) / Math.max(1, n - 1));
+    ctx.fillStyle = textColor;
+    ctx.font = '9px IBM Plex Mono,monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('量', PAD.l - 4, PAD.t + 10);
 
-    const allPrices = data.flatMap(d => [d.h, d.l]);
-    const minP = Math.min(...allPrices) * 0.998;
-    const maxP = Math.max(...allPrices) * 1.002;
-    const priceRange = maxP - minP || 1;
-
-    const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
-    const yOf = p => PAD.t + (1 - (p - minP) / priceRange) * (H - PAD.t - PAD.b);
-
-    // Grid - 水平線 + 垂直線
-    ctx.strokeStyle = clr.grid; ctx.lineWidth = 1;
-    // 水平格線
-    [0.25, 0.5, 0.75].forEach(r => {
-      const y = PAD.t + r * (H - PAD.t - PAD.b);
-      ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
-      const p = maxP - r * priceRange;
-      ctx.fillStyle = clr.text; ctx.font = '10px monospace';
-      ctx.textAlign = 'left'; ctx.fillText(p.toFixed(1), W - PAD.r + 3, y + 3);
-    });
-    // 垂直格線（與 X 軸日期對齊）
-    const vStep = Math.max(1, Math.ceil(n / 6));
-    for (let i = 0; i < n; i += vStep) {
-      const x = xOf(i);
-      ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, H - PAD.b); ctx.stroke();
-    }
-
-    if (this.currentType === 'line') {
-      ctx.beginPath(); ctx.strokeStyle = clr.up; ctx.lineWidth = 1.5;
-      data.forEach((d, i) => { const x = xOf(i), y = yOf(d.c); i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y); });
-      ctx.stroke();
-    } else {
-      data.forEach((d, i) => {
-        const x = xOf(i);
-        const isUp = d.c >= d.o;
-        const col = isUp ? clr.up : clr.dn;
-        const oy = yOf(d.o), cy = yOf(d.c), hy = yOf(d.h), ly = yOf(d.l);
-        ctx.strokeStyle = col; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(x, hy); ctx.lineTo(x, ly); ctx.stroke();
-        const top = Math.min(oy, cy), bodyH = Math.max(1, Math.abs(cy - oy));
-        ctx.fillStyle = isUp ? col : col;
-        ctx.fillRect(x - barW/2, top, barW, bodyH);
-        if (!isUp) { ctx.strokeRect(x - barW/2, top, barW, bodyH); }
-      });
-    }
-
-    const drawMA = (ma, color) => {
-      ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.2;
-      let started = false;
-      ma.forEach((v, i) => {
-        if (!v) return;
-        const x = xOf(i), y = yOf(v);
-        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-    };
-    drawMA(ma5v, clr.ma5); drawMA(ma20v, clr.ma20); drawMA(ma60v, clr.ma60);
-
-    // 垂直格線（問題7）
-    const step = Math.max(1, Math.ceil(n / 6));
-    ctx.strokeStyle = clr.grid; ctx.lineWidth = 0.5; ctx.setLineDash([2, 3]);
-    for (let i = 0; i < n; i += step) {
-      const x = xOf(i);
-      ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, H - PAD.b - 12); ctx.stroke();
-    }
-    ctx.setLineDash([]);
-
-    // X axis labels - 根據資料密度自動決定格式
-    ctx.fillStyle = clr.text; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
-    // 判斷是否需要顯示時間：intraday (資料間隔 < 2小時) 或高度縮放 (每格 < 2天)
-    const timeSpanMs = data.length > 1 ? data[1].t - data[0].t : 86400000;
-    const isIntraday = timeSpanMs < 2 * 3600 * 1000;        // 2小時以內
-    const isHourly   = timeSpanMs < 8 * 3600 * 1000;        // 8小時以內
-    const visSpanDays = (data[data.length-1].t - data[0].t) / 86400000;
-    const showTime = isIntraday || isHourly || visSpanDays < 5; // 縮放後顯示範圍 < 5天
-
-    for (let i = 0; i < n; i += step) {
-      const dt = new Date(data[i].t);
-      let label;
-      if (showTime && isIntraday) {
-        // 純時間：HH:MM
-        label = dt.toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', hour12:false });
-      } else if (showTime && isHourly) {
-        // 日+時：DD HH:MM
-        label = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2,'0')}:${dt.getMinutes().toString().padStart(2,'0')}`;
-      } else if (showTime && visSpanDays < 5) {
-        // 日+時（顯示範圍少於5天）
-        label = `${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours().toString().padStart(2,'0')}:${dt.getMinutes().toString().padStart(2,'0')}`;
-      } else {
-        // 一般日期：MM/DD
-        label = dt.toLocaleDateString('zh-TW', { month:'2-digit', day:'2-digit' });
-      }
-      ctx.fillText(label, xOf(i), H - 6);
-    }
-
-    // Zoom indicator
-    if (this.zoomStart > 0 || this.zoomEnd < this.currentData.length - 1) {
-      const totalN = this.currentData.length;
-      const zoomPct = ((this.zoomEnd - this.zoomStart + 1) / totalN * 100).toFixed(0);
-      ctx.fillStyle = 'rgba(239,159,39,0.8)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
-      ctx.fillText(`顯示 ${zoomPct}%`, W - PAD.r - 2, PAD.t + 12);
-    }
-
-    this._setupInteraction(canvas, data, xOf, yOf, PAD, W, H, barW, gap, timeSpanMs);
-  },
-
-  _drawVol() {
-    const canvas = document.getElementById('volChart');
-    if (!canvas || !this.currentData.length) return;
-    const wrap = document.getElementById('candle-wrap');
-    const W = wrap.clientWidth || 600;
-    const H = 56;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-
-    const data = this._visibleData();
-    if (!data.length) return;
-    const n = data.length;
-    const PAD = { l:6, r:56, t:4, b:4 };
-    const chartW = W - PAD.l - PAD.r;
-    const barW = Math.max(1, Math.min(16, Math.floor(chartW / n) - 1));
-    const gap = Math.max(0, (chartW - barW * n) / Math.max(1, n - 1));
-    const maxV = Math.max(...data.map(d => d.v)) || 1;
-
-    data.forEach((d, i) => {
-      const x = PAD.l + i * (barW + gap);
+    for (let i = 0; i < n; i++) {
+      const d = data[i];
+      const x = xAt(i);
+      const barH = (d.v / maxV) * CH;
       const isUp = d.c >= d.o;
-      ctx.fillStyle = isUp ? 'rgba(226,75,74,0.55)' : 'rgba(29,158,117,0.55)';
-      const bh = Math.max(1, (d.v / maxV) * (H - PAD.t - PAD.b));
-      ctx.fillRect(x, H - PAD.b - bh, barW, bh);
-    });
+      ctx.fillStyle = isUp ? 'rgba(226,75,74,0.55)' : 'rgba(93,202,165,0.55)';
+      ctx.fillRect(x - cw / 2, H - PAD.b - barH, cw, barH);
+    }
+
+    // Vol label
+    const lastV = data[data.length - 1]?.v ?? 0;
+    ctx.fillStyle = textColor;
+    ctx.textAlign = 'left'; ctx.font = '9px IBM Plex Mono,monospace';
+    ctx.fillText((lastV / 1000).toFixed(0) + 'K', PAD.l + 2, H - PAD.b + 12);
   },
 
-  _setupInteraction(canvas, data, xOf, yOf, PAD, W, H, barW, gap, timeSpanMs = 86400000) {
+  // ── Setup mouse events for tooltip & crosshair ────────
+  _setupEvents() {
+    const canvas = document.getElementById('mainChart');
     const tt = document.getElementById('chart-tt');
     const cv = document.getElementById('cv');
     const ch = document.getElementById('ch');
-    const n = data.length;
 
-    const getIdx = mx => Math.max(0, Math.min(n-1, Math.round((mx - PAD.l) / ((W - PAD.l - PAD.r) / Math.max(1, n-1)))));
-
-    // Crosshair
-    canvas.onmousemove = e => {
-      const rect = canvas.getBoundingClientRect();
+    canvas.addEventListener('mousemove', (e) => {
+      const wrap = canvas.parentElement;
+      const rect = wrap.getBoundingClientRect();
       const mx = e.clientX - rect.left;
-      if (this.isDragging) {
-        const dx = mx - this.dragStartX;
-        const totalN = this.currentData.length;
-        const visN = this.dragStartZoom.end - this.dragStartZoom.start + 1;
-        const shift = Math.round(-dx / (W / visN));
-        let ns = this.dragStartZoom.start + shift;
-        let ne = this.dragStartZoom.end + shift;
-        if (ns < 0) { ne -= ns; ns = 0; }
-        if (ne >= totalN) { ns -= (ne - totalN + 1); ne = totalN - 1; }
-        this.zoomStart = Math.max(0, ns);
-        this.zoomEnd   = Math.min(totalN - 1, ne);
-        this.draw(); return;
+      const my = e.clientY - rect.top;
+      const W = wrap.clientWidth;
+      const PAD = { l: 58, r: 12, t: 18, b: 28 };
+      const CW = W - PAD.l - PAD.r;
+      const n = this.currentData.length;
+      const idx = Math.floor((mx - PAD.l) / (CW / n));
+
+      if (idx >= 0 && idx < n) {
+        this.hoveredIdx = idx;
+        const d = this.currentData[idx];
+        const date = new Date(d.t);
+        const dateStr = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+        const isUp = d.c >= d.o;
+        const chgColor = isUp ? 'var(--red)' : 'var(--green-l)';
+        const chg = (d.c - d.o).toFixed(2);
+        const chgPct = ((d.c - d.o) / d.o * 100).toFixed(2);
+
+        tt.style.display = 'block';
+        const ttX = mx + 14 > W - 160 ? mx - 155 : mx + 14;
+        tt.style.left = ttX + 'px';
+        tt.style.top = '10px';
+        tt.innerHTML = `
+          <div class="tt-row"><span class="tt-label">${dateStr}</span></div>
+          <div class="tt-row"><span class="tt-label">開</span><span>${d.o.toFixed(2)}</span></div>
+          <div class="tt-row"><span class="tt-label">高</span><span style="color:var(--red)">${d.h.toFixed(2)}</span></div>
+          <div class="tt-row"><span class="tt-label">低</span><span style="color:var(--green-l)">${d.l.toFixed(2)}</span></div>
+          <div class="tt-row"><span class="tt-label">收</span><span style="color:${chgColor};font-weight:500">${d.c.toFixed(2)}</span></div>
+          <div class="tt-row"><span class="tt-label">漲跌</span><span style="color:${chgColor}">${chg >= 0 ? '+' : ''}${chg} (${chgPct >= 0 ? '+' : ''}${chgPct}%)</span></div>
+          <div class="tt-row"><span class="tt-label">量</span><span>${(d.v/1000).toFixed(0)}K</span></div>`;
+
+        // Crosshair
+        cv.style.display = 'block';
+        ch.style.display = 'block';
+        cv.style.left = mx + 'px';
+        ch.style.top = my + 'px';
+
+        this.draw(); // redraw with highlight
       }
-      const idx = getIdx(mx);
-      const d = data[idx];
-      const x = xOf(idx); const y = yOf(d.c);
-      if (cv) { cv.style.left = x + 'px'; cv.style.opacity = '1'; }
-      if (ch) { ch.style.top = y + 'px'; ch.style.opacity = '1'; }
-      if (tt) {
-        const dt = new Date(d.t);
-        const showT = timeSpanMs < 8 * 3600 * 1000;
-        const dateStr = showT
-          ? dt.toLocaleDateString('zh-TW') + ' ' + dt.toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', hour12:false })
-          : dt.toLocaleDateString('zh-TW');
-        const chg = d.c - d.o;
-        tt.innerHTML = `<span>${dateStr}</span> 開${d.o} 高${d.h} 低${d.l} <b>收${d.c}</b> <span style="color:${chg>=0?'#E24B4A':'#1D9E75'}">${chg>=0?'▲':'▼'}${Math.abs(chg).toFixed(2)}</span>`;
-        tt.style.opacity = '1';
-      }
-    };
+    });
 
-    canvas.onmouseleave = () => {
-      if (cv) cv.style.opacity = '0';
-      if (ch) ch.style.opacity = '0';
-      if (tt) tt.style.opacity = '0';
-      this.isDragging = false;
-    };
-
-    canvas.onmousedown = e => {
-      this.isDragging = true;
-      this.dragStartX = e.clientX - canvas.getBoundingClientRect().left;
-      this.dragStartZoom = { start: this.zoomStart, end: this.zoomEnd };
-      canvas.style.cursor = 'grabbing';
-    };
-
-    canvas.onmouseup = () => { this.isDragging = false; canvas.style.cursor = 'crosshair'; };
-
-    // Wheel zoom - 滾輪向上 = 放大（看更細），向下 = 縮小（看更廣）
-    canvas.onwheel = e => {
-      e.preventDefault();
-      const totalN = this.currentData.length;
-      const visN = this.zoomEnd - this.zoomStart + 1;
-      // deltaY > 0 = 滾輪向下 = 縮小（顯示更多）
-      // deltaY < 0 = 滾輪向上 = 放大（顯示更少）
-      const zoomIn = e.deltaY < 0;
-      const zoomFactor = 0.15;
-      const change = Math.max(1, Math.round(visN * zoomFactor));
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const ratio = mx / W;
-
-      let ns, ne;
-      if (zoomIn) {
-        // 放大：縮小顯示範圍
-        ns = this.zoomStart + Math.round(change * ratio);
-        ne = this.zoomEnd   - Math.round(change * (1 - ratio));
-      } else {
-        // 縮小：擴大顯示範圍
-        ns = this.zoomStart - Math.round(change * ratio);
-        ne = this.zoomEnd   + Math.round(change * (1 - ratio));
-      }
-      if (ne - ns < 5) { if (zoomIn) { ns = ne - 5; } else { ne = ns + 5; } }
-      this.zoomStart = Math.max(0, ns);
-      this.zoomEnd   = Math.min(totalN - 1, ne);
+    canvas.addEventListener('mouseleave', () => {
+      tt.style.display = 'none';
+      cv.style.display = 'none';
+      ch.style.display = 'none';
+      this.hoveredIdx = -1;
       this.draw();
-    };
-    canvas.style.cursor = 'crosshair';
+    });
   },
 
+  // ── Period tabs ───────────────────────────────────────
+  _setupPeriodTabs() {
+    document.getElementById('period-tabs').addEventListener('click', (e) => {
+      const btn = e.target.closest('.period-btn');
+      if (!btn) return;
+      document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const period = btn.dataset.period;
+      const sym = APP.activeSymbol;
+      if (sym) CHART.load(sym, period);
+    });
+  },
+
+  // ── Chart type toggle ─────────────────────────────────
+  _setupTypeTabs() {
+    document.querySelectorAll('.type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.chartType = btn.dataset.type;
+        this.draw();
+      });
+    });
+  },
+
+  // ── Draw MACD chart (Chart.js) ────────────────────────
   drawMACD(data) {
     const canvas = document.getElementById('macdChart');
-    if (!canvas || !data.length) return;
-    const W = canvas.parentElement?.clientWidth || 500;
-    const H = 140;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
+    if (!canvas) return;
+    if (this.macdChart) { this.macdChart.destroy(); this.macdChart = null; }
+    if (!data.length) return;
 
     const closes = data.map(d => d.c);
     const n = closes.length;
-    const ema12 = ANALYSIS._ema(closes, 12);
-    const ema26 = ANALYSIS._ema(closes, 26);
-    const macdArr = closes.slice(25).map((_, i) => ema12[i+25] - ema26[i+25]);
-    const sigArr = ANALYSIS._ema(macdArr, 9);
-    const hists = macdArr.map((v, i) => v - (sigArr[i] || 0));
-
     const isDark = !document.body.classList.contains('light-mode');
-    const grid = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
-    const textC = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
-    const PAD = { l:6, r:56, t:14, b:20 };
-    const chartW = W - PAD.l - PAD.r;
-    const visN = hists.length;
-    const barW = Math.max(1, Math.floor(chartW / visN) - 1);
-    const gap = (chartW - barW * visN) / (visN - 1 || 1);
-    const absMax = Math.max(...hists.map(Math.abs), 0.001) * 1.1;
-    const mid = PAD.t + (H - PAD.t - PAD.b) / 2;
-    const yOf = v => mid - (v / absMax) * ((H - PAD.t - PAD.b) / 2);
+    const gc = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    const tc = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
 
-    ctx.strokeStyle = grid; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(PAD.l, mid); ctx.lineTo(W - PAD.r, mid); ctx.stroke();
-    ctx.fillStyle = textC; ctx.font = '9px monospace'; ctx.textAlign = 'left';
-    ctx.fillText('MACD', W - PAD.r + 3, PAD.t + 8);
+    // Compute EMA
+    const ema = (arr, p) => {
+      const k = 2 / (p + 1);
+      const res = [];
+      let prev = arr.slice(0, p).reduce((a, b) => a + b) / p;
+      res.push(prev);
+      for (let i = p; i < arr.length; i++) {
+        prev = arr[i] * k + prev * (1 - k);
+        res.push(prev);
+      }
+      return { values: res, startIdx: p - 1 };
+    };
 
-    hists.forEach((h, i) => {
-      const x = PAD.l + i * (barW + gap);
-      ctx.fillStyle = h >= 0 ? 'rgba(226,75,74,0.7)' : 'rgba(29,158,117,0.7)';
-      ctx.fillRect(x, Math.min(yOf(h), mid), barW, Math.max(1, Math.abs(yOf(h) - mid)));
+    const ema12 = ema(closes, 12);
+    const ema26 = ema(closes, 26);
+    const startIdx = Math.max(ema12.startIdx, ema26.startIdx);
+    const macdLine = [];
+    for (let i = startIdx; i < n; i++) {
+      const e12 = ema12.values[i - ema12.startIdx];
+      const e26 = ema26.values[i - ema26.startIdx];
+      macdLine.push(+(e12 - e26).toFixed(3));
+    }
+
+    const sigLine = ema(macdLine, 9).values;
+    const histLine = macdLine.slice(8).map((v, i) => +(v - sigLine[i]).toFixed(3));
+    const labels = data.slice(startIdx + 8).map(d => {
+      const dt = new Date(d.t);
+      return `${dt.getMonth()+1}/${dt.getDate()}`;
     });
 
-    const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
-    const drawLine = (arr, color) => {
-      ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.2;
-      arr.forEach((v, i) => { i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)); });
-      ctx.stroke();
-    };
-    drawLine(macdArr, '#378ADD'); drawLine(sigArr, '#EF9F27');
+    this.macdChart = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            type: 'line', label: 'MACD',
+            data: macdLine.slice(8), borderColor: '#378ADD', borderWidth: 1.5,
+            pointRadius: 0, tension: 0.2, order: 0,
+          },
+          {
+            type: 'line', label: 'Signal',
+            data: sigLine, borderColor: '#EF9F27', borderWidth: 1.2,
+            pointRadius: 0, tension: 0.2, order: 1,
+          },
+          {
+            label: 'Hist',
+            data: histLine,
+            backgroundColor: histLine.map(v => v >= 0 ? 'rgba(226,75,74,0.6)' : 'rgba(93,202,165,0.6)'),
+            order: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { font: { size: 9 }, color: tc, maxRotation: 0, maxTicksLimit: 8 }, grid: { color: gc } },
+          y: { ticks: { font: { size: 9 }, color: tc, maxTicksLimit: 5 }, grid: { color: gc } },
+        },
+      },
+    });
   },
 
+  // ── Draw KD chart ─────────────────────────────────────
   drawKD(data) {
     const canvas = document.getElementById('kdChart');
-    if (!canvas || !data.length) return;
-    const W = canvas.parentElement?.clientWidth || 500;
-    const H = 110;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
+    if (!canvas) return;
+    if (this.kdChart) { this.kdChart.destroy(); this.kdChart = null; }
+    if (data.length < 9) return;
 
     const isDark = !document.body.classList.contains('light-mode');
-    const grid = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
-    const textC = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.3)';
-    const period = 9;
-    const Ks = [], Ds = [];
+    const gc = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    const tc = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
+    const n = data.length;
+
+    // RSV (9-period)
+    const kArr = [], dArr = [];
     let K = 50, D = 50;
-    for (let i = period - 1; i < data.length; i++) {
-      const slice = data.slice(i - period + 1, i + 1);
+    for (let i = 8; i < n; i++) {
+      const slice = data.slice(i - 8, i + 1);
       const high = Math.max(...slice.map(x => x.h));
       const low  = Math.min(...slice.map(x => x.l));
       const rsv = high === low ? 50 : (data[i].c - low) / (high - low) * 100;
-      K = 2/3 * K + 1/3 * rsv; D = 2/3 * D + 1/3 * K;
-      Ks.push(K); Ds.push(D);
+      K = 2/3 * K + 1/3 * rsv;
+      D = 2/3 * D + 1/3 * K;
+      kArr.push(+K.toFixed(2));
+      dArr.push(+D.toFixed(2));
     }
-    const PAD = { l:6, r:56, t:14, b:20 };
-    const chartW = W - PAD.l - PAD.r;
-    const n = Ks.length;
-    const barW = Math.max(1, Math.floor(chartW / n) - 1);
-    const gap = (chartW - barW * n) / (n - 1 || 1);
-    const yOf = v => PAD.t + (1 - v / 100) * (H - PAD.t - PAD.b);
-    const xOf = i => PAD.l + i * (barW + gap) + barW / 2;
-
-    [20, 50, 80].forEach(v => {
-      ctx.strokeStyle = grid; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(PAD.l, yOf(v)); ctx.lineTo(W - PAD.r, yOf(v)); ctx.stroke();
-      ctx.fillStyle = textC; ctx.font = '9px monospace'; ctx.textAlign = 'left';
-      ctx.fillText(v, W - PAD.r + 3, yOf(v) + 3);
+    const labels = data.slice(8).map(d => {
+      const dt = new Date(d.t);
+      return `${dt.getMonth()+1}/${dt.getDate()}`;
     });
-    ctx.fillStyle = textC; ctx.fillText('KD', W - PAD.r + 3, PAD.t + 8);
 
-    const drawLine = (arr, color) => {
-      ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 1.4;
-      arr.forEach((v, i) => { i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)); });
-      ctx.stroke();
-    };
-    drawLine(Ks, '#E24B4A'); drawLine(Ds, '#378ADD');
-  },
-
-  _ma(arr, period) {
-    return arr.map((_, i) => {
-      if (i < period - 1) return null;
-      return arr.slice(i - period + 1, i + 1).reduce((a, b) => a + b) / period;
+    this.kdChart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'K', data: kArr, borderColor: '#EF9F27', borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+          { label: 'D', data: dArr, borderColor: '#7F77DD', borderWidth: 1.2, pointRadius: 0, tension: 0.2 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { font: { size: 9 }, color: tc, maxTicksLimit: 8 }, grid: { color: gc } },
+          y: { min: 0, max: 100, ticks: { font: { size: 9 }, color: tc }, grid: { color: gc } },
+        },
+      },
     });
   },
 };
