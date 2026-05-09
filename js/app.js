@@ -323,8 +323,17 @@ const SIGNAL = {
       return this.fromScore(score, gainPct, supportBreak);
     }
 
-    // 沒有快取 → 顯示「待分析」，不做任何買賣估算避免誤導
-    // 背景分析完成後會自動更新
+    // 當前選中股票但尚未分析完 → 顯示「分析中」
+    if (APP.activeSymbol === stock.code) {
+      return { ...this.LEVELS[3], label:'分析中', short:'⏳ —' };
+    }
+
+    // 其他股票無快取 → 純損益%估算，不顯示買進，避免誤導
+    const gainPct = stock.cost ? (stock.price - stock.cost) / stock.cost * 100 : 0;
+    if (gainPct <= -8)  return this.LEVELS[0];
+    if (gainPct <= -5)  return this.LEVELS[2];
+    if (gainPct >= 30)  return this.LEVELS[1];
+    if (gainPct >= 20)  return this.LEVELS[2];
     return { ...this.LEVELS[3], label:'待分析', short:'⚪ —' };
   },
 };
@@ -888,7 +897,7 @@ const RECOMMEND = {
     { code:'2412',  name:'中華電',         sector:'電信',  type:'存股',   risk:'低',   horizon:'長線', reason:'台灣最大電信，現金流穩定，殖利率4-5%。', logic:'景氣不佳時的避風港，防禦部位。', shortNote:null },
   ],
 
-  async run() {
+  run() {
     const el = document.getElementById('rec-result');
     if (!el) return;
     const portfolio = APP.portfolio;
@@ -926,13 +935,6 @@ const RECOMMEND = {
       el.innerHTML = '<div class="rec-card"><div class="rec-body">你已持有所有推薦標的！</div></div>';
       return;
     }
-    // 問題8: 自動抓取推薦標的報價
-    el.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px">⏳ 抓取報價中...</div>';
-    await DATA.batchUpdate(scored.map(c => c.code));
-    scored.forEach(c => {
-      const q = DATA.priceStore[c.code];
-      if (q?.price) c.price = q.price;
-    });
 
     const riskColor = { '低':'#1D9E75','低中':'#5DCAA5','中':'#EF9F27','中高':'#E24B4A','高':'#E24B4A' };
     const horizonLabel = { '長線':'長期', '短線':'短線', '長短':'長短' };
@@ -1003,13 +1005,7 @@ const APP = {
 
     // Load USD rate + VIX
     await Promise.all([CURRENCY.fetchUSDRate(), VIX.fetch()]);
-    // 開網站強制更新一次，但加 timeout 保護避免 API 失敗卡住整個 init
-    try {
-      await Promise.race([
-        this.refreshPrices(true),
-        new Promise(r => setTimeout(r, 10000)) // 最多等 10 秒
-      ]);
-    } catch(e) { console.warn('[init] refreshPrices failed:', e.message); }
+    await this.refreshPrices();
     // 問題1修正：雲端同步改為非阻塞，不卡住 init 流程
     // 先顯示本機資料，背景同步雲端
     SYNC.autoDownloadOnStart(); // 不 await，背景執行
@@ -1025,7 +1021,7 @@ const APP = {
       console.log('[SYNC] 自動上傳已解鎖');
     }, 12000);
 
-    this.refreshTimer = setInterval(() => this.refreshPrices(), 30000); // 每30秒，休市自動跳過
+    this.refreshTimer = setInterval(() => this.refreshPrices(), 5000); // TWSE 5秒批次更新
     setInterval(() => this.updateClock(), 1000);
     setInterval(() => this._updateMarketStatus(), 60000);
     DATA.fetchIndexes();
@@ -1043,7 +1039,6 @@ const APP = {
     const s = this.settings;
     if (s.jsonbinKey) { const el = document.getElementById('jsonbin-key'); if(el) el.value = s.jsonbinKey; }
     if (s.jsonbinBin) { const el = document.getElementById('jsonbin-bin'); if(el) el.value = s.jsonbinBin; }
-    if (s.finmindToken) { const el = document.getElementById('finmind-token'); if(el) el.value = s.finmindToken; }
   },
 
   _calcTotalValue() {
@@ -1065,43 +1060,29 @@ const APP = {
     if (el) el.textContent = new Date().toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
   },
 
-  _isMarketOpen() {
-    // 用台灣時間（UTC+8）判斷，不管用戶在哪個時區
-    const now = new Date();
-    const twNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-    const h = twNow.getHours(), m = twNow.getMinutes();
-    const isWeekday = twNow.getDay() >= 1 && twNow.getDay() <= 5;
-    // 台股 09:00-13:30（含）
-    const afterOpen  = h > 9 || (h === 9 && m >= 0);
-    const beforeClose = h < 13 || (h === 13 && m <= 30);
-    return isWeekday && afterOpen && beforeClose;
-  },
-
   _updateMarketStatus() {
-    const isOpen = this._isMarketOpen();
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes();
+    const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
+    const isOpen = isWeekday && (h > 9 || (h === 9 && m >= 0)) && (h < 13 || (h === 13 && m <= 30));
     const el = document.getElementById('mkt-status');
     if (el) { el.textContent = isOpen ? '開盤中' : '休市'; el.className = isOpen ? 'badge open' : 'badge closed'; }
     const dot = document.getElementById('live-dot');
     if (dot) dot.style.opacity = isOpen ? '1' : '0.3';
-    return isOpen;
   },
 
-  async refreshPrices(force = false) {
-    // 問題1: 休市時不更新（除非強制）
-    const isOpen = this._isMarketOpen();
-    if (!force && !isOpen) {
-      console.log('[refreshPrices] 休市，跳過更新');
-      return;
-    }
+  async refreshPrices() {
     const btn = document.querySelector('.icon-btn[onclick="refreshAll()"]');
     if (btn) btn.classList.add('spinning');
 
+    // ★ 集中批次更新：一次請求涵蓋所有股票
     const allCodes = [
       ...this.portfolio.map(s => s.code),
       ...this.watchlist.map(s => s.code),
     ];
     await DATA.batchUpdate(allCodes);
 
+    // 從 priceStore 同步回 stock 物件
     [...this.portfolio, ...this.watchlist].forEach(s => {
       const q = DATA.priceStore[s.code];
       if (q?.price) {
@@ -1115,11 +1096,11 @@ const APP = {
     this.renderStockList();
     this.renderWatchlist();
     this._updateMarketStatus();
-    // 問題3: PIE 不在報價更新時刷新（只在買賣操作後更新）
+    PIE.render();
     GOALS.updateDashboard();
     GOALS.recordSnapshot();
     this._renderSignalOverview();
-    // 問題5: 移除「報價已更新」toast
+    showToast('報價已更新');
   },
 
   renderAll() {
@@ -1369,7 +1350,7 @@ const APP = {
 
     // ★ K 線載入後，重新取最新 quote（可能已從 K 線資料更新）
     const freshQuote = DATA.priceStore[code];
-    if (freshQuote?.price) {
+    if (freshQuote?.ok && freshQuote.price) {
       const s2 = this.portfolio.find(x => x.code === code) || this.watchlist.find(x => x.code === code);
       if (s2) {
         s2.price = freshQuote.price;
@@ -1504,7 +1485,7 @@ const APP = {
 
   _loadSettings() {
     const s = this.settings;
-    // CORS Proxy 設定已移除（由 data.js 內部管理）
+    if (s.corsProxy) DATA.proxies[0] = s.corsProxy;
     if (s.darkMode === false) document.body.classList.add('light-mode');
     const toggle = document.getElementById('dark-mode-toggle');
     if (toggle) toggle.checked = s.darkMode !== false;
@@ -1603,7 +1584,6 @@ function addStock() {
   const fee = Math.max(20, Math.round(cost * shares * 0.001425));
   TRADES.add({ date: date||new Date().toISOString().split('T')[0], code, name, action:'buy', shares, price:cost, fee });
   APP.save(); APP.renderAll(); closeModal('add-modal');
-  PIE.render();
   showToast(`已新增 ${name} (${code}) × ${shares}股`);
   ['m-code','m-name','m-shares','m-cost'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   DATA.fetchQuote(code).then(q => {
@@ -1636,7 +1616,6 @@ function confirmBuy() {
   const fee = Math.max(20, Math.round(price * shares * 0.001425));
   TRADES.add({ date, code:s.code, name:s.name, action:'buy', shares, price, fee });
   APP.save(); APP.renderAll(); closeModal('buy-modal');
-  PIE.render();
   showToast(`${s.name} 加碼 ${shares}股 @ $${price}，新均價 $${s.cost.toFixed(2)}`);
 }
 
@@ -1660,7 +1639,6 @@ function confirmSell() {
   s.shares = +(s.shares - shares).toFixed(0);
   if (s.shares <= 0) { APP.portfolio.splice(idx, 1); if (APP.activeSymbol === s.code) APP.activeSymbol = ''; }
   APP.save(); APP.renderAll(); closeModal('sell-modal'); TRADES.render();
-  PIE.render();
   showToast(`${s.name} 賣出 ${shares}股 @ $${price}，${pnl>=0?'獲利':'虧損'}${pnlDisplay}（稅費$${totalFee}）`);
 }
 
@@ -1724,7 +1702,6 @@ function saveSettings() {
   s.ejsPubkey   = document.getElementById('ejs-pubkey')?.value.trim();
   s.jsonbinKey  = document.getElementById('jsonbin-key')?.value.trim();
   s.jsonbinBin  = document.getElementById('jsonbin-bin')?.value.trim();
-  s.finmindToken = document.getElementById('finmind-token')?.value.trim();
   const gTarget = parseFloat(document.getElementById('goal-target-input')?.value) * 10000;
   const gYears  = parseFloat(document.getElementById('goal-years-input')?.value);
   if (gTarget && gYears) {
@@ -1737,6 +1714,7 @@ function saveSettings() {
   // 儲存現金
   saveCashSettings();
   localStorage.setItem('twsa-settings', JSON.stringify(s));
+  if (s.corsProxy) DATA.proxies[0] = s.corsProxy;
   closeModal('settings-modal');
   GOALS.updateDashboard();
   SYNC.updateStatus();
