@@ -44,8 +44,31 @@ const DATA = {
     this.priceStore[code] = { ...(this.priceStore[code] ?? {}), ...fields, ts: Date.now() };
   },
 
-  // ── 直接 fetch（不用 proxy）──────────────────────────
+  // ── Fetch with proxy for TWSE, direct for others ─────
+  // mis.twse.com.tw 需要 Referer/Origin header 才允許跨域，用 proxy 繞過
+  // Yahoo Finance 有正確的 CORS header，直接打
+  proxies: [
+    'https://corsproxy.io/?',
+    'https://api.allorigins.win/raw?url=',
+    'https://corsproxy.org/?',
+  ],
+  _proxyIdx: 0,
+
   async _fetch(url, opts = {}) {
+    const isTWSE = url.includes('mis.twse.com.tw');
+    if (isTWSE) {
+      // TWSE 需要 proxy
+      for (let i = 0; i < this.proxies.length; i++) {
+        const idx = (this._proxyIdx + i) % this.proxies.length;
+        const proxyUrl = this.proxies[idx] + encodeURIComponent(url);
+        try {
+          const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000), ...opts });
+          if (res.ok) { this._proxyIdx = idx; return res; }
+        } catch(e) { /* try next proxy */ }
+      }
+      throw new Error('TWSE: all proxies failed');
+    }
+    // 非 TWSE 直接打（Yahoo Finance 等）
     const res = await fetch(url, { signal: AbortSignal.timeout(9000), ...opts });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res;

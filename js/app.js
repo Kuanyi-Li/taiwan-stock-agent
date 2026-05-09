@@ -1013,7 +1013,13 @@ const APP = {
 
     // Load USD rate + VIX
     await Promise.all([CURRENCY.fetchUSDRate(), VIX.fetch()]);
-    await this.refreshPrices(true); // 開網站時強制更新一次
+    // 開網站強制更新一次，但加 timeout 保護避免 API 失敗卡住整個 init
+    try {
+      await Promise.race([
+        this.refreshPrices(true),
+        new Promise(r => setTimeout(r, 10000)) // 最多等 10 秒
+      ]);
+    } catch(e) { console.warn('[init] refreshPrices failed:', e.message); }
     // 問題1修正：雲端同步改為非阻塞，不卡住 init 流程
     // 先顯示本機資料，背景同步雲端
     SYNC.autoDownloadOnStart(); // 不 await，背景執行
