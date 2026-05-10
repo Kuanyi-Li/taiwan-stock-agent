@@ -306,19 +306,23 @@ const DATA = {
         '&fields=regularMarketPrice,regularMarketPreviousClose,shortName'
       );
       const results = (await res.json())?.quoteResponse?.result ?? [];
-      const map = { '^GSPC': 'sp500-badge', '^IXIC': 'nasdaq-badge', '^DJI': 'dow-badge' };
-      const name = { '^GSPC': 'S&P500', '^IXIC': 'NASDAQ', '^DJI': 'DOW' };
+      const map  = { '^GSPC':'sp500-badge', '^IXIC':'nasdaq-badge', '^DJI':'dow-badge' };
+      const name = { '^GSPC':'S&P500', '^IXIC':'NASDAQ', '^DJI':'DOW' };
+      const isUSOpen = typeof APP !== 'undefined' ? APP.isUSMarketOpen() : false;
       results.forEach(q => {
         const elId = map[q.symbol];
         if (!elId) return;
-        const p  = parseFloat(q.regularMarketPrice);
-        const pc = parseFloat(q.regularMarketPreviousClose ?? p);
+        const p   = parseFloat(q.regularMarketPrice);
+        const pc  = parseFloat(q.regularMarketPreviousClose ?? p);
         const chg = p - pc;
         const pct = pc > 0 ? chg / pc * 100 : 0;
         const sign = chg >= 0 ? '+' : '';
-        const disp = `${name[q.symbol]} ${p.toLocaleString('en-US', {maximumFractionDigits:2})} (${sign}${pct.toFixed(2)}%)`;
+        const priceStr = p.toLocaleString('en-US', {maximumFractionDigits:2});
+        const disp = isUSOpen
+          ? `${name[q.symbol]} ${priceStr} (${sign}${pct.toFixed(2)}%)`
+          : `${name[q.symbol]} ${priceStr}`;
         const el = document.getElementById(elId);
-        if (el) { el.textContent = disp; el.className = `index-chip ${chg >= 0 ? 'up' : 'dn'}`; }
+        if (el) { el.textContent = disp; el.className = isUSOpen ? `index-chip ${chg >= 0 ? 'up' : 'dn'}` : 'index-chip'; }
       });
     } catch(e) { console.warn('[DATA] fetchUSIndexes failed:', e.message); }
   },
@@ -331,14 +335,19 @@ const DATA = {
       );
       const json  = await res.json();
       const items = json?.msgArray ?? [];
+      // ★ 休市時不顯示漲跌，只顯示指數數值
+      const isTWOpen = typeof APP !== 'undefined' ? APP.isTWMarketOpen() : false;
       items.forEach(item => {
         const price = parseFloat(item.z !== '-' ? item.z : item.y) || 0;
         const prev  = parseFloat(item.y) || price;
         const chg   = price - prev;
         const pct   = prev > 0 ? chg / prev * 100 : 0;
         const sign  = chg >= 0 ? '+' : '';
-        const disp  = `${price.toLocaleString('zh-TW', {maximumFractionDigits:0})} (${sign}${pct.toFixed(2)}%)`;
-        const cls   = `index-chip ${chg >= 0 ? 'up' : 'dn'}`;
+        const priceStr = price.toLocaleString('zh-TW', {maximumFractionDigits:0});
+        const disp = isTWOpen
+          ? `${priceStr} (${sign}${pct.toFixed(2)}%)`
+          : `${priceStr}`;
+        const cls = isTWOpen ? `index-chip ${chg >= 0 ? 'up' : 'dn'}` : 'index-chip';
         if (item.ex === 'tse') {
           const el = document.getElementById('taiex-badge');
           if (el) { el.textContent = `加權 ${disp}`; el.className = cls; }
@@ -347,7 +356,6 @@ const DATA = {
           if (el) { el.textContent = `櫃買 ${disp}`; el.className = cls; }
         }
       });
-      if (items.length > 0) return;
     } catch(e) { /* silent */ }
   },
 

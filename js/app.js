@@ -980,32 +980,56 @@ const RECOMMEND = {
       return;
     }
 
+    // ★ 問題8：先顯示 loading，背景抓取所有推薦股票報價
+    const missingCodes = scored.filter(c => !DATA.priceStore[c.code]?.price).map(c => c.code);
+    if (missingCodes.length > 0) {
+      el.innerHTML = `<div style="padding:16px;color:var(--text-3);font-size:12px;text-align:center">⏳ 正在抓取推薦股票報價（${scored.length} 檔）...</div>`;
+      DATA.batchUpdate(missingCodes).then(() => this._renderCards(scored, goals, el));
+    } else {
+      this._renderCards(scored, goals, el);
+    }
+  },
+
+  _renderCards(scored, goals, el) {
     const riskColor = { '低':'#1D9E75','低中':'#5DCAA5','中':'#EF9F27','中高':'#E24B4A','高':'#E24B4A' };
     const horizonLabel = { '長線':'長期', '短線':'短線', '長短':'長短' };
     const horizonCls = { '長線':'horizon-long','短線':'horizon-short','長短':'horizon-both' };
     const budget = parseFloat(document.getElementById('rec-budget')?.value) || 0;
     const budgetPerStock = budget > 0 ? budget / scored.length : 0;
+    const isUS = APP.activeMarket === 'US';
 
     el.innerHTML = `
       <div class="rec-meta">根據你的目標（${(goals.target/10000).toFixed(0)}萬/${goals.years}年）與持股結構推薦：</div>
       ${scored.map((c, i) => {
-        // 下單建議（若有填金額）
+        // ★ 從 priceStore 取最新報價
+        const q = DATA.priceStore[c.code];
+        const livePrice = q?.price || null;
+        const chgPct = q?.chgPct ?? null;
+        const priceDisplay = livePrice
+          ? `${isUS ? '$' : 'NT$'}${livePrice.toLocaleString('zh-TW', {maximumFractionDigits:2})}`
+          : '—';
+        const chgDisplay = chgPct != null
+          ? `<span class="${chgPct>=0?'up-color':'dn-color'}" style="font-size:11px"> ${chgPct>=0?'+':''}${chgPct.toFixed(2)}%</span>`
+          : '';
+
         let orderHtml = '';
-        if (budgetPerStock > 0 && c.price) {
-          const shares = Math.max(1, Math.floor(budgetPerStock / c.price));
-          const cost = shares * c.price;
-          const fee = Math.max(20, Math.round(cost * 0.001425));
-          const sharesDisp = shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`;
-          const costDisp = cost >= 10000 ? `${(cost/10000).toFixed(2)}萬` : `${cost.toFixed(0)}元`;
+        if (budgetPerStock > 0 && livePrice) {
+          const shares = Math.max(1, Math.floor(budgetPerStock / livePrice));
+          const cost = shares * livePrice;
+          const fee = isUS ? 0 : Math.max(20, Math.round(cost * 0.001425));
+          const sd = isUS ? `${shares}股` : (shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`);
+          const costDisp = isUS ? `$${cost.toFixed(2)}` : (cost >= 10000 ? `${(cost/10000).toFixed(2)}萬` : `${cost.toFixed(0)}元`);
           const isBatch = c.horizon === '短線' || c.horizon === '長短';
+          const feeText = fee > 0 ? `（含手續費 $${fee}）` : '';
           orderHtml = `<div class="rec-order">
             <span class="rec-order-tag">💰 下單參考</span>
-            現價 $${c.price} ✕ ${sharesDisp} ≈ ${costDisp}（含手續費 $${fee}）
+            現價 ${priceDisplay} ✕ ${sd} ≈ ${costDisp}${feeText}
             ${isBatch ? '｜<strong>建議分2批</strong>進場' : '｜建議單次進場'}
           </div>`;
-        } else if (budget > 0) {
-          orderHtml = `<div class="rec-order warn">需要先取得此股票報價才能計算下單量</div>`;
+        } else if (budget > 0 && !livePrice) {
+          orderHtml = `<div class="rec-order warn">⏳ 報價抓取中...</div>`;
         }
+
         return `
         <div class="rec-card">
           <div class="rec-card-header">
@@ -1015,6 +1039,7 @@ const RECOMMEND = {
             <span class="rec-sector">${c.sector}</span>
             <span class="rec-risk" style="color:${riskColor[c.risk]}">風險${c.risk}</span>
             <span class="rec-horizon ${horizonCls[c.horizon]}">${horizonLabel[c.horizon]}</span>
+            <span style="font-weight:600;font-size:13px">${priceDisplay}${chgDisplay}</span>
           </div>
           <div class="rec-reason"><span class="rec-tag">推薦理由</span>${c.reason}</div>
           <div class="rec-logic"><span class="rec-tag">投資邏輯</span>${c.logic}</div>
@@ -1147,11 +1172,17 @@ const APP = {
   isUSMarketOpen() {
     const now = new Date();
     const h = now.getHours(), m = now.getMinutes();
-    const day = now.getDay();
+    const day = now.getDay(); // 0=日, 1=一, ..., 5=五, 6=六
+    // 美股夏令：台灣時間 21:30–翌日04:00
+    // 美股冬令：台灣時間 22:30–翌日05:00
+    // 保守估計：21:30–05:00
     const afterOpen   = h > 21 || (h === 21 && m >= 30);
     const beforeClose = h < 5  || (h === 5  && m === 0);
-    const isUSWeekday = day >= 1 && day <= 5;
-    return isUSWeekday && (afterOpen || beforeClose);
+    // 週一凌晨（h<5）對應的是週五晚上已收盤，不算開盤
+    // 週六、週日完全不開
+    if (day === 0 || day === 6) return false; // 週末
+    if (day === 1 && beforeClose) return false; // 週一凌晨（週五已收）
+    return afterOpen || beforeClose;
   },
 
   // 目前顯示的市場：'TW' or 'US'
@@ -1302,12 +1333,13 @@ const APP = {
     setText('total-cost', '成本 '+fmtV(totalCost), '');
     setSignedText('total-pnl', pnl, fmtV);
     setSignedText('total-pnl-pct', roi, v => v.toFixed(2)+'%', true);
-    if (hasDayData) {
+    const marketOpen = this.activeMarket === 'US' ? this.isUSMarketOpen() : this.isTWMarketOpen();
+    if (hasDayData && marketOpen) {
       setSignedText('day-pnl', dayPnl, fmtV);
       setSignedText('day-pnl-pct', dayPct, v => v.toFixed(2)+'%', true);
     } else {
       setText('day-pnl', '—', 'neutral');
-      setText('day-pnl-pct', '待更新', '');
+      setText('day-pnl-pct', marketOpen ? '待更新' : '休市', '');
     }
     setSignedText('total-roi', roi, v => v.toFixed(2)+'%', true);
     setText('stock-count', this.portfolio.length+' 檔持股', '');
