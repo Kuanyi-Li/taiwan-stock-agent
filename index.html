@@ -26,11 +26,17 @@
       <button class="market-switch-btn active" data-market="TW">🇹🇼 台股</button>
       <button class="market-switch-btn" data-market="US">🇺🇸 美股</button>
     </div>
-    <div class="topbar-market">
+    <div class="topbar-market" id="tw-market-bar">
       <span class="badge closed" id="mkt-status">休市</span>
       <span class="index-chip" id="taiex-badge">加權 —</span>
       <span class="index-chip" id="tpex-badge">櫃買 —</span>
       <span class="vix-badge" id="vix-badge" title="台股波動率恐慌指標"></span>
+    </div>
+    <div class="topbar-market" id="us-market-bar" style="display:none">
+      <span class="badge closed" id="mkt-status-us">休市</span>
+      <span class="index-chip" id="sp500-badge">S&P500 —</span>
+      <span class="index-chip" id="nasdaq-badge">NASDAQ —</span>
+      <span class="index-chip" id="dow-badge">DOW —</span>
     </div>
   </div>
   <div class="topbar-right">
@@ -519,18 +525,18 @@
 <!-- 新增持股 -->
 <div class="modal-overlay" id="add-modal">
   <div class="modal">
-    <div class="modal-header"><h3>新增持股</h3><button class="modal-close" onclick="closeModal('add-modal')">✕</button></div>
+    <div class="modal-header"><h3 id="add-modal-title">新增持股</h3><button class="modal-close" onclick="closeModal('add-modal')">✕</button></div>
     <div class="modal-body">
       <div class="form-row">
-        <div class="form-group"><label class="form-label">股票代號 <span class="required">*</span></label><input type="text" id="m-code" class="form-input" placeholder="2330" maxlength="6" oninput="autoFetchStockName(this.value,'m-name')"></div>
+        <div class="form-group"><label class="form-label">股票代號 <span class="required">*</span></label><input type="text" id="m-code" class="form-input" placeholder="2330" maxlength="10" oninput="autoFetchStockName(this.value,'m-name')"></div>
         <div class="form-group"><label class="form-label">股票名稱（可空白，自動抓取）</label><input type="text" id="m-name" class="form-input" placeholder="自動抓取中..."></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">持股股數 <span class="required">*</span></label><input type="number" id="m-shares" class="form-input" placeholder="100" min="1" step="1"></div>
-        <div class="form-group"><label class="form-label">成交均價（元/股）<span class="required">*</span></label><input type="number" id="m-cost" class="form-input" placeholder="900.00" step="0.01"></div>
+        <div class="form-group"><label class="form-label" id="m-cost-label">成交均價（元/股）<span class="required">*</span></label><input type="number" id="m-cost" class="form-input" placeholder="900.00" step="0.01"></div>
       </div>
       <div class="form-group"><label class="form-label">買入日期（選填）</label><input type="date" id="m-date" class="form-input"></div>
-      <div class="form-note">💡 股數填實際持有股數（零股支援）。已持有相同代號→自動加權合併均價。</div>
+      <div class="form-note" id="add-modal-note">💡 股數填實際持有股數（零股支援）。已持有相同代號→自動加權合併均價。</div>
     </div>
     <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('add-modal')">取消</button><button class="btn-primary" onclick="addStock()">確認新增</button></div>
   </div>
@@ -547,10 +553,10 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">加碼股數 <span class="required">*</span></label><input type="number" id="buy-shares" class="form-input" placeholder="100" min="1" value="100"></div>
-        <div class="form-group"><label class="form-label">成交價（元/股）<span class="required">*</span></label><input type="number" id="buy-price" class="form-input" step="0.01"></div>
+        <div class="form-group"><label class="form-label" id="buy-price-label">成交價（元/股）<span class="required">*</span></label><input type="number" id="buy-price" class="form-input" step="0.01"></div>
       </div>
       <div class="form-group"><label class="form-label">交易日期</label><input type="date" id="buy-date" class="form-input"></div>
-      <div class="form-note">加碼後均價自動加權計算。手續費 0.1425%（最低$20）自動計入紀錄。</div>
+      <div class="form-note" id="buy-modal-note">加碼後均價自動加權計算。手續費 0.1425%（最低$20）自動計入紀錄。</div>
     </div>
     <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('buy-modal')">取消</button><button class="btn-primary" onclick="confirmBuy()">確認加碼</button></div>
   </div>
@@ -567,10 +573,10 @@
       </div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">賣出股數 <span class="required">*</span></label><input type="number" id="sell-shares" class="form-input" placeholder="100" min="1" value="100"><div class="form-hint" id="sell-max"></div></div>
-        <div class="form-group"><label class="form-label">賣出價格（元/股）<span class="required">*</span></label><input type="number" id="sell-price" class="form-input" step="0.01"></div>
+        <div class="form-group"><label class="form-label" id="sell-price-label">賣出價格（元/股）<span class="required">*</span></label><input type="number" id="sell-price" class="form-input" step="0.01"></div>
       </div>
       <div class="form-group"><label class="form-label">交易日期</label><input type="date" id="sell-date" class="form-input"></div>
-      <div class="form-note">⚠️ 手續費 0.1425%（最低$20）+ 交易稅 0.3%，自動計入紀錄。</div>
+      <div class="form-note" id="sell-modal-note">⚠️ 手續費 0.1425%（最低$20）+ 交易稅 0.3%，自動計入紀錄。</div>
     </div>
     <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('sell-modal')">取消</button><button class="btn-primary" style="background:var(--red)" onclick="confirmSell()">確認賣出</button></div>
   </div>
@@ -579,10 +585,10 @@
 <!-- 自選清單 -->
 <div class="modal-overlay" id="watch-modal">
   <div class="modal">
-    <div class="modal-header"><h3>新增自選股</h3><button class="modal-close" onclick="closeModal('watch-modal')">✕</button></div>
+    <div class="modal-header"><h3 id="watch-modal-title">新增自選股</h3><button class="modal-close" onclick="closeModal('watch-modal')">✕</button></div>
     <div class="modal-body">
       <div class="form-row">
-        <div class="form-group"><label class="form-label">股票代號</label><input type="text" id="w-code" class="form-input" placeholder="6505" oninput="autoFetchStockName(this.value,'w-name')"></div>
+        <div class="form-group"><label class="form-label">股票代號</label><input type="text" id="w-code" class="form-input" placeholder="6505" maxlength="10" oninput="autoFetchStockName(this.value,'w-name')"></div>
         <div class="form-group"><label class="form-label">股票名稱（可空白，自動抓取）</label><input type="text" id="w-name" class="form-input" placeholder="自動抓取中..."></div>
       </div>
     </div>
