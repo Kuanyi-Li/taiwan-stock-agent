@@ -984,17 +984,39 @@ const RECOMMEND = {
 
 // ── APP module ────────────────────────────────────────
 const APP = {
-  portfolio: JSON.parse(localStorage.getItem('twsa-portfolio') || '[]'),
-  watchlist: JSON.parse(localStorage.getItem('twsa-watchlist') || '[]'),
+  // 台股資料
+  _twPortfolio: JSON.parse(localStorage.getItem('twsa-portfolio') || '[]'),
+  _twWatchlist: JSON.parse(localStorage.getItem('twsa-watchlist') || '[]'),
+  // 美股資料
+  _usPortfolio: JSON.parse(localStorage.getItem('ussa-portfolio') || '[]'),
+  _usWatchlist: JSON.parse(localStorage.getItem('ussa-watchlist') || '[]'),
+
+  // 目前市場的 portfolio/watchlist（動態指向）
+  get portfolio() { return this.activeMarket === 'US' ? this._usPortfolio : this._twPortfolio; },
+  get watchlist()  { return this.activeMarket === 'US' ? this._usWatchlist : this._twWatchlist; },
+
   activeSymbol: '', activeIdx: -1, _source: 'portfolio',
   refreshTimer: null,
   settings: JSON.parse(localStorage.getItem('twsa-settings') || '{}'),
+
+  save() {
+    if (this.activeMarket === 'US') {
+      localStorage.setItem('ussa-portfolio', JSON.stringify(this._usPortfolio));
+      localStorage.setItem('ussa-watchlist', JSON.stringify(this._usWatchlist));
+    } else {
+      localStorage.setItem('twsa-portfolio', JSON.stringify(this._twPortfolio));
+      localStorage.setItem('twsa-watchlist', JSON.stringify(this._twWatchlist));
+    }
+    SYNC.markDirty();
+  },
 
   async init() {
     CHART.init();
     this._loadSettings();
     this._setupTabs();
     this._setupMainTabs();
+    // 初始化市場切換 UI
+    this._initMarketSwitch();
     this.portfolio.forEach(s => { s.price = s.price ?? s.cost; s.prevClose = s.prevClose ?? s.cost; });
     this.watchlist.forEach(s => { s.price = s.price ?? 0; s.prevClose = s.prevClose ?? 0; });
     this.renderAll();
@@ -1021,9 +1043,10 @@ const APP = {
       console.log('[SYNC] 自動上傳已解鎖');
     }, 12000);
 
-    // ★ 問題1: 只在開盤時才定時更新，頻率改為每3分鐘
+    // ★ 問題1+2: 當前市場開盤時每3分鐘更新
     this.refreshTimer = setInterval(() => {
-      if (this.isTWMarketOpen()) this.refreshPrices();
+      const open = this.activeMarket === 'US' ? this.isUSMarketOpen() : this.isTWMarketOpen();
+      if (open) this.refreshPrices();
     }, 180000);
     setInterval(() => this.updateClock(), 1000);
     setInterval(() => this._updateMarketStatus(), 60000);
@@ -1073,24 +1096,64 @@ const APP = {
       && (h < 13 || (h === 13 && m <= 30));
   },
 
+  // 判斷美股是否開盤中（台灣時間 21:30–翌日 05:00，平日）
+  isUSMarketOpen() {
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes();
+    const day = now.getDay();
+    const afterOpen   = h > 21 || (h === 21 && m >= 30);
+    const beforeClose = h < 5  || (h === 5  && m === 0);
+    const isUSWeekday = day >= 1 && day <= 5;
+    return isUSWeekday && (afterOpen || beforeClose);
+  },
+
+  // 目前顯示的市場：'TW' or 'US'
+  activeMarket: localStorage.getItem('stock-agent-market') || 'TW',
+
+  switchMarket(market) {
+    this.activeMarket = market;
+    localStorage.setItem('stock-agent-market', market);
+    // 更新按鈕狀態
+    document.querySelectorAll('.market-switch-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.market === market);
+    });
+    // 切換標題
+    const logoSpan = document.querySelector('.logo span');
+    if (logoSpan) logoSpan.textContent = market === 'US' ? '🇺🇸 股票 Agent' : '🇹🇼 股票 Agent';
+    // 重繪側邊欄與市場狀態
+    this.activeSymbol = '';
+    this.renderAll();
+    this._updateMarketStatus();
+    // 立即更新對應市場報價
+    this.refreshPrices(true);
+  },
+
   _updateMarketStatus() {
-    const isOpen = this.isTWMarketOpen();
+    const twOpen = this.isTWMarketOpen();
+    const usOpen = this.isUSMarketOpen();
+    const marketOpen = this.activeMarket === 'US' ? usOpen : twOpen;
+    let label = '休市';
+    if (marketOpen) label = this.activeMarket === 'US' ? '美股盤中' : '開盤中';
     const el = document.getElementById('mkt-status');
-    if (el) { el.textContent = isOpen ? '開盤中' : '休市'; el.className = isOpen ? 'badge open' : 'badge closed'; }
+    if (el) { el.textContent = label; el.className = marketOpen ? 'badge open' : 'badge closed'; }
     const dot = document.getElementById('live-dot');
-    if (dot) dot.style.opacity = isOpen ? '1' : '0.3';
+    if (dot) dot.style.opacity = marketOpen ? '1' : '0.3';
   },
 
   async refreshPrices(force = false) {
-    // ★ 問題1: 休市時不更新報價（手動強制刷新除外）
-    if (!force && !this.isTWMarketOpen()) {
+    const twOpen = this.isTWMarketOpen();
+    const usOpen = this.isUSMarketOpen();
+    const marketOpen = this.activeMarket === 'US' ? usOpen : twOpen;
+
+    // ★ 問題1+2: 休市時不更新（手動強制除外）
+    if (!force && !marketOpen) {
       this._updateMarketStatus();
       return;
     }
+
     const btn = document.querySelector('.icon-btn[onclick="refreshAll()"]');
     if (btn) btn.classList.add('spinning');
 
-    // ★ 集中批次更新：一次請求涵蓋所有股票
     const allCodes = [
       ...this.portfolio.map(s => s.code),
       ...this.watchlist.map(s => s.code),
@@ -1496,6 +1559,17 @@ const APP = {
         if (mt === 'signals') this._renderSignalOverview();
       });
     });
+  },
+
+  _initMarketSwitch() {
+    // 套用已儲存的市場
+    document.querySelectorAll('.market-switch-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.market === this.activeMarket);
+      btn.addEventListener('click', () => this.switchMarket(btn.dataset.market));
+    });
+    // 更新 logo 文字
+    const logoSpan = document.querySelector('.logo span');
+    if (logoSpan) logoSpan.textContent = this.activeMarket === 'US' ? '🇺🇸 股票 Agent' : '🇹🇼 股票 Agent';
   },
 
   _loadSettings() {
