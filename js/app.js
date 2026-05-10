@@ -1194,11 +1194,11 @@ const APP = {
     this.renderStockList();
     this.renderWatchlist();
     this._updateMarketStatus();
-    PIE.render();
+    // ★ 問題3: 報價更新後不重繪圓餅圖（只有買賣操作才更新）
     GOALS.updateDashboard();
     GOALS.recordSnapshot();
     this._renderSignalOverview();
-    showToast('報價已更新');
+    // ★ 問題3: 移除「報價已更新」toast
   },
 
   renderAll() {
@@ -1773,7 +1773,7 @@ function confirmBuy() {
   const isUS = APP.activeMarket === 'US';
   const fee = isUS ? 0 : Math.max(20, Math.round(price * shares * 0.001425));
   TRADES.add({ date, code:s.code, name:s.name, action:'buy', shares, price, fee, market: isUS ? 'US' : 'TW' });
-  APP.save(); APP.renderAll(); closeModal('buy-modal');
+  APP.save(); APP.renderAll(); PIE.render(); closeModal('buy-modal');
   showToast(`${s.name} 加碼 ${shares}股 @ ${isUS?'$':'NT$'}${price}，新均價 ${isUS?'$':'NT$'}${s.cost.toFixed(2)}`);
 }
 
