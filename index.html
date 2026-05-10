@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0d1117">
-<title>台股 Agent — 智能選股平台</title>
+<title>股票 Agent — 智能選股平台</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231D9E75'/><path d='M7 22 L12 14 L17 18 L24 9' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,7 +19,12 @@
   <div class="topbar-left">
     <div class="logo">
       <div class="logo-mark"></div>
-      <span>台股 Agent</span>
+      <span>🇹🇼 股票 Agent</span>
+    </div>
+    <!-- 市場切換按鈕 -->
+    <div class="market-switch">
+      <button class="market-switch-btn active" data-market="TW">🇹🇼 台股</button>
+      <button class="market-switch-btn" data-market="US">🇺🇸 美股</button>
     </div>
     <div class="topbar-market">
       <span class="badge closed" id="mkt-status">休市</span>
@@ -637,11 +642,6 @@
           <label class="form-label">CORS Proxy（主要）</label>
           <input type="text" id="cors-proxy" class="form-input" value="https://corsproxy.io/?">
           <div class="form-hint">失效時自動切換至 allorigins.win 備援</div>
-        </div>
-        <div class="form-group" style="margin-top:10px">
-          <label class="form-label">FinMind API Token（選填）</label>
-          <input type="password" id="finmind-token" class="form-input" placeholder="登入 finmindtrade.com 取得">
-          <div class="form-hint">填入後台股資料更穩定，免費帳號 600次/小時。<a href="https://finmindtrade.com" target="_blank" style="color:var(--blue)">前往取得</a></div>
         </div>
       </div>
 

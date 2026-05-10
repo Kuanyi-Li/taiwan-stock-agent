@@ -1,6 +1,6 @@
 {
-  "name": "台股 Agent — 智能選股平台",
-  "short_name": "台股 Agent",
+  "name": "股票 Agent — 智能選股平台",
+  "short_name": "股票 Agent",
   "description": "台股投資組合管理與 AI 智能分析",
   "start_url": "./index.html",
   "display": "standalone",
