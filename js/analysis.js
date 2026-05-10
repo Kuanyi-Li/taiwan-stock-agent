@@ -345,36 +345,31 @@ const ANALYSIS = {
       const buyPct = total > 0 ? (cnt.buy||0)/total : 0.5;
       const color = dialColor(sum.cls);
 
-      // 半圓固定在 viewBox 底部
-      // 圓心 (60, 60)，半徑 45
-      // 左端 (15, 60)，右端 (105, 60)
-      // buyPct: 0=左(賣出), 0.5=頂部(中立), 1=右(買入)
-      // SVG角度：左=180°, 頂=90°, 右=0°
-      // 用 cos/sin 計算：x = cx + r*cos(angle), y = cy - r*sin(angle)
-      const cx = 60, cy = 60, r = 45;
-      const angleRad = Math.PI * (1 - buyPct); // 1.0π(左) ~ 0π(右)
-      const nx = cx + r * Math.cos(angleRad);
-      const ny = cy - r * Math.sin(angleRad);
+      // 半圓周長 = π * r = 3.14159 * 45 ≈ 141.37
+      const r = 45, cx = 60, cy = 60;
+      const halfCirc = Math.PI * r; // ~141.37
+      const dash = buyPct * halfCirc; // 綠色弧長
 
-      // 彩色弧：從左端 (15,60) 到指針位置
-      // large-arc-flag: buyPct > 0.5 時弧長超過半圓，需要1
-      const largeArc = buyPct > 0.5 ? 1 : 0;
+      // 指針：buyPct 0=左(π), 0.5=頂(π/2), 1=右(0)
+      const angleRad = Math.PI * (1 - buyPct);
+      const nx = +(cx + r * Math.cos(angleRad)).toFixed(1);
+      const ny = +(cy - r * Math.sin(angleRad)).toFixed(1);
 
       return `
         <div class="dial-wrap">
           <div class="dial-title">${title}</div>
           <svg viewBox="0 0 120 68" width="150" height="85">
-            <!-- 灰色背景半圓：左端到右端 -->
+            <!-- 灰色背景半圓 -->
             <path d="M 15,60 A 45,45 0 0,1 105,60"
               fill="none" stroke="var(--bg-3)" stroke-width="8" stroke-linecap="round"/>
-            <!-- 彩色進度弧：左端到指針 -->
-            ${total > 0 && buyPct > 0.01 ? `
-            <path d="M 15,60 A 45,45 0 ${largeArc},1 ${nx.toFixed(1)},${ny.toFixed(1)}"
-              fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/>` : ''}
-            <!-- 指針線 -->
-            <line x1="${cx}" y1="${cy}" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}"
+            <!-- 綠色進度：同路徑用 dasharray -->
+            <path d="M 15,60 A 45,45 0 0,1 105,60"
+              fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"
+              stroke-dasharray="${dash.toFixed(1)} ${halfCirc.toFixed(1)}"
+              stroke-dashoffset="0"/>
+            <!-- 指針 -->
+            <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}"
               stroke="var(--text-1)" stroke-width="2.5" stroke-linecap="round"/>
-            <!-- 圓心點 -->
             <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text-1)"/>
           </svg>
           <div class="dial-label" style="color:${color}">${sum.label}</div>
