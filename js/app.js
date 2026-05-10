@@ -1073,7 +1073,8 @@ const APP = {
 
     // Load USD rate + VIX
     await Promise.all([CURRENCY.fetchUSDRate(), VIX.fetch()]);
-    await this.refreshPrices();
+    // ★ 問題6修正：開網站時永遠強制更新報價（取得最新 prevClose），休市也要更新
+    await this.refreshPrices(true);
     // 問題1修正：雲端同步改為非阻塞，不卡住 init 流程
     // 先顯示本機資料，背景同步雲端
     SYNC.autoDownloadOnStart(); // 不 await，背景執行

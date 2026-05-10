@@ -335,23 +335,48 @@ const ANALYSIS = {
 
     const renderDial = (title, sum, cnt) => {
       const total = (cnt.buy||0)+(cnt.neutral||0)+(cnt.sell||0);
-      const buyPct = total > 0 ? (cnt.buy||0)/total : 0;
-      // 半圓角度：0度=強力賣出(左)，180度=強力買入(右)
-      const angle = Math.round(buyPct * 180);
+      const buyPct  = total > 0 ? (cnt.buy||0)/total : 0;
+      const sellPct = total > 0 ? (cnt.sell||0)/total : 0;
+      // 半圓：左端(-180deg)=強力賣出，右端(0deg)=強力買入
+      // 指針角度：從正左(-90deg in SVG)到正右(+90deg)
+      // score = buy% - sell%，範圍 -1~1，對應 -90deg~+90deg
+      const score = buyPct - sellPct;
+      const angleDeg = score * 90; // -90 ~ +90
+      const angleRad = (angleDeg - 90) * Math.PI / 180; // 轉成SVG座標系（從頂部算起）
+      // 半圓圓心 (60,62)，半徑 48
+      const cx = 60, cy = 62, r = 46;
+      const nx = cx + r * Math.sin(angleDeg * Math.PI / 180);
+      const ny = cy - r * Math.cos(angleDeg * Math.PI / 180);
       const color = dialColor(sum.cls);
-      const rad = (angle - 90) * Math.PI / 180;
-      const nx  = 60 + 48 * Math.cos(rad);
-      const ny  = 60 + 48 * Math.sin(rad);
+
+      // 背景半圓弧（從左到右）
+      // 彩色進度弧：根據 buyPct 填滿
+      const progressAngle = score * 90; // -90~90
+      const startX = cx - r, startY = cy; // 最左點
+      const endRad  = (progressAngle - 90) * Math.PI / 180;
+      const arcX = cx + r * Math.sin(progressAngle * Math.PI / 180);
+      const arcY = cy - r * Math.cos(progressAngle * Math.PI / 180);
+      const largeArc = Math.abs(progressAngle) > 90 ? 1 : 0;
+      const sweepDir = progressAngle >= 0 ? 1 : 0;
+
       return `
         <div class="dial-wrap">
           <div class="dial-title">${title}</div>
-          <svg viewBox="0 0 120 70" width="140" height="82">
-            <path d="M12,60 A48,48 0 0,1 108,60" fill="none" stroke="#333" stroke-width="10" stroke-linecap="round"/>
-            <path d="M12,60 A48,48 0 0,1 ${nx.toFixed(1)},${ny.toFixed(1)}" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round"/>
-            <line x1="60" y1="60" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}" stroke="var(--text-1)" stroke-width="2" stroke-linecap="round"/>
-            <circle cx="60" cy="60" r="4" fill="var(--text-1)"/>
+          <svg viewBox="0 0 120 70" width="150" height="90" style="overflow:visible">
+            <!-- 背景半圓 -->
+            <path d="M ${cx-r},${cy} A ${r},${r} 0 0,1 ${cx+r},${cy}"
+              fill="none" stroke="var(--bg-3)" stroke-width="10" stroke-linecap="round"/>
+            <!-- 彩色進度弧 - 從中間往buy方向 -->
+            <path d="M ${cx},${cy-r} A ${r},${r} 0 0,${sweepDir} ${arcX.toFixed(1)},${arcY.toFixed(1)}"
+              fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round"
+              opacity="${total>0?1:0}"/>
+            <!-- 指針 -->
+            <line x1="${cx}" y1="${cy}"
+              x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}"
+              stroke="var(--text-1)" stroke-width="2.5" stroke-linecap="round"/>
+            <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text-1)"/>
           </svg>
-          <div class="dial-label" style="color:${color}">${sum.label}</div>
+          <div class="dial-label" style="color:${color};margin-top:-8px">${sum.label}</div>
           <div class="dial-counts">
             <span class="dn-color">賣${cnt.sell||0}</span>
             <span style="color:var(--text-3)">中${cnt.neutral||0}</span>
