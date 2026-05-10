@@ -877,25 +877,34 @@ const SYNC = {
 
 const RECOMMEND = {
   CANDIDATES: [
-    // ETF
-    { code:'0050',  name:'元大台灣50',     sector:'ETF',   type:'ETF',    risk:'低',   horizon:'長線', reason:'追蹤台灣前50大市值，長期持有最穩健，年化約8-12%。', logic:'定期定額，適合作為核心部位（建議佔比30-50%）。', shortNote:null },
-    { code:'0056',  name:'元大高股息',     sector:'ETF',   type:'ETF',    risk:'低',   horizon:'長線', reason:'高股息策略，每年穩定配息，適合長期存股。', logic:'股息再投入複利效果佳。', shortNote:null },
-    { code:'00878', name:'國泰永續高股息', sector:'ETF',   type:'ETF',    risk:'低',   horizon:'長線', reason:'ESG+高股息雙重篩選，月月配息。', logic:'適合需要穩定現金流的長期投資人。', shortNote:null },
-    { code:'006208',name:'富邦台50',       sector:'ETF',   type:'ETF',    risk:'低',   horizon:'長線', reason:'與0050相近但管理費更低。', logic:'低費用率讓長期複利效果更好。', shortNote:null },
-    // 半導體/科技（長+短）
-    { code:'2330',  name:'台積電',         sector:'半導體', type:'權值股', risk:'中',   horizon:'長線', reason:'全球最先進晶圓代工，AI/HPC需求持續驅動，護城河極深。', logic:'台股不可缺少的核心持股，長期向上。', shortNote:'逢大跌（跌幅>8%）為短線好買點，反彈快。' },
-    { code:'2454',  name:'聯發科',         sector:'半導體', type:'成長股', risk:'中',   horizon:'長短', reason:'手機AP+AI晶片雙引擎，AI on device最大受惠者。', logic:'有回檔即為好機會，技術面修正後往往快速反彈。', shortNote:'📌 短線機會：回檔10-15%後搭配KD低檔黃金交叉為進場訊號。' },
-    { code:'2303',  name:'聯電',           sector:'半導體', type:'存股',   risk:'中',   horizon:'長線', reason:'成熟製程需求穩定，車用/工業用晶片長期支撐。', logic:'殖利率佳，適合長期存股兼具成長潛力。', shortNote:null },
-    { code:'2382',  name:'廣達',           sector:'電子',  type:'成長股', risk:'中',   horizon:'長短', reason:'AI伺服器最大受惠者之一，GB200訂單強勁。', logic:'AI基礎建設需求爆發，長期成長能見度高。', shortNote:'📌 短線機會：AI題材消息面回調時為買點，波段約10-20%。' },
-    { code:'3231',  name:'緯創',           sector:'電子',  type:'成長股', risk:'中高', horizon:'短線', reason:'AI伺服器ODM大廠，與鴻海並列雙雄。', logic:'波動較大，適合短線波段操作。', shortNote:'📌 純短線：消息面驅動，需嚴設停損8%，目標10-15%。' },
-    { code:'2317',  name:'鴻海',           sector:'電子',  type:'權值股', risk:'中',   horizon:'長短', reason:'積極布局電動車和AI伺服器，本益比低。', logic:'殖利率穩定，電動車轉型為長期催化劑。', shortNote:'📌 短線機會：法說會前後常有波段，回檔至季線附近為買點。' },
-    { code:'3034',  name:'聯詠',           sector:'半導體', type:'成長股', risk:'中高', horizon:'短線', reason:'面板驅動IC龍頭，AI PC帶動需求回升。', logic:'景氣復甦週期股，適合波段操作。', shortNote:'📌 純短線：底部放量突破時進場，目標波段15-20%。' },
-    { code:'2379',  name:'瑞昱',           sector:'半導體', type:'成長股', risk:'中',   horizon:'長短', reason:'網通晶片+AI邊緣計算受惠，客戶群廣泛。', logic:'基本面穩健，回檔時長期布局機會。', shortNote:'📌 短線機會：網通題材發酵時跟隨，停損設5%。' },
-    // 金融/民生
-    { code:'2882',  name:'國泰金',         sector:'金融',  type:'存股',   risk:'低中', horizon:'長線', reason:'台灣最大壽險，股息穩定，利率上升環境有利。', logic:'長期存股，每年穩定配息。', shortNote:null },
-    { code:'2881',  name:'富邦金',         sector:'金融',  type:'存股',   risk:'低中', horizon:'長線', reason:'獲利能力強的綜合金控，旗下富邦人壽+台北富邦銀行。', logic:'金融股防禦性強，適合穩定配置。', shortNote:null },
-    { code:'2412',  name:'中華電',         sector:'電信',  type:'存股',   risk:'低',   horizon:'長線', reason:'台灣最大電信，現金流穩定，殖利率4-5%。', logic:'景氣不佳時的避風港，防禦部位。', shortNote:null },
+    // ── 台股 ──
+    { code:'0050',   name:'元大台灣50',     sector:'ETF',    type:'ETF',    risk:'低',   horizon:'長線', market:'TW', reason:'追蹤台灣前50大市值，長期持有最穩健，年化約8-12%。', logic:'定期定額，適合作為核心部位（建議佔比30-50%）。', shortNote:null },
+    { code:'0056',   name:'元大高股息',     sector:'ETF',    type:'ETF',    risk:'低',   horizon:'長線', market:'TW', reason:'高股息策略，每年穩定配息，適合長期存股。', logic:'股息再投入複利效果佳。', shortNote:null },
+    { code:'00878',  name:'國泰永續高股息', sector:'ETF',    type:'ETF',    risk:'低',   horizon:'長線', market:'TW', reason:'ESG+高股息雙重篩選，月月配息。', logic:'適合需要穩定現金流的長期投資人。', shortNote:null },
+    { code:'006208', name:'富邦台50',       sector:'ETF',    type:'ETF',    risk:'低',   horizon:'長線', market:'TW', reason:'與0050相近但管理費更低。', logic:'低費用率讓長期複利效果更好。', shortNote:null },
+    { code:'2330',   name:'台積電',         sector:'半導體',  type:'權值股', risk:'中',   horizon:'長線', market:'TW', reason:'全球最先進晶圓代工，AI/HPC需求持續驅動，護城河極深。', logic:'台股不可缺少的核心持股，長期向上。', shortNote:'逢大跌（跌幅>8%）為短線好買點，反彈快。' },
+    { code:'2454',   name:'聯發科',         sector:'半導體',  type:'成長股', risk:'中',   horizon:'長短', market:'TW', reason:'手機AP+AI晶片雙引擎，AI on device最大受惠者。', logic:'有回檔即為好機會，技術面修正後往往快速反彈。', shortNote:'📌 短線機會：回檔10-15%後搭配KD低檔黃金交叉為進場訊號。' },
+    { code:'2303',   name:'聯電',           sector:'半導體',  type:'存股',   risk:'中',   horizon:'長線', market:'TW', reason:'成熟製程需求穩定，車用/工業用晶片長期支撐。', logic:'殖利率佳，適合長期存股兼具成長潛力。', shortNote:null },
+    { code:'2382',   name:'廣達',           sector:'電子',   type:'成長股', risk:'中',   horizon:'長短', market:'TW', reason:'AI伺服器最大受惠者之一，GB200訂單強勁。', logic:'AI基礎建設需求爆發，長期成長能見度高。', shortNote:'📌 短線機會：AI題材消息面回調時為買點，波段約10-20%。' },
+    { code:'2317',   name:'鴻海',           sector:'電子',   type:'權值股', risk:'中',   horizon:'長短', market:'TW', reason:'積極布局電動車和AI伺服器，本益比低。', logic:'殖利率穩定，電動車轉型為長期催化劑。', shortNote:'📌 短線機會：法說會前後常有波段，回檔至季線附近為買點。' },
+    { code:'2882',   name:'國泰金',         sector:'金融',   type:'存股',   risk:'低中', horizon:'長線', market:'TW', reason:'台灣最大壽險，股息穩定，利率上升環境有利。', logic:'長期存股，每年穩定配息。', shortNote:null },
+    { code:'2412',   name:'中華電',         sector:'電信',   type:'存股',   risk:'低',   horizon:'長線', market:'TW', reason:'台灣最大電信，現金流穩定，殖利率4-5%。', logic:'景氣不佳時的避風港，防禦部位。', shortNote:null },
+    // ── 美股 ──
+    { code:'SPY',  name:'S&P 500 ETF',    sector:'ETF',    type:'ETF',    risk:'低',   horizon:'長線', market:'US', reason:'追蹤S&P500，美股最核心的長期持有標的，年化約10%。', logic:'定期定額，適合作為美股核心部位。', shortNote:null },
+    { code:'QQQ',  name:'Nasdaq 100 ETF', sector:'ETF',    type:'ETF',    risk:'低中', horizon:'長線', market:'US', reason:'追蹤那斯達克100，科技股集中，長期成長性強。', logic:'科技偏重者首選，搭配SPY做多元配置。', shortNote:'📌 短線：市場情緒回落時波動大，可短線布局。' },
+    { code:'AAPL', name:'Apple',          sector:'科技',   type:'權值股', risk:'低中', horizon:'長線', market:'US', reason:'全球市值最大公司，硬體+服務雙引擎，現金流穩定。', logic:'長期持有，Apple Intelligence帶動換機潮。', shortNote:null },
+    { code:'NVDA', name:'NVIDIA',         sector:'半導體',  type:'成長股', risk:'中高', horizon:'長短', market:'US', reason:'AI GPU龍頭，資料中心需求爆發，護城河深厚。', logic:'AI浪潮核心受惠者，長期持有邏輯最強。', shortNote:'📌 短線：財報前後常有大波動，可波段操作。' },
+    { code:'MSFT', name:'Microsoft',      sector:'科技',   type:'權值股', risk:'低中', horizon:'長線', market:'US', reason:'雲端Azure+Copilot AI雙驅動，獲利穩定成長。', logic:'最穩健的科技成長股，適合長期核心配置。', shortNote:null },
+    { code:'AMZN', name:'Amazon',         sector:'電商/雲', type:'成長股', risk:'中',   horizon:'長線', market:'US', reason:'AWS雲端霸主+電商復甦，AI基礎建設大受惠。', logic:'多元業務護城河，長期成長確定性高。', shortNote:null },
+    { code:'GOOGL',name:'Alphabet',       sector:'科技',   type:'成長股', risk:'中',   horizon:'長線', market:'US', reason:'搜尋+YouTube+雲端GCP，AI整合持續深化。', logic:'廣告收入穩健+雲端成長，本益比合理。', shortNote:null },
+    { code:'META', name:'Meta',           sector:'科技',   type:'成長股', risk:'中',   horizon:'長短', market:'US', reason:'廣告收入強勁，AI推薦算法驅動用戶黏著度，元宇宙長期佈局。', logic:'短期廣告景氣+長期AI紅利。', shortNote:'📌 短線：廣告旺季（Q4）前布局，財報後常有大漲。' },
+    { code:'TSLA', name:'Tesla',          sector:'電動車', type:'成長股', risk:'高',   horizon:'短線', market:'US', reason:'電動車+Robotaxi+能源儲存，願景大但波動極高。', logic:'高風險高報酬，適合短線波段操作。', shortNote:'📌 純短線：技術面突破或財報驅動，嚴設停損10%。' },
+    { code:'BRK-B',name:'Berkshire B',    sector:'金融',   type:'價值股', risk:'低',   horizon:'長線', market:'US', reason:'巴菲特旗下多元持股，穩健價值投資標的。', logic:'波動低，長期複利，適合保守型美股配置。', shortNote:null },
   ],
+
+  get activeCandidates() {
+    return this.CANDIDATES.filter(c => c.market === APP.activeMarket);
+  },
 
   run() {
     const el = document.getElementById('rec-result');
@@ -907,11 +916,11 @@ const RECOMMEND = {
 
     const sectorMap = {};
     portfolio.forEach(s => {
-      const match = this.CANDIDATES.find(c => c.code === s.code);
+      const match = this.activeCandidates.find(c => c.code === s.code);
       if (match) sectorMap[match.sector] = (sectorMap[match.sector]||0) + 1;
     });
 
-    const scored = this.CANDIDATES
+    const scored = this.activeCandidates
       .filter(c => !ownedCodes.has(c.code))
       .filter(c => {
         if (filter === 'long')  return c.horizon === '長線' || c.horizon === '長短';
@@ -1113,19 +1122,26 @@ const APP = {
   switchMarket(market) {
     this.activeMarket = market;
     localStorage.setItem('stock-agent-market', market);
-    // 更新按鈕狀態
+    // 更新切換按鈕狀態
     document.querySelectorAll('.market-switch-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.market === market);
     });
-    // 切換標題
+    // 切換 logo 文字
     const logoSpan = document.querySelector('.logo span');
     if (logoSpan) logoSpan.textContent = market === 'US' ? '🇺🇸 股票 Agent' : '🇹🇼 股票 Agent';
-    // 重繪側邊欄與市場狀態
+    // 切換大盤指數列
+    const twBar = document.getElementById('tw-market-bar');
+    const usBar = document.getElementById('us-market-bar');
+    if (twBar) twBar.style.display = market === 'US' ? 'none' : '';
+    if (usBar) usBar.style.display = market === 'US' ? '' : 'none';
+    // 重置選中狀態
     this.activeSymbol = '';
     this.renderAll();
     this._updateMarketStatus();
     // 立即更新對應市場報價
     this.refreshPrices(true);
+    // 美股時抓美股大盤
+    if (market === 'US') DATA.fetchUSIndexes();
   },
 
   _updateMarketStatus() {
@@ -1134,8 +1150,12 @@ const APP = {
     const marketOpen = this.activeMarket === 'US' ? usOpen : twOpen;
     let label = '休市';
     if (marketOpen) label = this.activeMarket === 'US' ? '美股盤中' : '開盤中';
+    // 台股 badge
     const el = document.getElementById('mkt-status');
     if (el) { el.textContent = label; el.className = marketOpen ? 'badge open' : 'badge closed'; }
+    // 美股 badge（同步）
+    const elUS = document.getElementById('mkt-status-us');
+    if (elUS) { elUS.textContent = label; elUS.className = marketOpen ? 'badge open' : 'badge closed'; }
     const dot = document.getElementById('live-dot');
     if (dot) dot.style.opacity = marketOpen ? '1' : '0.3';
   },
@@ -1269,7 +1289,7 @@ const APP = {
       const pnlPct = (price - s.cost) / s.cost * 100;
       const isUp   = chg >= 0;
       const isActive = s.code === this.activeSymbol;
-      const sharesDisplay = s.shares >= 1000 ? `${(s.shares/1000).toFixed(s.shares%1000===0?0:2)}張` : `${s.shares}股`;
+      const sharesDisplay = sharesDisp(s.shares, s.market || APP.activeMarket);
       const pnlDisplay = Math.abs(pnl) >= 10000 ? `${pnl>=0?'+':''}${(pnl/10000).toFixed(2)}萬` : `${pnl>=0?'+':''}${pnl.toFixed(0)}元`;
       const sig = SIGNAL.quickEstimate(s);
       const mode = this.getStockMode(s.code); // 長線 or 短線
@@ -1562,7 +1582,6 @@ const APP = {
   },
 
   _initMarketSwitch() {
-    // 套用已儲存的市場
     document.querySelectorAll('.market-switch-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.market === this.activeMarket);
       btn.addEventListener('click', () => this.switchMarket(btn.dataset.market));
@@ -1570,6 +1589,13 @@ const APP = {
     // 更新 logo 文字
     const logoSpan = document.querySelector('.logo span');
     if (logoSpan) logoSpan.textContent = this.activeMarket === 'US' ? '🇺🇸 股票 Agent' : '🇹🇼 股票 Agent';
+    // 初始化大盤列顯示
+    const twBar = document.getElementById('tw-market-bar');
+    const usBar = document.getElementById('us-market-bar');
+    if (twBar) twBar.style.display = this.activeMarket === 'US' ? 'none' : '';
+    if (usBar) usBar.style.display = this.activeMarket === 'US' ? '' : 'none';
+    // 美股模式時立即抓大盤
+    if (this.activeMarket === 'US') DATA.fetchUSIndexes();
   },
 
   _loadSettings() {
@@ -1627,17 +1653,53 @@ function runAnalysis() {
 }
 function calcOrder() { ORDER.calcSingle(); }
 function calcPortfolio() { ORDER.calcPortfolio(); }
-function openAddModal() { document.getElementById('add-modal')?.classList.add('show'); }
-function openWatchlistModal() { document.getElementById('watch-modal')?.classList.add('show'); }
+function openAddModal() {
+  const isUS = APP.activeMarket === 'US';
+  // 標題
+  const title = document.getElementById('add-modal-title');
+  if (title) title.textContent = isUS ? '新增美股持股' : '新增持股';
+  // 代號 placeholder
+  const codeEl = document.getElementById('m-code');
+  if (codeEl) codeEl.placeholder = isUS ? 'AAPL' : '2330';
+  // 均價 label
+  const costLabel = document.getElementById('m-cost-label');
+  if (costLabel) costLabel.innerHTML = isUS ? '成交均價（USD/股）<span class="required">*</span>' : '成交均價（元/股）<span class="required">*</span>';
+  // 說明
+  const note = document.getElementById('add-modal-note');
+  if (note) note.textContent = isUS
+    ? '💡 輸入美股代號（如 AAPL、NVDA），支援零股。已持有相同代號→自動加權合併均價。'
+    : '💡 股數填實際持有股數（零股支援）。已持有相同代號→自動加權合併均價。';
+  document.getElementById('add-modal')?.classList.add('show');
+}
+
+function openWatchModal() {
+  const isUS = APP.activeMarket === 'US';
+  const title = document.getElementById('watch-modal-title');
+  if (title) title.textContent = isUS ? '新增美股自選' : '新增自選股';
+  const codeEl = document.getElementById('w-code');
+  if (codeEl) codeEl.placeholder = isUS ? 'TSLA' : '6505';
+  document.getElementById('watch-modal')?.classList.add('show');
+}
+function openWatchlistModal() { openWatchModal(); }
 function closeModal(id) { document.getElementById(id)?.classList.remove('show'); }
 function runRecommend() { RECOMMEND.run(); }
 
 function openBuyModal(code, idx) {
   const s = APP.portfolio[idx];
   if (!s) return;
+  const isUS = APP.activeMarket === 'US';
   document.getElementById('buy-code').value = s.code;
   document.getElementById('buy-name').value = s.name;
   document.getElementById('buy-price').value = s.price?.toFixed(2) || s.cost;
+  // 調整 label 和說明
+  const priceLabel = document.getElementById('buy-price-label');
+  if (priceLabel) priceLabel.innerHTML = isUS
+    ? '成交價（USD/股）<span class="required">*</span>'
+    : '成交價（元/股）<span class="required">*</span>';
+  const note = document.getElementById('buy-modal-note');
+  if (note) note.textContent = isUS
+    ? '加碼後均價自動加權計算。美股一般無手續費，已自動記錄。'
+    : '加碼後均價自動加權計算。手續費 0.1425%（最低$20）自動計入紀錄。';
   document.getElementById('buy-modal')?.classList.add('show');
   document.getElementById('buy-modal')._idx = idx;
 }
@@ -1645,47 +1707,53 @@ function openBuyModal(code, idx) {
 function openSellStockModal(code, idx) {
   const s = APP.portfolio[idx];
   if (!s) return;
+  const isUS = APP.activeMarket === 'US';
   document.getElementById('sell-code').value = s.code;
   document.getElementById('sell-name').value = s.name;
   document.getElementById('sell-price').value = s.price?.toFixed(2) || s.cost;
   document.getElementById('sell-max').textContent = `最多 ${s.shares} 股`;
+  // 調整 label 和說明
+  const priceLabel = document.getElementById('sell-price-label');
+  if (priceLabel) priceLabel.innerHTML = isUS
+    ? '賣出價格（USD/股）<span class="required">*</span>'
+    : '賣出價格（元/股）<span class="required">*</span>';
+  const note = document.getElementById('sell-modal-note');
+  if (note) note.textContent = isUS
+    ? '美股一般無交易稅，僅計算手續費（各券商不同，預設$0）。'
+    : '⚠️ 手續費 0.1425%（最低$20）+ 交易稅 0.3%，自動計入紀錄。';
   document.getElementById('sell-modal')?.classList.add('show');
   document.getElementById('sell-modal')._idx = idx;
 }
 
 function addStock() {
-  const code   = document.getElementById('m-code')?.value.trim();
+  const code   = document.getElementById('m-code')?.value.trim().toUpperCase();
   let   name   = document.getElementById('m-name')?.value.trim();
   const shares = parseFloat(document.getElementById('m-shares')?.value);
   const cost   = parseFloat(document.getElementById('m-cost')?.value);
   const date   = document.getElementById('m-date')?.value || '';
   if (!code || !shares || !cost) { showToast('請填寫必填欄位（代號、股數、均價）'); return; }
-  // 名稱若空白或跟代號一樣，先用代號暫代，等 fetchQuote 回來後自動更新
   if (!name || name === code) name = code;
+  const isUS = APP.activeMarket === 'US';
   const existing = APP.portfolio.find(s => s.code === code);
   if (existing) {
     const totalShares = existing.shares + shares;
     existing.cost = +((existing.cost * existing.shares + cost * shares) / totalShares).toFixed(4);
     existing.shares = +totalShares.toFixed(0);
   } else {
-    APP.portfolio.push({ code, name, shares, cost, date, price: cost, prevClose: cost });
+    APP.portfolio.push({ code, name, shares, cost, date, price: cost, prevClose: cost, market: isUS ? 'US' : 'TW' });
   }
-  const fee = Math.max(20, Math.round(cost * shares * 0.001425));
-  TRADES.add({ date: date||new Date().toISOString().split('T')[0], code, name, action:'buy', shares, price:cost, fee });
-  APP.save(); APP.renderAll(); closeModal('add-modal');
+  // 台股才計算手續費，美股預設0
+  const fee = isUS ? 0 : Math.max(20, Math.round(cost * shares * 0.001425));
+  TRADES.add({ date: date||new Date().toISOString().split('T')[0], code, name, action:'buy', shares, price:cost, fee, market: isUS ? 'US' : 'TW' });
+  APP.save(); APP.renderAll(); PIE.render(); closeModal('add-modal');
   showToast(`已新增 ${name} (${code}) × ${shares}股`);
   ['m-code','m-name','m-shares','m-cost'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   DATA.fetchQuote(code).then(q => {
     const s = APP.portfolio.find(x => x.code === code);
     if (s && q.ok) {
       if (q.price) { s.price = q.price; s.prevClose = q.prevClose; }
-      // 自動更新股票名稱（若原本是暫代的代號）
-      if (q.name && q.name !== code && (s.name === code || !s.name)) {
-        s.name = q.name;
-      }
-      APP.save();
-      APP.renderAll();
-      PIE.render();
+      if (q.name && q.name !== code && (s.name === code || !s.name)) s.name = q.name;
+      APP.save(); APP.renderAll(); PIE.render();
     }
   });
 }
@@ -1702,10 +1770,11 @@ function confirmBuy() {
   const totalShares = s.shares + shares;
   s.cost = +((s.cost * s.shares + price * shares) / totalShares).toFixed(4);
   s.shares = +totalShares.toFixed(0);
-  const fee = Math.max(20, Math.round(price * shares * 0.001425));
-  TRADES.add({ date, code:s.code, name:s.name, action:'buy', shares, price, fee });
+  const isUS = APP.activeMarket === 'US';
+  const fee = isUS ? 0 : Math.max(20, Math.round(price * shares * 0.001425));
+  TRADES.add({ date, code:s.code, name:s.name, action:'buy', shares, price, fee, market: isUS ? 'US' : 'TW' });
   APP.save(); APP.renderAll(); closeModal('buy-modal');
-  showToast(`${s.name} 加碼 ${shares}股 @ $${price}，新均價 $${s.cost.toFixed(2)}`);
+  showToast(`${s.name} 加碼 ${shares}股 @ ${isUS?'$':'NT$'}${price}，新均價 ${isUS?'$':'NT$'}${s.cost.toFixed(2)}`);
 }
 
 function confirmSell() {
@@ -1718,17 +1787,23 @@ function confirmSell() {
   const date   = document.getElementById('sell-date')?.value || new Date().toISOString().split('T')[0];
   if (!shares || !price) { showToast('請填寫股數和賣出價格'); return; }
   if (shares > s.shares) { showToast(`超過持股數量（最多 ${s.shares} 股）`); return; }
+  const isUS = APP.activeMarket === 'US';
   const tradeValue = price * shares;
   const pnl = (price - s.cost) * shares;
-  const sellTax = Math.round(tradeValue * 0.003);
-  const fee = Math.max(20, Math.round(tradeValue * 0.001425));
+  // 台股：手續費 0.1425% + 交易稅 0.3%；美股：無費用
+  const sellTax = isUS ? 0 : Math.round(tradeValue * 0.003);
+  const fee     = isUS ? 0 : Math.max(20, Math.round(tradeValue * 0.001425));
   const totalFee = fee + sellTax;
-  const pnlDisplay = Math.abs(pnl) >= 10000 ? `${(pnl/10000).toFixed(2)}萬` : `${pnl.toFixed(0)}元`;
-  TRADES.add({ date, code:s.code, name:s.name, action:'sell', shares, price, fee:totalFee, note:`損益${pnl>=0?'+':''}${pnlDisplay}` });
+  const currency = isUS ? 'USD' : 'NT$';
+  const pnlDisplay = isUS
+    ? `$${Math.abs(pnl).toFixed(2)} USD`
+    : Math.abs(pnl) >= 10000 ? `${(Math.abs(pnl)/10000).toFixed(2)}萬` : `${Math.abs(pnl).toFixed(0)}元`;
+  TRADES.add({ date, code:s.code, name:s.name, action:'sell', shares, price, fee:totalFee, note:`損益${pnl>=0?'+':''}${pnlDisplay}`, market: isUS ? 'US' : 'TW' });
   s.shares = +(s.shares - shares).toFixed(0);
   if (s.shares <= 0) { APP.portfolio.splice(idx, 1); if (APP.activeSymbol === s.code) APP.activeSymbol = ''; }
-  APP.save(); APP.renderAll(); closeModal('sell-modal'); TRADES.render();
-  showToast(`${s.name} 賣出 ${shares}股 @ $${price}，${pnl>=0?'獲利':'虧損'}${pnlDisplay}（稅費$${totalFee}）`);
+  APP.save(); APP.renderAll(); PIE.render(); closeModal('sell-modal'); TRADES.render();
+  const feeText = totalFee > 0 ? `（稅費$${totalFee}）` : '';
+  showToast(`${s.name} 賣出 ${shares}股 @ ${currency}${price}，${pnl>=0?'獲利':'虧損'}${pnlDisplay}${feeText}`);
 }
 
 function editStockName(code, idx) {
@@ -1743,9 +1818,13 @@ function editStockName(code, idx) {
 }
 
 function autoFetchStockName(code, targetId) {
-  code = (code || '').trim();
+  code = (code || '').trim().toUpperCase();
   const nameEl = document.getElementById(targetId);
-  if (!nameEl || code.length < 4) return;
+  if (!nameEl) return;
+  const isUS = APP.activeMarket === 'US';
+  // 台股最少4碼才觸發，美股最少1碼
+  const minLen = isUS ? 1 : 4;
+  if (code.length < minLen) return;
   clearTimeout(_fetchNameTimer);
   _fetchNameTimer = setTimeout(async () => {
     nameEl.placeholder = '抓取中...';
@@ -1755,7 +1834,7 @@ function autoFetchStockName(code, targetId) {
         nameEl.placeholder = q.name;
         if (!nameEl.value || nameEl.value === code) nameEl.value = q.name;
       } else {
-        nameEl.placeholder = '請手動輸入名稱';
+        nameEl.placeholder = isUS ? '請手動輸入公司名稱' : '請手動輸入名稱';
       }
     } catch(e) { nameEl.placeholder = '請手動輸入名稱'; }
   }, 700);
@@ -1890,6 +1969,13 @@ function setSignedText(id, val, fmtFn) {
   el.className = el.className.replace(/\b(up|dn|neutral)\b/g,'') + (isUp ? ' up' : ' dn');
 }
 let toastTimer = null;
+// ── 股數顯示 helper（台股有「張」，美股只有「股」）──
+function sharesDisp(n, market) {
+  const isUS = (market || APP.activeMarket) === 'US';
+  if (isUS) return `${n}股`;
+  return n >= 1000 ? `${(n/1000).toFixed(n%1000===0?0:2)}張` : `${n}股`;
+}
+
 function showToast(msg) {
   const el = document.getElementById('toast');
   if (!el) return;

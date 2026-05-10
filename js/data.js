@@ -298,6 +298,31 @@ const DATA = {
     });
   },
 
+  // ── 美股大盤指數（Yahoo 一次批次）────────────────────
+  async fetchUSIndexes() {
+    try {
+      const res = await this._fetch(
+        'https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EGSPC,%5EIXIC,%5EDJI' +
+        '&fields=regularMarketPrice,regularMarketPreviousClose,shortName'
+      );
+      const results = (await res.json())?.quoteResponse?.result ?? [];
+      const map = { '^GSPC': 'sp500-badge', '^IXIC': 'nasdaq-badge', '^DJI': 'dow-badge' };
+      const name = { '^GSPC': 'S&P500', '^IXIC': 'NASDAQ', '^DJI': 'DOW' };
+      results.forEach(q => {
+        const elId = map[q.symbol];
+        if (!elId) return;
+        const p  = parseFloat(q.regularMarketPrice);
+        const pc = parseFloat(q.regularMarketPreviousClose ?? p);
+        const chg = p - pc;
+        const pct = pc > 0 ? chg / pc * 100 : 0;
+        const sign = chg >= 0 ? '+' : '';
+        const disp = `${name[q.symbol]} ${p.toLocaleString('en-US', {maximumFractionDigits:2})} (${sign}${pct.toFixed(2)}%)`;
+        const el = document.getElementById(elId);
+        if (el) { el.textContent = disp; el.className = `index-chip ${chg >= 0 ? 'up' : 'dn'}`; }
+      });
+    } catch(e) { console.warn('[DATA] fetchUSIndexes failed:', e.message); }
+  },
+
   // ── 大盤指數（TWSE，不走 queue）─────────────────────
   async fetchIndexes() {
     try {
