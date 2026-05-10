@@ -136,13 +136,144 @@ const ANALYSIS = {
 
   _updateSignals(ind, data) {
     const score = this._calcScore(ind);
-    // VIX 調整
     const vixAdj = (typeof VIX !== 'undefined' ? VIX.score : 0) || 0;
     const adjScore = score + vixAdj * 0.5;
     const pct = Math.round(((adjScore + 5) / 10) * 100);
-    const confidence = adjScore >= 3 ? '強烈買進' : adjScore >= 1.5 ? '偏多' : adjScore <= -3 ? '強烈賣出' : adjScore <= -1.5 ? '偏空' : '中性觀望';
-    const confClass  = adjScore >= 2 ? 'high' : adjScore <= -2 ? 'low' : 'mid';
-    const action = adjScore >= 2 ? '買進' : adjScore >= 1 ? '觀察買' : adjScore <= -2 ? '賣出' : adjScore <= -1 ? '觀察賣' : '持有';
+
+    // ★ 問題6: 取得長短線模式
+    const symbol = this.lastSymbol || (typeof APP !== 'undefined' ? APP.activeSymbol : '');
+    const mode = (typeof APP !== 'undefined' && symbol) ? APP.getStockMode(symbol) : 'long';
+    const isLong = mode === 'long';
+
+    // ★ 問題6: 長線模式 action/confidence 門檻完全不同
+    let confidence, confClass, action;
+    if (isLong) {
+      // 長線：基本抱到老，不輕易賣，只有極端情況才建議減碼
+      action     = adjScore >= 2 ? '買進加碼' : adjScore >= 0 ? '持有' : adjScore <= -4 ? '考慮減碼' : '持有';
+      confidence = adjScore >= 3 ? '強力做多' : adjScore >= 1 ? '長線偏多' : adjScore <= -3 ? '留意風險' : '長線持有';
+      confClass  = adjScore >= 2 ? 'high' : adjScore <= -3 ? 'low' : 'mid';
+    } else {
+      // 短線：約1個月波段，敏感度高
+      action     = adjScore >= 2 ? '買進' : adjScore >= 1 ? '觀察買' : adjScore <= -2 ? '賣出' : adjScore <= -1 ? '觀察賣' : '持有';
+      confidence = adjScore >= 3 ? '強烈買進' : adjScore >= 1.5 ? '偏多' : adjScore <= -3 ? '強烈賣出' : adjScore <= -1.5 ? '偏空' : '中性觀望';
+      confClass  = adjScore >= 2 ? 'high' : adjScore <= -2 ? 'low' : 'mid';
+    }
+
+    // 建構詳細原因清單
+    const bullReasons = [], bearReasons = [];
+    if (ind.rsi < 30) bullReasons.push(`RSI ${ind.rsi} 超賣`);
+    else if (ind.rsi < 45) bullReasons.push(`RSI ${ind.rsi} 偏低`);
+    else if (ind.rsi > 70) bearReasons.push(`RSI ${ind.rsi} 超買`);
+    else if (ind.rsi > 60) bearReasons.push(`RSI ${ind.rsi} 偏高`);
+    if (ind.macdGolden) bullReasons.push('MACD 黃金交叉');
+    else if (ind.macdDead) bearReasons.push('MACD 死亡交叉');
+    else if (ind.hist > 0) bullReasons.push('MACD 柱狀正值');
+    else bearReasons.push('MACD 柱狀負值');
+    if (ind.kdGolden) bullReasons.push('KD 黃金交叉');
+    else if (ind.kdDead) bearReasons.push('KD 死亡交叉');
+    if (ind.bbPos === 'oversold') bullReasons.push('布林下軌支撐');
+    else if (ind.bbPos === 'overbought') bearReasons.push('布林上軌壓力');
+    if (ind.maBull) bullReasons.push(`均線多頭（MA5 ${ind.ma5} > MA20 ${ind.ma20}）`);
+    else bearReasons.push(`均線空頭（MA5 ${ind.ma5} < MA20 ${ind.ma20}）`);
+    if (ind.volSurge && ind.chg > 0) bullReasons.push(`放量上漲（量比 ${ind.volRatio}x）`);
+    else if (ind.volSurge && ind.chg < 0) bearReasons.push(`放量下跌（量比 ${ind.volRatio}x）`);
+    if (typeof VIX !== 'undefined' && VIX.label) {
+      if (vixAdj > 0) bullReasons.push(`市場恐慌（VIX ${VIX.level}%）逆向機會`);
+      else if (vixAdj < 0) bearReasons.push(`市場過熱（VIX ${VIX.level}%）注意回調`);
+    }
+
+    // ★ 問題6: 持股損益門檻依長短線區分
+    const stock = APP.getActiveStock();
+    if (stock) {
+      const gainPct = (ind.last.c - stock.cost) / stock.cost * 100;
+      if (isLong) {
+        // 長線：除非跌很深，否則不提賣出
+        if (gainPct >= 80) bullReasons.push(`長線已獲利 +${gainPct.toFixed(1)}%，可考慮部分了結`);
+        else if (gainPct > 0) bullReasons.push(`持有獲利 +${gainPct.toFixed(1)}%，繼續持有`);
+        else if (gainPct <= -15) bearReasons.push(`虧損 ${gainPct.toFixed(1)}%，評估基本面是否改變`);
+        else if (gainPct < 0) bearReasons.push(`目前小幅虧損 ${gainPct.toFixed(1)}%，長線持有`);
+      } else {
+        if (gainPct >= 20) bearReasons.push(`已獲利 +${gainPct.toFixed(1)}%，建議部分了結`);
+        else if (gainPct <= -6) bearReasons.push(`虧損 ${gainPct.toFixed(1)}%，接近停損`);
+        else if (gainPct > 0) bullReasons.push(`持有獲利 +${gainPct.toFixed(1)}%`);
+      }
+    }
+
+    const reasonHtml = `
+      <div class="sig-reasons">
+        ${bullReasons.length ? `<div class="sig-reason-group bull">${bullReasons.map(r=>`<span class="sr-tag bull">↑ ${r}</span>`).join('')}</div>` : ''}
+        ${bearReasons.length ? `<div class="sig-reason-group bear">${bearReasons.map(r=>`<span class="sr-tag bear">↓ ${r}</span>`).join('')}</div>` : ''}
+      </div>`;
+
+    const curPrice = ind.last.c;
+
+    // ★ 問題6: 長線進場/停損/目標價範圍更寬
+    let suggestEntry, tp, sl;
+    if (isLong) {
+      suggestEntry = +(curPrice * 0.97).toFixed(1);   // 長線可以等回檔3%再買
+      tp = +(curPrice * 1.30).toFixed(1);              // 長線目標+30%
+      sl = +(curPrice * 0.85).toFixed(1);              // 長線停損-15%
+    } else {
+      const entryPct = adjScore >= 2 ? 0.99 : adjScore >= 1 ? 0.975 : 0.97;
+      suggestEntry = +(curPrice * entryPct).toFixed(1);
+      tp = +(curPrice * (adjScore >= 2 ? 1.12 : 1.08)).toFixed(1);
+      sl = +(curPrice * 0.94).toFixed(1);
+    }
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    const setHTML = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
+
+    const actionColors = {
+      '買進加碼': 'var(--green-l)',
+      '買進':     'var(--green-l)',
+      '觀察買':   'var(--green-l)',
+      '賣出':     'var(--red)',
+      '觀察賣':   'var(--red-l)',
+      '考慮減碼': 'var(--amber)',
+      '持有':     'var(--amber)',
+    };
+    const actionEl = document.getElementById('sig-action');
+    if (actionEl) {
+      actionEl.textContent = action;
+      actionEl.style.color = actionColors[action] || 'var(--amber)';
+    }
+    setHTML('sig-action-desc', reasonHtml);
+    set('sig-entry', `$${suggestEntry}`);
+    if (isLong) {
+      set('sig-entry-desc', `長線可分批佈局，支撐 ${ind.support}`);
+      set('sig-tp', `$${tp}`);
+      set('sig-tp-desc', `長線目標+30%，壓力 ${ind.resistance}`);
+      set('sig-sl', `$${sl}`);
+      set('sig-sl-desc', '長線停損 -15%（基本面未改變則無需停損）');
+    } else {
+      set('sig-entry-desc', `支撐${ind.support}，進場區間 ${(curPrice*0.96).toFixed(1)}~${(curPrice*1.002).toFixed(1)}`);
+      set('sig-tp', `$${tp}`);
+      set('sig-tp-desc', `目標+${((tp/curPrice-1)*100).toFixed(0)}%，壓力${ind.resistance}`);
+      set('sig-sl', `$${sl}`);
+      set('sig-sl-desc', '嚴格停損 -6%');
+    }
+
+    const chip = document.getElementById('conf-chip');
+    if (chip) {
+      const modeLabel = isLong ? '長線' : '短線';
+      chip.textContent = `${confidence} ${pct}% ｜${modeLabel}`;
+      chip.className = `confidence-chip ${confClass}`;
+    }
+    const bar = document.getElementById('meter-bar');
+    if (bar) {
+      const barColor = adjScore >= 3 ? '#E24B4A' : adjScore >= 1 ? '#1D9E75' : adjScore <= -3 ? '#378ADD' : adjScore <= -1 ? '#D4537E' : '#EF9F27';
+      const barPct = Math.max(5, Math.min(100, pct));
+      bar.style.cssText = `width:${barPct}%;background:${barColor};height:100%;border-radius:99px;transition:width 0.6s ease;opacity:1;min-width:8px;`;
+    }
+    const mv = document.getElementById('meter-value');
+    if (mv) mv.textContent = `${pct}% / 100`;
+
+    this._updateInfoGrid(ind);
+    ORDER.suggestEntry = suggestEntry;
+    ORDER.suggestSL = sl;
+    ORDER.suggestTP = tp;
+    ORDER.score = adjScore;
+  },
 
     // 建構詳細原因清單
     const bullReasons = [], bearReasons = [];
@@ -363,30 +494,58 @@ const SELL = {
     const signals = [];
     let urgency = 'none';
 
+    // ★ 問題6: 取得長短線模式
+    const isLong = (typeof APP !== 'undefined' && stock)
+      ? APP.getStockMode(stock.code) === 'long'
+      : true;
+
     if (stock) {
       const gainPct = (currentPrice - stock.cost) / stock.cost * 100;
-      if (gainPct >= 30) {
-        signals.push({ label:`獲利+${gainPct.toFixed(1)}%超高`, desc:'建議至少出清50%倉位，保留獲利', urgency:'sell' });
-        urgency = this._esc(urgency, 'sell');
-      } else if (gainPct >= 20) {
-        signals.push({ label:`已獲利+${gainPct.toFixed(1)}%`, desc:'達20%目標，建議分批了結', urgency:'sell' });
-        urgency = this._esc(urgency, 'sell');
-      }
-      if (gainPct <= -6) {
-        signals.push({ label:`虧損${gainPct.toFixed(1)}%`, desc:'已觸及停損線，建議執行停損', urgency:'urgent' });
-        urgency = this._esc(urgency, 'urgent');
+      if (isLong) {
+        // ★ 長線：基本抱到老，獲利門檻極高才建議了結
+        if (gainPct >= 100) {
+          signals.push({ label:`長線獲利+${gainPct.toFixed(1)}%`, desc:'已翻倍，可考慮分批了結部分（非強制）', urgency:'watch' });
+          urgency = this._esc(urgency, 'watch');
+        }
+        // 長線停損：-15%
+        if (gainPct <= -15) {
+          signals.push({ label:`虧損${gainPct.toFixed(1)}%已達長線停損`, desc:'評估基本面是否改變，若無變化可繼續持有', urgency:'sell' });
+          urgency = this._esc(urgency, 'sell');
+        }
+      } else {
+        // 短線：20%/30% 了結，-6% 停損
+        if (gainPct >= 30) {
+          signals.push({ label:`獲利+${gainPct.toFixed(1)}%超高`, desc:'建議至少出清50%倉位，保留獲利', urgency:'sell' });
+          urgency = this._esc(urgency, 'sell');
+        } else if (gainPct >= 20) {
+          signals.push({ label:`已獲利+${gainPct.toFixed(1)}%`, desc:'達20%目標，建議分批了結', urgency:'sell' });
+          urgency = this._esc(urgency, 'sell');
+        }
+        if (gainPct <= -6) {
+          signals.push({ label:`虧損${gainPct.toFixed(1)}%`, desc:'已觸及停損線，建議執行停損', urgency:'urgent' });
+          urgency = this._esc(urgency, 'urgent');
+        }
       }
     }
 
-    if (techInd.rsi > 80) { signals.push({ label:`RSI超買${techInd.rsi}`, desc:'極端超買，回壓風險高', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
-    else if (techInd.rsi > 72) { signals.push({ label:`RSI${techInd.rsi}超買區`, desc:'RSI進入超買，建議輕倉', urgency:'watch' }); urgency = this._esc(urgency,'watch'); }
-    if (techInd.macdDead) { signals.push({ label:'MACD死亡交叉', desc:'動能轉弱，建議減碼', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
-    if (techInd.kdDead && techInd.K > 80) { signals.push({ label:`KD高檔死叉K=${techInd.K}`, desc:'高檔死叉，回檔機率高', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
-    if (currentPrice < techInd.ma20 * 0.97 && !techInd.maBull) { signals.push({ label:'跌破MA20且空頭排列', desc:'中線趨勢向下', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
-    if (currentPrice < techInd.support * 0.98) { signals.push({ label:'跌破近期支撐', desc:`跌破支撐$${techInd.support}`, urgency:'urgent' }); urgency = this._esc(urgency,'urgent'); }
-    if (techInd.volSurge && techInd.chg < 0) { signals.push({ label:'爆量下跌（主力出貨）', desc:'量增價跌為出貨訊號', urgency:'urgent' }); urgency = this._esc(urgency,'urgent'); }
+    // ★ 問題6: 技術指標部分，長線門檻更高
+    if (isLong) {
+      // 長線：只有極端超買+多個訊號同時才提示
+      if (techInd.rsi > 85) { signals.push({ label:`RSI極端超買${techInd.rsi}`, desc:'長線可考慮少量減碼', urgency:'watch' }); urgency = this._esc(urgency,'watch'); }
+      if (techInd.macdDead && techInd.rsi > 65) { signals.push({ label:'MACD死叉+高RSI', desc:'短期動能轉弱，長線持有不動', urgency:'watch' }); urgency = this._esc(urgency,'watch'); }
+      if (currentPrice < techInd.support * 0.93) { signals.push({ label:'大幅跌破支撐7%', desc:`長線警示，支撐$${techInd.support}，評估基本面`, urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
+    } else {
+      // 短線：原本的技術指標邏輯
+      if (techInd.rsi > 80) { signals.push({ label:`RSI超買${techInd.rsi}`, desc:'極端超買，回壓風險高', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
+      else if (techInd.rsi > 72) { signals.push({ label:`RSI${techInd.rsi}超買區`, desc:'RSI進入超買，建議輕倉', urgency:'watch' }); urgency = this._esc(urgency,'watch'); }
+      if (techInd.macdDead) { signals.push({ label:'MACD死亡交叉', desc:'動能轉弱，建議減碼', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
+      if (techInd.kdDead && techInd.K > 80) { signals.push({ label:`KD高檔死叉K=${techInd.K}`, desc:'高檔死叉，回檔機率高', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
+      if (currentPrice < techInd.ma20 * 0.97 && !techInd.maBull) { signals.push({ label:'跌破MA20且空頭排列', desc:'中線趨勢向下', urgency:'sell' }); urgency = this._esc(urgency,'sell'); }
+      if (currentPrice < techInd.support * 0.98) { signals.push({ label:'跌破近期支撐', desc:`跌破支撐$${techInd.support}`, urgency:'urgent' }); urgency = this._esc(urgency,'urgent'); }
+      if (techInd.volSurge && techInd.chg < 0) { signals.push({ label:'爆量下跌（主力出貨）', desc:'量增價跌為出貨訊號', urgency:'urgent' }); urgency = this._esc(urgency,'urgent'); }
+    }
 
-    const plan = this._buildPlan(urgency, currentPrice, stock, techInd);
+    const plan = this._buildPlan(urgency, currentPrice, stock, techInd, isLong);
     return { signals, urgency, plan };
   },
 
@@ -395,33 +554,57 @@ const SELL = {
     return o.indexOf(next) > o.indexOf(cur) ? next : cur;
   },
 
-  _buildPlan(urgency, price, stock, ind) {
+  _buildPlan(urgency, price, stock, ind, isLong = false) {
     if (urgency === 'none') return null;
     const shares = stock?.shares ?? 1;
     const gainPct = stock ? ((price - stock.cost) / stock.cost * 100) : 0;
+    const isUS = (typeof APP !== 'undefined') ? APP.activeMarket === 'US' : false;
+    const sd = n => (isUS || n < 1000) ? `${Math.ceil(n)}股` : `${(n/1000).toFixed(n%1000===0?0:1)}張`;
 
-    // 智慧顯示：1000股以上才說「張」
-    const sharesDisp = n => n >= 1000
-      ? `${(n/1000).toFixed(n%1000===0?0:1)}張`
-      : `${Math.ceil(n)}股`;
+    // ★ 問題6: 長線模式建議更保守，傾向持有
+    if (isLong) {
+      if (urgency === 'watch') return {
+        title:'長線觀察提示', color:'watch',
+        rows:[{ batch:'目前操作', action:'繼續持有', desc:'長線定義：基本面未改變就不賣' }],
+        note:'短期技術面波動不影響長線邏輯',
+      };
+      if (urgency === 'sell') return {
+        title:'長線減碼評估', color:'sell',
+        rows:[
+          { batch:'第一步', action:'確認基本面', desc:'是否有重大負面消息或業績惡化？' },
+          { batch:'若有問題', action:`考慮出${sd(shares*0.3)}（30%）`, desc:'先降低部位，觀察後續' },
+          { batch:'若無問題', action:'繼續持有', desc:`停損線設 $${(price*0.85).toFixed(1)}（-15%）` },
+        ],
+        note:'長線投資人：短期回檔是機會，非威脅',
+      };
+      if (urgency === 'urgent') return {
+        title:'長線停損警示', color:'urgent',
+        rows:[
+          { batch:'評估基本面', action:'先確認是否有重大變化', desc:'若基本面不變，可以繼續持有' },
+          { batch:'若基本面惡化', action:`出${sd(shares*0.5)}（50%）`, desc:'先降低風險' },
+          { batch:'剩餘', action:`${sd(shares*0.5)}繼續觀察`, desc:`跌破 $${ind?.support?.toFixed(1)??'—'} 再考慮全出` },
+        ],
+        note:'長線停損設 -15%，短期虧損不代表長期虧損',
+      };
+    }
 
+    // 短線邏輯（原本）
     if (urgency === 'urgent') return {
       title:'緊急減碼計畫', color:'urgent',
       rows:[
-        { batch:'今日盤中', action:`先出${sharesDisp(shares*0.5)}（50%）`, desc:`建議賣價$${(price*0.995).toFixed(1)}附近` },
-        { batch:'明日開盤', action:`再視情況出${sharesDisp(shares*0.3)}`, desc:'若繼續下跌則全出' },
-        { batch:'剩餘部位', action:`${sharesDisp(shares*0.2)}設停損`, desc:`停損線$${ind?.support?.toFixed(1)??'—'}` },
+        { batch:'今日盤中', action:`先出${sd(shares*0.5)}（50%）`, desc:`建議賣價$${(price*0.995).toFixed(1)}附近` },
+        { batch:'明日開盤', action:`再視情況出${sd(shares*0.3)}`, desc:'若繼續下跌則全出' },
+        { batch:'剩餘部位', action:`${sd(shares*0.2)}設停損`, desc:`停損線$${ind?.support?.toFixed(1)??'—'}` },
       ],
       note:`已獲利${gainPct>=0?'+':''}${gainPct.toFixed(1)}%，優先保護獲利`,
     };
     if (urgency === 'sell') {
       const firstPct = gainPct >= 20 ? 0.4 : 0.25;
-      const firstShares = shares * firstPct;
       return {
         title:'分批獲利了結計畫', color:'sell',
         rows:[
-          { batch:'第一批', action:`出${sharesDisp(firstShares)}（${Math.round(firstPct*100)}%）`, desc:'鎖住部分獲利' },
-          { batch:'第二批', action:`出${sharesDisp(shares*0.3)}`, desc:`跌破MA20$${ind?.ma20?.toFixed(1)??'—'}執行` },
+          { batch:'第一批', action:`出${sd(shares*firstPct)}（${Math.round(firstPct*100)}%）`, desc:'鎖住部分獲利' },
+          { batch:'第二批', action:`出${sd(shares*0.3)}`, desc:`跌破MA20$${ind?.ma20?.toFixed(1)??'—'}執行` },
           { batch:'剩餘部位', action:'持有觀察', desc:`停損$${ind?.support?.toFixed(1)??'—'}` },
         ],
         note:`建議先實現${gainPct>=0?gainPct.toFixed(1)+'%':'部分'}獲利`,

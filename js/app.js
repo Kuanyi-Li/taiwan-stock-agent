@@ -295,11 +295,24 @@ const SIGNAL = {
   ],
 
   // 完整評分（有技術分析時用）
-  fromScore(score, gainPct, supportBreak) {
-    // VIX 影響
+  fromScore(score, gainPct, supportBreak, mode = 'long') {
     const vixAdj = VIX.score || 0;
     const adjusted = score + vixAdj * 0.5;
+    const isLong = mode === 'long';
 
+    // ★ 問題6: 長線模式門檻完全不同
+    if (isLong) {
+      if (supportBreak && gainPct <= -15) return this.LEVELS[0]; // 長線緊急：跌破支撐且虧損>15%
+      if (gainPct <= -15)  return this.LEVELS[1];                // 長線強賣：虧損超過停損線
+      if (gainPct <= -10)  return this.LEVELS[2];                // 長線減碼：接近停損
+      if (adjusted < 0)    return this.LEVELS[3];                // 長線持有觀望
+      if (adjusted < 2)    return this.LEVELS[3];                // 長線偏中性也持有
+      if (adjusted < 3.5)  return this.LEVELS[4];
+      if (adjusted < 4.5)  return this.LEVELS[5];
+      return this.LEVELS[6];
+    }
+
+    // 短線模式（原本邏輯）
     if (supportBreak || gainPct <= -8) return this.LEVELS[0];
     if (adjusted <= -3 || gainPct >= 30) return this.LEVELS[1];
     if (adjusted <= -1.5) return this.LEVELS[2];
@@ -313,23 +326,33 @@ const SIGNAL = {
   quickEstimate(stock) {
     if (!stock.price) return { ...this.LEVELS[3], label:'待更新', short:'⚫ —' };
 
-    // ★ 優先用此股票自己的快取分析結果（不被其他股票的 lastInd 污染）
+    const mode = APP.getStockMode(stock.code);
+    const isLong = mode === 'long';
+
+    // ★ 優先用此股票自己的快取分析結果
     const cached = ANALYSIS._cache[stock.code];
     const cachedInd = cached?.ind || null;
     if (cachedInd) {
       const score = ANALYSIS._calcScore(cachedInd);
       const gainPct = (stock.price - stock.cost) / stock.cost * 100;
       const supportBreak = stock.price < (cachedInd.support || 0) * 0.98;
-      return this.fromScore(score, gainPct, supportBreak);
+      return this.fromScore(score, gainPct, supportBreak, mode);
     }
 
-    // 當前選中股票但尚未分析完 → 顯示「分析中」
+    // 當前選中股票但尚未分析完
     if (APP.activeSymbol === stock.code) {
       return { ...this.LEVELS[3], label:'分析中', short:'⏳ —' };
     }
 
-    // 其他股票無快取 → 純損益%估算，不顯示買進，避免誤導
+    // 無快取 → 純損益%估算
     const gainPct = stock.cost ? (stock.price - stock.cost) / stock.cost * 100 : 0;
+    if (isLong) {
+      // 長線：停損門檻更寬
+      if (gainPct <= -15) return this.LEVELS[0];
+      if (gainPct <= -10) return this.LEVELS[2];
+      return { ...this.LEVELS[3], label:'待分析', short:'⚪ —' };
+    }
+    // 短線
     if (gainPct <= -8)  return this.LEVELS[0];
     if (gainPct <= -5)  return this.LEVELS[2];
     if (gainPct >= 30)  return this.LEVELS[1];
