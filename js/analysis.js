@@ -345,37 +345,39 @@ const ANALYSIS = {
       const buyPct = total > 0 ? (cnt.buy||0)/total : 0.5;
       const color = dialColor(sum.cls);
 
-      // 半圓從左(賣出)到右(買入)
-      // 角度：左端=180°，頂部=90°，右端=0°（SVG標準角度）
-      // buyPct 0→1 對應 180°→0°
-      const cx = 60, cy = 58, r = 44;
-      const angleDeg = 180 - buyPct * 180; // 180(左)~0(右)
-      const angleRad = angleDeg * Math.PI / 180;
+      // 半圓固定在 viewBox 底部
+      // 圓心 (60, 60)，半徑 45
+      // 左端 (15, 60)，右端 (105, 60)
+      // buyPct: 0=左(賣出), 0.5=頂部(中立), 1=右(買入)
+      // SVG角度：左=180°, 頂=90°, 右=0°
+      // 用 cos/sin 計算：x = cx + r*cos(angle), y = cy - r*sin(angle)
+      const cx = 60, cy = 60, r = 45;
+      const angleRad = Math.PI * (1 - buyPct); // 1.0π(左) ~ 0π(右)
       const nx = cx + r * Math.cos(angleRad);
       const ny = cy - r * Math.sin(angleRad);
 
-      // 彩色弧：從左端到指針位置
-      // 左端固定點
-      const startX = cx - r, startY = cy;
+      // 彩色弧：從左端 (15,60) 到指針位置
+      // large-arc-flag: buyPct > 0.5 時弧長超過半圓，需要1
       const largeArc = buyPct > 0.5 ? 1 : 0;
 
       return `
         <div class="dial-wrap">
           <div class="dial-title">${title}</div>
-          <svg viewBox="0 0 120 65" width="150" height="82" style="overflow:visible">
-            <!-- 背景半圓（左到右） -->
-            <path d="M ${startX},${cy} A ${r},${r} 0 0,1 ${cx+r},${cy}"
-              fill="none" stroke="var(--bg-3)" stroke-width="9" stroke-linecap="round"/>
-            <!-- 彩色進度弧（左端到指針） -->
-            ${total > 0 ? `<path d="M ${startX},${cy} A ${r},${r} 0 ${largeArc},1 ${nx.toFixed(1)},${ny.toFixed(1)}"
-              fill="none" stroke="${color}" stroke-width="9" stroke-linecap="round"/>` : ''}
-            <!-- 指針 -->
-            <line x1="${cx}" y1="${cy}"
-              x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}"
+          <svg viewBox="0 0 120 68" width="150" height="85">
+            <!-- 灰色背景半圓：左端到右端 -->
+            <path d="M 15,60 A 45,45 0 0,1 105,60"
+              fill="none" stroke="var(--bg-3)" stroke-width="8" stroke-linecap="round"/>
+            <!-- 彩色進度弧：左端到指針 -->
+            ${total > 0 && buyPct > 0.01 ? `
+            <path d="M 15,60 A 45,45 0 ${largeArc},1 ${nx.toFixed(1)},${ny.toFixed(1)}"
+              fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"/>` : ''}
+            <!-- 指針線 -->
+            <line x1="${cx}" y1="${cy}" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}"
               stroke="var(--text-1)" stroke-width="2.5" stroke-linecap="round"/>
+            <!-- 圓心點 -->
             <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text-1)"/>
           </svg>
-          <div class="dial-label" style="color:${color};margin-top:-4px">${sum.label}</div>
+          <div class="dial-label" style="color:${color}">${sum.label}</div>
           <div class="dial-counts">
             <span class="dn-color">賣${cnt.sell||0}</span>
             <span style="color:var(--text-3)">中${cnt.neutral||0}</span>
