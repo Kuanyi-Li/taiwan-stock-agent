@@ -111,15 +111,22 @@ const GOALS = {
 
   _calcTotal() {
     const g = this.get();
-    const stockVal = APP._calcTotalValue();
+    // ★ 台股+美股合計，不管目前切到哪個市場
+    const twVal = APP._twPortfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
+    const usVal = APP._usPortfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
+    const usValTWD = CURRENCY.toTWD(usVal);
     const cashTWD = parseFloat(g.cashTWD) || 0;
     const cashUSD = parseFloat(g.cashUSD) || 0;
-    return stockVal + cashTWD + CURRENCY.toTWD(cashUSD);
+    return twVal + usValTWD + cashTWD + CURRENCY.toTWD(cashUSD);
   },
 
   updateDashboard() {
     const g = this.get();
-    const stockVal = APP._calcTotalValue();
+    // ★ 台股+美股合計
+    const twVal = APP._twPortfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
+    const usVal = APP._usPortfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
+    const usValTWD = CURRENCY.toTWD(usVal);
+    const stockVal = twVal + usValTWD; // 總股票市值（換算台幣）
     const cashTWD = parseFloat(g.cashTWD) || 0;
     const cashUSD = parseFloat(g.cashUSD) || 0;
     const cashUSDtw = CURRENCY.toTWD(cashUSD);
@@ -147,7 +154,9 @@ const GOALS = {
     const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
     const setW = (id, w) => { const el = document.getElementById(id); if(el) el.style.width = w; };
 
-    set('goal-stock-val', fmtM(stockVal));
+    set('goal-stock-val', usValTWD > 0
+      ? `${fmtM(twVal)}（台）+ ${fmtM(usValTWD)}（美）`
+      : fmtM(twVal));
     set('goal-cash-twd-val', fmtM(cashTWD));
     set('goal-cash-usd-val', `$${cashUSD.toLocaleString()} (≈${fmtM(cashUSDtw)})`);
     set('goal-total-val', fmtM(totalVal));
@@ -163,16 +172,17 @@ const GOALS = {
     const barEl = document.getElementById('goal-progress-bar');
     if (barEl) barEl.style.background = pct >= 100 ? 'var(--green-l)' : pct >= 60 ? 'var(--amber)' : 'var(--red)';
 
-    // 資產結構比例
+    // 資產結構比例（台股/美股/現金）
     if (totalVal > 0) {
-      const sp = (stockVal/totalVal*100).toFixed(0);
-      const cp = ((cashTWD+cashUSDtw)/totalVal*100).toFixed(0);
-      set('goal-stock-pct', sp + '%');
-      set('goal-cash-pct', cp + '%');
+      const twPct   = (twVal/totalVal*100).toFixed(0);
+      const usPct   = (usValTWD/totalVal*100).toFixed(0);
+      const cashPct = ((cashTWD+cashUSDtw)/totalVal*100).toFixed(0);
+      set('goal-stock-pct', twPct + '%');
+      set('goal-cash-pct', cashPct + '%');
       const stockBar = document.getElementById('goal-asset-stock-bar');
       const cashBar  = document.getElementById('goal-asset-cash-bar');
-      if (stockBar) stockBar.style.width = sp + '%';
-      if (cashBar)  cashBar.style.width  = cp + '%';
+      if (stockBar) stockBar.style.width = (+twPct + +usPct) + '%';
+      if (cashBar)  cashBar.style.width  = cashPct + '%';
     }
 
     this._drawValueChart();
