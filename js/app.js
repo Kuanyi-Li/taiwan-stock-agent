@@ -746,8 +746,10 @@ const SYNC = {
 
   _pack() {
     return {
-      portfolio: APP.portfolio,
-      watchlist: APP.watchlist,
+      portfolio:   APP._twPortfolio,
+      watchlist:   APP._twWatchlist,
+      usPortfolio: APP._usPortfolio,
+      usWatchlist:  APP._usWatchlist,
       trades: TRADES.get(),
       goals: GOALS.get(),
       history: JSON.parse(localStorage.getItem('twsa-value-history') || '[]'),
@@ -756,16 +758,26 @@ const SYNC = {
   },
 
   _unpack(data) {
-    if (data.portfolio) APP.portfolio = data.portfolio;
-    if (data.watchlist) APP.watchlist = data.watchlist;
+    // ★ 修正：直接寫入 _twPortfolio/_usPortfolio，不透過 setter（避免市場判斷干擾）
+    if (data.portfolio) {
+      APP._twPortfolio = data.portfolio;
+      localStorage.setItem('twsa-portfolio', JSON.stringify(data.portfolio));
+    }
+    if (data.watchlist) {
+      APP._twWatchlist = data.watchlist;
+      localStorage.setItem('twsa-watchlist', JSON.stringify(data.watchlist));
+    }
+    if (data.usPortfolio) {
+      APP._usPortfolio = data.usPortfolio;
+      localStorage.setItem('ussa-portfolio', JSON.stringify(data.usPortfolio));
+    }
+    if (data.usWatchlist) {
+      APP._usWatchlist = data.usWatchlist;
+      localStorage.setItem('ussa-watchlist', JSON.stringify(data.usWatchlist));
+    }
     if (data.trades) localStorage.setItem('twsa-trades', JSON.stringify(data.trades));
-    // 問題1: _unpack 不呼叫 GOALS.save（會 markDirty），直接寫 localStorage
     if (data.goals) localStorage.setItem('twsa-goals', JSON.stringify(data.goals));
     if (data.history) localStorage.setItem('twsa-value-history', JSON.stringify(data.history));
-    // 直接存 portfolio/watchlist 到 localStorage，不透過 APP.save（會 markDirty）
-    localStorage.setItem('twsa-portfolio', JSON.stringify(APP.portfolio));
-    localStorage.setItem('twsa-watchlist', JSON.stringify(APP.watchlist));
-    // 清除 dirty flag，避免下載後立刻又上傳
     this._dirty = false;
     clearTimeout(this._timer);
   },
@@ -1025,7 +1037,9 @@ const APP = {
 
   // 目前市場的 portfolio/watchlist（動態指向）
   get portfolio() { return this.activeMarket === 'US' ? this._usPortfolio : this._twPortfolio; },
+  set portfolio(v) { if (this.activeMarket === 'US') this._usPortfolio = v; else this._twPortfolio = v; },
   get watchlist()  { return this.activeMarket === 'US' ? this._usWatchlist : this._twWatchlist; },
+  set watchlist(v) { if (this.activeMarket === 'US') this._usWatchlist = v; else this._twWatchlist = v; },
 
   activeSymbol: '', activeIdx: -1, _source: 'portfolio',
   refreshTimer: null,
