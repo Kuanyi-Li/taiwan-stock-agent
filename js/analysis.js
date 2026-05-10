@@ -257,6 +257,13 @@ const ANALYSIS = {
     const p = ind.last.c;
     const fmt = v => v != null ? v.toLocaleString('zh-TW', {maximumFractionDigits:2}) : '—';
 
+    // 顯示分析週期說明
+    const symbol = this.lastSymbol || (typeof APP !== 'undefined' ? APP.activeSymbol : '');
+    const mode = (typeof APP !== 'undefined' && symbol) ? APP.getStockMode(symbol) : 'long';
+    const periodLabel = mode === 'short' ? '短線模式（1月日線）' : '長線模式（1年日線）';
+    const labelEl = document.getElementById('analysis-period-label');
+    if (labelEl) labelEl.textContent = `📊 分析基於：${periodLabel}`;
+
     // ── 震盪指標清單 ──
     const oscillators = [
       { name:'相對強弱指標 RSI(14)',     value: fmt(ind.rsi),        signal: ind.rsi<30?'buy':ind.rsi>70?'sell':'neutral' },
@@ -335,48 +342,40 @@ const ANALYSIS = {
 
     const renderDial = (title, sum, cnt) => {
       const total = (cnt.buy||0)+(cnt.neutral||0)+(cnt.sell||0);
-      const buyPct  = total > 0 ? (cnt.buy||0)/total : 0;
-      const sellPct = total > 0 ? (cnt.sell||0)/total : 0;
-      // 半圓：左端(-180deg)=強力賣出，右端(0deg)=強力買入
-      // 指針角度：從正左(-90deg in SVG)到正右(+90deg)
-      // score = buy% - sell%，範圍 -1~1，對應 -90deg~+90deg
-      const score = buyPct - sellPct;
-      const angleDeg = score * 90; // -90 ~ +90
-      const angleRad = (angleDeg - 90) * Math.PI / 180; // 轉成SVG座標系（從頂部算起）
-      // 半圓圓心 (60,62)，半徑 48
-      const cx = 60, cy = 62, r = 46;
-      const nx = cx + r * Math.sin(angleDeg * Math.PI / 180);
-      const ny = cy - r * Math.cos(angleDeg * Math.PI / 180);
+      const buyPct = total > 0 ? (cnt.buy||0)/total : 0.5;
       const color = dialColor(sum.cls);
 
-      // 背景半圓弧（從左到右）
-      // 彩色進度弧：根據 buyPct 填滿
-      const progressAngle = score * 90; // -90~90
-      const startX = cx - r, startY = cy; // 最左點
-      const endRad  = (progressAngle - 90) * Math.PI / 180;
-      const arcX = cx + r * Math.sin(progressAngle * Math.PI / 180);
-      const arcY = cy - r * Math.cos(progressAngle * Math.PI / 180);
-      const largeArc = Math.abs(progressAngle) > 90 ? 1 : 0;
-      const sweepDir = progressAngle >= 0 ? 1 : 0;
+      // 半圓從左(賣出)到右(買入)
+      // 角度：左端=180°，頂部=90°，右端=0°（SVG標準角度）
+      // buyPct 0→1 對應 180°→0°
+      const cx = 60, cy = 58, r = 44;
+      const angleDeg = 180 - buyPct * 180; // 180(左)~0(右)
+      const angleRad = angleDeg * Math.PI / 180;
+      const nx = cx + r * Math.cos(angleRad);
+      const ny = cy - r * Math.sin(angleRad);
+
+      // 彩色弧：從左端到指針位置
+      // 左端固定點
+      const startX = cx - r, startY = cy;
+      const largeArc = buyPct > 0.5 ? 1 : 0;
 
       return `
         <div class="dial-wrap">
           <div class="dial-title">${title}</div>
-          <svg viewBox="0 0 120 70" width="150" height="90" style="overflow:visible">
-            <!-- 背景半圓 -->
-            <path d="M ${cx-r},${cy} A ${r},${r} 0 0,1 ${cx+r},${cy}"
-              fill="none" stroke="var(--bg-3)" stroke-width="10" stroke-linecap="round"/>
-            <!-- 彩色進度弧 - 從中間往buy方向 -->
-            <path d="M ${cx},${cy-r} A ${r},${r} 0 0,${sweepDir} ${arcX.toFixed(1)},${arcY.toFixed(1)}"
-              fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round"
-              opacity="${total>0?1:0}"/>
+          <svg viewBox="0 0 120 65" width="150" height="82" style="overflow:visible">
+            <!-- 背景半圓（左到右） -->
+            <path d="M ${startX},${cy} A ${r},${r} 0 0,1 ${cx+r},${cy}"
+              fill="none" stroke="var(--bg-3)" stroke-width="9" stroke-linecap="round"/>
+            <!-- 彩色進度弧（左端到指針） -->
+            ${total > 0 ? `<path d="M ${startX},${cy} A ${r},${r} 0 ${largeArc},1 ${nx.toFixed(1)},${ny.toFixed(1)}"
+              fill="none" stroke="${color}" stroke-width="9" stroke-linecap="round"/>` : ''}
             <!-- 指針 -->
             <line x1="${cx}" y1="${cy}"
               x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}"
               stroke="var(--text-1)" stroke-width="2.5" stroke-linecap="round"/>
             <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text-1)"/>
           </svg>
-          <div class="dial-label" style="color:${color};margin-top:-8px">${sum.label}</div>
+          <div class="dial-label" style="color:${color};margin-top:-4px">${sum.label}</div>
           <div class="dial-counts">
             <span class="dn-color">賣${cnt.sell||0}</span>
             <span style="color:var(--text-3)">中${cnt.neutral||0}</span>

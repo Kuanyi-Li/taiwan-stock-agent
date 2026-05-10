@@ -1358,10 +1358,12 @@ const APP = {
             <span class="${pnl>=0?'up-color':'dn-color'}">${pnlDisplay}(${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%)</span>
           </div>
           <div class="si-row4">
-            ${Math.abs(chg) > 0.01
-              ? `<span class="${isUp?'up-color':'dn-color'}">${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)</span>`
-              : `<span style="color:var(--text-3);font-size:11px">今日 ±0（休市或待更新）</span>`
-            }
+            ${(() => {
+              const isOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
+              if (!isOpen) return `<span style="color:var(--text-3);font-size:11px">休市</span>`;
+              if (Math.abs(chg) > 0.01) return `<span class="${isUp?'up-color':'dn-color'}">${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)</span>`;
+              return `<span style="color:var(--text-3);font-size:11px">今日 ±0</span>`;
+            })()}
             ${daysHeld !== null ? `<span class="si-days">${daysHeld}天${annualRoi!==null?` ${annualRoi>=0?'+':''}${annualRoi.toFixed(0)}%/年`:''}</span>` : ''}
           </div>
           <div style="margin-top:3px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
@@ -1405,7 +1407,12 @@ const APP = {
         </div>
         <div class="wi-right" onclick="APP.selectStock('${s.code}',${i},'watch')">
           <div class="wi-price ${isUp?'up-color':'dn-color'}">${price>0?price.toFixed(2):'—'}</div>
-          <div class="wi-change ${isUp?'up-color':'dn-color'}">${price>0&&Math.abs(chg)>0.001?(isUp?'+':'')+chgPct.toFixed(2)+'%':''}</div>
+          <div class="wi-change">${(() => {
+            const isOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
+            if (!isOpen) return '<span style="color:var(--text-3);font-size:10px">休市</span>';
+            if (price > 0 && Math.abs(chg) > 0.001) return `<span class="${isUp?'up-color':'dn-color'}">${isUp?'+':''}${chgPct.toFixed(2)}%</span>`;
+            return '';
+          })()}</div>
         </div>
         <button class="watch-del" onclick="APP.removeWatch(${i})">✕</button>`;
       wrap.appendChild(div);
@@ -1426,9 +1433,12 @@ const APP = {
       const chgPct = prev ? chg/prev*100 : 0;
       document.getElementById('chart-price').textContent = price > 0 ? price.toFixed(2) : '—';
       const changeEl = document.getElementById('chart-change');
-      // 若 price === prevClose（休市或尚未更新），顯示說明
-      if (price > 0 && Math.abs(chg) < 0.01) {
-        changeEl.textContent = '+0.00 (休市/待更新)';
+      const isMarketOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
+      if (!isMarketOpen) {
+        changeEl.textContent = '+0.00 (休市)';
+        changeEl.className = 'chart-change neutral';
+      } else if (price > 0 && Math.abs(chg) < 0.01) {
+        changeEl.textContent = '+0.00 (待更新)';
         changeEl.className = 'chart-change neutral';
       } else {
         changeEl.textContent = price > 0 ? `${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)` : '';

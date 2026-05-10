@@ -41,7 +41,7 @@ const CHART = {
   // 長線：6月日線（~125根），足以計算 MA60、長期趨勢、支撐壓力
   // 短線：1月日線（~22根），著重近期 RSI、MACD 動能、KD 超買超賣
   ANALYSIS_PERIODS: {
-    long:  '6mo',
+    long:  '1y',
     short: '1mo',
   },
 
