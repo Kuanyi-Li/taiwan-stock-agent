@@ -297,7 +297,8 @@ body {
 
 /* Tech Pane */
 #pane-tech { padding: 12px; }
-.indicators-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.indicators-row { display: block; margin-bottom: 12px; }
+/* 指標舊卡片（保留相容） */
 .ind-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; }
 .ind-name { font-size: 10px; color: var(--text-3); margin-bottom: 3px; }
 .ind-value { font-family: var(--font-mono); font-size: 13px; font-weight: 600; margin-bottom: 3px; }
@@ -305,6 +306,27 @@ body {
 .ind-signal.bull { background: rgba(226,75,74,0.15); color: var(--red); }
 .ind-signal.bear { background: rgba(29,158,117,0.15); color: var(--green-l); }
 .ind-signal.neu  { background: var(--bg-3); color: var(--text-3); }
+
+/* 儀錶板 */
+.ind-dials { display: flex; justify-content: center; gap: 32px; padding: 16px 0 8px; flex-wrap: wrap; }
+.dial-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.dial-title { font-size: 12px; font-weight: 600; color: var(--text-2); }
+.dial-label { font-size: 14px; font-weight: 700; }
+.dial-counts { display: flex; gap: 10px; font-size: 11px; }
+
+/* 指標明細兩欄 */
+.ind-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+@media (max-width: 700px) { .ind-tables { grid-template-columns: 1fr; } }
+.ind-table-col { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.ind-table-header { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; padding: 6px 10px; background: var(--bg-3); font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.ind-table-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; padding: 5px 10px; border-top: 1px solid var(--border); align-items: center; }
+.ind-table-row:hover { background: var(--bg-3); }
+.ind-table-name { font-size: 11px; color: var(--text-2); }
+.ind-table-value { font-family: var(--font-mono); font-size: 11px; color: var(--text-1); min-width: 60px; text-align: right; }
+.ind-table-sig { font-size: 10px; font-weight: 600; min-width: 36px; text-align: center; padding: 1px 5px; border-radius: 4px; }
+.ind-buy  { color: #1D9E75; background: rgba(29,158,117,0.12); }
+.ind-sell { color: #E24B4A; background: rgba(226,75,74,0.12); }
+.ind-neu  { color: var(--text-3); background: var(--bg-3); }
 
 #pane-info { padding: 12px; }
 .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
