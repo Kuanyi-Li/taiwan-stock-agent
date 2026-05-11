@@ -344,21 +344,17 @@ const ANALYSIS = {
       const total = (cnt.buy||0)+(cnt.neutral||0)+(cnt.sell||0);
       const color = dialColor(sum.cls);
 
-      // ★ 指針用 net score（buy-sell）而不是純 buyPct
-      // net 範圍：-total ~ +total，映射到 0~1
+      // net score: buy - sell，範圍 -total ~ +total
+      // needlePct: 0=全賣(左), 0.5=中立(頂), 1=全買(右)
       const net = (cnt.buy||0) - (cnt.sell||0);
-      const maxNet = total || 1;
-      const needlePct = (net / maxNet + 1) / 2; // 0=全賣, 0.5=中立, 1=全買
+      const needlePct = total > 0 ? (net / total + 1) / 2 : 0.5;
 
-      // 進度弧用 buyPct（顯示買入佔比）
-      const buyPct = total > 0 ? (cnt.buy||0)/total : 0.5;
-
-      // 半圓周長
+      // 弧和指針都用 needlePct，確保對齊
       const r = 45, cx = 60, cy = 60;
-      const halfCirc = Math.PI * r;
-      const dash = buyPct * halfCirc;
+      const halfCirc = Math.PI * r; // ~141.4
+      const dash = needlePct * halfCirc;
 
-      // 指針角度：needlePct 0=左(π), 0.5=頂(π/2), 1=右(0)
+      // 指針終點
       const angleRad = Math.PI * (1 - needlePct);
       const nx = +(cx + r * Math.cos(angleRad)).toFixed(1);
       const ny = +(cy - r * Math.sin(angleRad)).toFixed(1);
