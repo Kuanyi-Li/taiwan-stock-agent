@@ -86,7 +86,7 @@ const DATA = {
     const symbols = codes.map(c => c + '.TW').join(',');
     try {
       const res = await this._fetch(
-        `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${symbols}&range=1d&interval=1d`
+        `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${symbols}&range=1d&interval=1d&_=${Date.now()}`
       );
       const json = await res.json();
       const results = json?.spark?.result ?? [];
@@ -131,7 +131,7 @@ const DATA = {
     const symbols = codes.join(',');
     try {
       const res = await this._fetch(
-        `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${symbols}&range=1d&interval=1d`
+        `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${symbols}&range=1d&interval=1d&_=${Date.now()}`
       );
       const json = await res.json();
       const results = json?.spark?.result ?? [];
@@ -320,7 +320,7 @@ const DATA = {
     try {
       const isTWOpen = typeof APP !== 'undefined' ? APP.isTWMarketOpen() : false;
       const res = await this._fetch(
-        'https://query2.finance.yahoo.com/v7/finance/spark?symbols=%5ETWII,%5ETWOII&range=1d&interval=1d'
+        `https://query2.finance.yahoo.com/v7/finance/spark?symbols=%5ETWII,%5ETWOII&range=1d&interval=1d&_=${Date.now()}`
       );
       const json = await res.json();
       const results = json?.spark?.result ?? [];
