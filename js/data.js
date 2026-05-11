@@ -15,6 +15,12 @@ const DATA = {
   _queueBusy: false,
   _lastReqTime: 0,
   MIN_INTERVAL: 1800,
+  MAX_INTERVAL: 3200, // 隨機上限
+
+  // 隨機間隔：1800~3200ms，避免固定頻率被識別為機器人
+  _randomInterval() {
+    return this.MIN_INTERVAL + Math.floor(Math.random() * (this.MAX_INTERVAL - this.MIN_INTERVAL));
+  },
 
   async _enqueue(fn) {
     return new Promise((resolve, reject) => {
@@ -27,7 +33,8 @@ const DATA = {
     this._queueBusy = true;
     while (this._queue.length > 0) {
       const { fn, resolve, reject } = this._queue.shift();
-      const wait = Math.max(0, this.MIN_INTERVAL - (Date.now() - this._lastReqTime));
+      const interval = this._randomInterval();
+      const wait = Math.max(0, interval - (Date.now() - this._lastReqTime));
       if (wait > 0) await new Promise(r => setTimeout(r, wait));
       this._lastReqTime = Date.now();
       try { resolve(await fn()); } catch(e) { reject(e); }
@@ -50,7 +57,7 @@ const DATA = {
 
   // ── CORS Proxy ────────────────────────────────────────
   proxies: [
-    'https://corsproxy.io/?',
+    'https://flat-resonance-0773.s51511830-74e.workers.dev/?url=',
     'https://api.allorigins.win/raw?url=',
     'https://corsproxy.org/?',
   ],
@@ -73,101 +80,82 @@ const DATA = {
   // 舊介面相容
   async _fetchWithFallback(url) { return this._fetch(url); },
 
-  // ── TWSE 批次報價（台股主力）─────────────────────────
+  // ── 台股報價（Yahoo spark 批次，一次呼叫全部）────────
   async _twseBatch(codes) {
-    const exCh = codes.map(c => `tse_${c}.tw`).join('|');
-    const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`;
-    const res = await this._fetch(url);
-    const json = await res.json();
-    const items = json?.msgArray ?? [];
-    const found = new Set();
-    items.forEach(item => {
-      const code = item.c;
-      if (!code) return;
-      const priceRaw  = item.z !== '-' ? parseFloat(item.z) : null;
-      const prevClose = parseFloat(item.y) || 0;
-      const price     = priceRaw ?? prevClose;
-      if (!price) return;
-      const chg    = +(price - prevClose).toFixed(2);
-      const chgPct = +(prevClose > 0 ? chg / prevClose * 100 : 0).toFixed(2);
-      this._setPrice(code, {
-        price:     +price.toFixed(2),
-        prevClose: +prevClose.toFixed(2),
-        open:      +(parseFloat(item.o) || prevClose).toFixed(2),
-        high:      +(parseFloat(item.h) || price).toFixed(2),
-        low:       +(parseFloat(item.l) || price).toFixed(2),
-        volume:    parseInt(item.v) || 0,
-        name:      item.n || code,
-        chg, chgPct,
-        noTrade: priceRaw === null,
-        source:  'twse', market: 'TW',
+    if (!codes.length) return [];
+    const symbols = codes.map(c => c + '.TW').join(',');
+    try {
+      const res = await this._fetch(
+        `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${symbols}&range=1d&interval=1d`
+      );
+      const json = await res.json();
+      const results = json?.spark?.result ?? [];
+      const found = new Set();
+      results.forEach(item => {
+        const meta = item?.response?.[0]?.meta;
+        if (!meta?.regularMarketPrice) return;
+        const code = item.symbol.replace('.TW', '');
+        const price = +meta.regularMarketPrice.toFixed(2);
+        const prev  = +(meta.chartPreviousClose ?? meta.regularMarketPrice).toFixed(2);
+        const chg   = +(price - prev).toFixed(2);
+        const chgPct= +(prev > 0 ? chg/prev*100 : 0).toFixed(2);
+        this._setPrice(code, {
+          price, prevClose: prev,
+          high:   +(meta.regularMarketDayHigh ?? price).toFixed(2),
+          low:    +(meta.regularMarketDayLow  ?? price).toFixed(2),
+          volume: meta.regularMarketVolume ?? 0,
+          name:   meta.shortName ?? code,
+          chg, chgPct,
+          noTrade: false,
+          source: 'yahoo-spark', market: 'TW',
+        });
+        found.add(code);
       });
-      found.add(code);
-    });
-    return codes.filter(c => !found.has(c));
+      console.log(`[DATA] Yahoo spark TW: ${found.size}/${codes.length} updated`);
+      return codes.filter(c => !found.has(c));
+    } catch(e) {
+      console.warn('[DATA] Yahoo spark TW failed:', e.message);
+      return codes;
+    }
   },
 
-  // ── TPEX 上櫃補送 ─────────────────────────────────────
+  // ── TPEX 上櫃（同樣用 Yahoo spark）──────────────────
   async _tpexBatch(codes) {
     if (!codes.length) return;
-    const exCh = codes.map(c => `otc_${c}.tw`).join('|');
-    const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`;
-    const res = await this._fetch(url);
-    const json = await res.json();
-    (json?.msgArray ?? []).forEach(item => {
-      const code = item.c;
-      if (!code) return;
-      const priceRaw  = item.z !== '-' ? parseFloat(item.z) : null;
-      const prevClose = parseFloat(item.y) || 0;
-      const price     = priceRaw ?? prevClose;
-      if (!price) return;
-      const chg    = +(price - prevClose).toFixed(2);
-      const chgPct = +(prevClose > 0 ? chg / prevClose * 100 : 0).toFixed(2);
-      this._setPrice(code, {
-        price: +price.toFixed(2), prevClose: +prevClose.toFixed(2),
-        open:  +(parseFloat(item.o) || prevClose).toFixed(2),
-        high:  +(parseFloat(item.h) || price).toFixed(2),
-        low:   +(parseFloat(item.l) || price).toFixed(2),
-        volume: parseInt(item.v) || 0,
-        name:  item.n || code,
-        chg, chgPct, noTrade: priceRaw === null,
-        source: 'tpex', market: 'TW',
-      });
-    });
+    await this._twseBatch(codes); // 上櫃在 Yahoo 也是 .TW
   },
 
-  // ── 美股 Yahoo 批次報價（一次呼叫所有美股）───────────
+  // ── 美股報價（Yahoo spark 批次）─────────────────────
   async _yahooUSBatch(codes) {
     if (!codes.length) return;
     const symbols = codes.join(',');
     try {
       const res = await this._fetch(
-        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}` +
-        `&fields=regularMarketPrice,regularMarketPreviousClose,regularMarketOpen,` +
-        `regularMarketDayHigh,regularMarketDayLow,regularMarketVolume,shortName,currency`
+        `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${symbols}&range=1d&interval=1d`
       );
-      const results = (await res.json())?.quoteResponse?.result ?? [];
-      results.forEach(q => {
-        if (q?.regularMarketPrice == null) return;
-        const code = q.symbol;
-        const p  = +parseFloat(q.regularMarketPrice).toFixed(2);
-        const pc = +parseFloat(q.regularMarketPreviousClose ?? p).toFixed(2);
+      const json = await res.json();
+      const results = json?.spark?.result ?? [];
+      results.forEach(item => {
+        const meta = item?.response?.[0]?.meta;
+        if (!meta?.regularMarketPrice) return;
+        const code = item.symbol;
+        const p  = +meta.regularMarketPrice.toFixed(2);
+        const pc = +(meta.chartPreviousClose ?? p).toFixed(2);
         this._setPrice(code, {
           price: p, prevClose: pc,
-          open:     +(q.regularMarketOpen ?? pc).toFixed(2),
-          high:     +(q.regularMarketDayHigh ?? p).toFixed(2),
-          low:      +(q.regularMarketDayLow  ?? p).toFixed(2),
-          volume:   q.regularMarketVolume ?? 0,
-          name:     q.shortName ?? code,
-          chg:      +(p - pc).toFixed(2),
-          chgPct:   +(pc > 0 ? (p - pc) / pc * 100 : 0).toFixed(2),
-          currency: q.currency || 'USD',
-          source: 'yahoo-us', market: 'US',
+          high:   +(meta.regularMarketDayHigh ?? p).toFixed(2),
+          low:    +(meta.regularMarketDayLow  ?? p).toFixed(2),
+          volume: meta.regularMarketVolume ?? 0,
+          name:   meta.shortName ?? code,
+          chg:    +(p - pc).toFixed(2),
+          chgPct: +(pc > 0 ? (p-pc)/pc*100 : 0).toFixed(2),
+          currency: meta.currency || 'USD',
+          source: 'yahoo-spark', market: 'US',
         });
       });
-      console.log(`[DATA] Yahoo US batch: ${results.length}/${codes.length} updated`);
+      console.log(`[DATA] Yahoo spark US: ${results.length}/${codes.length} updated`);
     } catch(e) {
-      console.warn('[DATA] Yahoo US batch failed:', e.message);
+      console.warn('[DATA] Yahoo spark US failed:', e.message);
     }
   },
 
@@ -327,34 +315,33 @@ const DATA = {
     } catch(e) { console.warn('[DATA] fetchUSIndexes failed:', e.message); }
   },
 
-  // ── 大盤指數（TWSE，不走 queue）─────────────────────
+  // ── 大盤指數（Yahoo spark 批次）─────────────────────
   async fetchIndexes() {
     try {
-      const res = await this._fetch(
-        'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw|otc_o00.tw&json=1&delay=0'
-      );
-      const json  = await res.json();
-      const items = json?.msgArray ?? [];
-      // ★ 休市時不顯示漲跌，只顯示指數數值
       const isTWOpen = typeof APP !== 'undefined' ? APP.isTWMarketOpen() : false;
-      items.forEach(item => {
-        const price = parseFloat(item.z !== '-' ? item.z : item.y) || 0;
-        const prev  = parseFloat(item.y) || price;
+      const res = await this._fetch(
+        'https://query2.finance.yahoo.com/v7/finance/spark?symbols=%5ETWII,%5ETWOII&range=1d&interval=1d'
+      );
+      const json = await res.json();
+      const results = json?.spark?.result ?? [];
+      const badges = { '^TWII': 'taiex-badge', '^TWOII': 'tpex-badge' };
+      const labels = { '^TWII': '加權', '^TWOII': '櫃買' };
+      results.forEach(item => {
+        const meta = item?.response?.[0]?.meta;
+        if (!meta?.regularMarketPrice) return;
+        const sym   = item.symbol;
+        const price = meta.regularMarketPrice;
+        const prev  = meta.chartPreviousClose ?? price;
         const chg   = price - prev;
         const pct   = prev > 0 ? chg / prev * 100 : 0;
         const sign  = chg >= 0 ? '+' : '';
-        const priceStr = price.toLocaleString('zh-TW', {maximumFractionDigits:0});
+        const priceStr = price.toLocaleString('zh-TW', {maximumFractionDigits:2});
         const disp = isTWOpen
-          ? `${priceStr} (${sign}${pct.toFixed(2)}%)`
-          : `${priceStr}`;
+          ? `${labels[sym]} ${priceStr} (${sign}${pct.toFixed(2)}%)`
+          : `${labels[sym]} ${priceStr}`;
         const cls = isTWOpen ? `index-chip ${chg >= 0 ? 'up' : 'dn'}` : 'index-chip';
-        if (item.ex === 'tse') {
-          const el = document.getElementById('taiex-badge');
-          if (el) { el.textContent = `加權 ${disp}`; el.className = cls; }
-        } else if (item.ex === 'otc') {
-          const el = document.getElementById('tpex-badge');
-          if (el) { el.textContent = `櫃買 ${disp}`; el.className = cls; }
-        }
+        const el = document.getElementById(badges[sym]);
+        if (el) { el.textContent = disp; el.className = cls; }
       });
     } catch(e) { /* silent */ }
   },

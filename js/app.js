@@ -1125,11 +1125,16 @@ const APP = {
       console.log('[SYNC] 自動上傳已解鎖');
     }, 12000);
 
-    // ★ 問題1+2: 當前市場開盤時每3分鐘更新
-    this.refreshTimer = setInterval(() => {
-      const open = this.activeMarket === 'US' ? this.isUSMarketOpen() : this.isTWMarketOpen();
-      if (open) this.refreshPrices();
-    }, 180000);
+    // ★ 問題1+2: 開盤時每3~5分鐘隨機更新，避免固定頻率被識別為機器人
+    const scheduleRefresh = () => {
+      const delay = (180 + Math.floor(Math.random() * 120)) * 1000; // 3~5分鐘隨機
+      this.refreshTimer = setTimeout(() => {
+        const open = this.activeMarket === 'US' ? this.isUSMarketOpen() : this.isTWMarketOpen();
+        if (open) this.refreshPrices();
+        scheduleRefresh();
+      }, delay);
+    };
+    scheduleRefresh();
     setInterval(() => this.updateClock(), 1000);
     setInterval(() => this._updateMarketStatus(), 60000);
     DATA.fetchIndexes();
@@ -1537,8 +1542,8 @@ const APP = {
     if (this.activeSymbol !== requestedCode) return;
 
     // ★ K 線載入後，重新取最新 quote（可能已從 K 線資料更新）
-    const freshQuote = DATA.cache[code];
-    if (freshQuote?.ok && freshQuote.price) {
+    const freshQuote = DATA.priceStore[code];
+    if (freshQuote?.price) {
       const s2 = this.portfolio.find(x => x.code === code) || this.watchlist.find(x => x.code === code);
       if (s2) {
         s2.price = freshQuote.price;
