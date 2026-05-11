@@ -342,16 +342,24 @@ const ANALYSIS = {
 
     const renderDial = (title, sum, cnt) => {
       const total = (cnt.buy||0)+(cnt.neutral||0)+(cnt.sell||0);
-      const buyPct = total > 0 ? (cnt.buy||0)/total : 0.5;
       const color = dialColor(sum.cls);
 
-      // 半圓周長 = π * r = 3.14159 * 45 ≈ 141.37
-      const r = 45, cx = 60, cy = 60;
-      const halfCirc = Math.PI * r; // ~141.37
-      const dash = buyPct * halfCirc; // 綠色弧長
+      // ★ 指針用 net score（buy-sell）而不是純 buyPct
+      // net 範圍：-total ~ +total，映射到 0~1
+      const net = (cnt.buy||0) - (cnt.sell||0);
+      const maxNet = total || 1;
+      const needlePct = (net / maxNet + 1) / 2; // 0=全賣, 0.5=中立, 1=全買
 
-      // 指針：buyPct 0=左(π), 0.5=頂(π/2), 1=右(0)
-      const angleRad = Math.PI * (1 - buyPct);
+      // 進度弧用 buyPct（顯示買入佔比）
+      const buyPct = total > 0 ? (cnt.buy||0)/total : 0.5;
+
+      // 半圓周長
+      const r = 45, cx = 60, cy = 60;
+      const halfCirc = Math.PI * r;
+      const dash = buyPct * halfCirc;
+
+      // 指針角度：needlePct 0=左(π), 0.5=頂(π/2), 1=右(0)
+      const angleRad = Math.PI * (1 - needlePct);
       const nx = +(cx + r * Math.cos(angleRad)).toFixed(1);
       const ny = +(cy - r * Math.sin(angleRad)).toFixed(1);
 
@@ -359,15 +367,12 @@ const ANALYSIS = {
         <div class="dial-wrap">
           <div class="dial-title">${title}</div>
           <svg viewBox="0 0 120 68" width="150" height="85">
-            <!-- 灰色背景半圓 -->
             <path d="M 15,60 A 45,45 0 0,1 105,60"
               fill="none" stroke="var(--bg-3)" stroke-width="8" stroke-linecap="round"/>
-            <!-- 綠色進度：同路徑用 dasharray -->
             <path d="M 15,60 A 45,45 0 0,1 105,60"
               fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"
               stroke-dasharray="${dash.toFixed(1)} ${halfCirc.toFixed(1)}"
               stroke-dashoffset="0"/>
-            <!-- 指針 -->
             <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}"
               stroke="var(--text-1)" stroke-width="2.5" stroke-linecap="round"/>
             <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text-1)"/>

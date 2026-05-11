@@ -80,7 +80,18 @@ const CHART = {
     const mode = APP.getStockMode(symbol);
     const period = this.ANALYSIS_PERIODS[mode] || this.ANALYSIS_PERIODS.long;
     DATA.fetchHistory(symbol, period).then(data => {
+      // ★ 確認當前選中的還是同一支股票
+      if (APP.activeSymbol !== symbol) return;
       if (data.length >= 15) ANALYSIS.run(data, symbol);
+      else {
+        // 資料不足，清除「分析中」狀態
+        const sigAction = document.getElementById('sig-action');
+        if (sigAction) { sigAction.textContent = '資料不足'; sigAction.style.color = 'var(--text-3)'; }
+      }
+    }).catch(() => {
+      if (APP.activeSymbol !== symbol) return;
+      const sigAction = document.getElementById('sig-action');
+      if (sigAction) { sigAction.textContent = '分析失敗，請重試'; sigAction.style.color = 'var(--red)'; }
     });
   },
 
