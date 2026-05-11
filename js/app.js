@@ -1125,9 +1125,9 @@ const APP = {
       console.log('[SYNC] 自動上傳已解鎖');
     }, 12000);
 
-    // ★ 問題1+2: 開盤時每3~5分鐘隨機更新，避免固定頻率被識別為機器人
+    // 開盤時每 8~12 秒隨機更新
     const scheduleRefresh = () => {
-      const delay = (180 + Math.floor(Math.random() * 120)) * 1000; // 3~5分鐘隨機
+      const delay = (8 + Math.floor(Math.random() * 4)) * 1000; // 8~12秒
       this.refreshTimer = setTimeout(() => {
         const open = this.activeMarket === 'US' ? this.isUSMarketOpen() : this.isTWMarketOpen();
         if (open) this.refreshPrices();

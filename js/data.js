@@ -14,8 +14,8 @@ const DATA = {
   _queue: [],
   _queueBusy: false,
   _lastReqTime: 0,
-  MIN_INTERVAL: 1800,
-  MAX_INTERVAL: 3200, // 隨機上限
+  MIN_INTERVAL: 800,
+  MAX_INTERVAL: 1500, // 隨機上限
 
   // 隨機間隔：1800~3200ms，避免固定頻率被識別為機器人
   _randomInterval() {
