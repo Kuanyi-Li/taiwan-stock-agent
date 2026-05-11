@@ -1028,11 +1028,16 @@ const RECOMMEND = {
 
         let orderHtml = '';
         if (budgetPerStock > 0 && livePrice) {
-          const shares = Math.max(1, Math.floor(budgetPerStock / livePrice));
-          const cost = shares * livePrice;
-          const fee = isUS ? 0 : Math.max(20, Math.round(cost * 0.001425));
+          // ★ 美股：預算是台幣，livePrice 是 USD，需換算後再算股數
+          const livePriceTWD = isUS ? livePrice * (CURRENCY.usdRate || 31.5) : livePrice;
+          const shares = Math.max(1, Math.floor(budgetPerStock / livePriceTWD));
+          const costTWD = shares * livePriceTWD;
+          const costUSD = isUS ? shares * livePrice : null;
+          const fee = isUS ? 0 : Math.max(20, Math.round(costTWD * 0.001425));
           const sd = isUS ? `${shares}股` : (shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`);
-          const costDisp = isUS ? `$${cost.toFixed(2)}` : (cost >= 10000 ? `${(cost/10000).toFixed(2)}萬` : `${cost.toFixed(0)}元`);
+          const costDisp = isUS
+            ? `US$${costUSD.toFixed(0)} (≈${costTWD >= 10000 ? (costTWD/10000).toFixed(1)+'萬' : costTWD.toFixed(0)+'元'})`
+            : (costTWD >= 10000 ? `${(costTWD/10000).toFixed(2)}萬` : `${costTWD.toFixed(0)}元`);
           const isBatch = c.horizon === '短線' || c.horizon === '長短';
           const feeText = fee > 0 ? `（含手續費 $${fee}）` : '';
           orderHtml = `<div class="rec-order">
@@ -1294,6 +1299,31 @@ const APP = {
     this.renderStockList();
     this.renderWatchlist();
     this._updateMarketStatus();
+    // ★ 右側大圖價格即時更新（不用重新 selectStock）
+    if (this.activeSymbol) {
+      const q = DATA.priceStore[this.activeSymbol];
+      if (q?.price) {
+        const priceEl = document.getElementById('chart-price');
+        if (priceEl) priceEl.textContent = q.price.toFixed(2);
+        const changeEl = document.getElementById('chart-change');
+        if (changeEl) {
+          const chg = q.price - (q.prevClose ?? q.price);
+          const chgPct = q.prevClose ? chg / q.prevClose * 100 : 0;
+          const isUS = DATA.isUSCode(this.activeSymbol);
+          const isOpen = isUS ? this.isUSMarketOpen() : this.isTWMarketOpen();
+          const todayWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
+          const showChg = isOpen || (!isUS && todayWeekday);
+          if (!showChg) {
+            changeEl.textContent = '+0.00 (休市)'; changeEl.className = 'chart-change neutral';
+          } else if (Math.abs(chg) < 0.01) {
+            changeEl.textContent = '+0.00 (待更新)'; changeEl.className = 'chart-change neutral';
+          } else {
+            changeEl.textContent = `${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)`;
+            changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
+          }
+        }
+      }
+    }
     // ★ 問題3: 報價更新後不重繪圓餅圖（只有買賣操作才更新）
     GOALS.updateDashboard();
     GOALS.recordSnapshot();
