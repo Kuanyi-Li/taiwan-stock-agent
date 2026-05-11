@@ -318,27 +318,28 @@ const DATA = {
   // ── 美股大盤指數（Yahoo 一次批次）────────────────────
   async fetchUSIndexes() {
     try {
-      const res = await this._fetch(
-        'https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EGSPC,%5EIXIC,%5EDJI' +
-        '&fields=regularMarketPrice,regularMarketPreviousClose,shortName'
-      );
-      const results = (await res.json())?.quoteResponse?.result ?? [];
+      const isUSOpen = typeof APP !== 'undefined' ? APP.isUSMarketOpen() : false;
+      const url = 'https://query2.finance.yahoo.com/v7/finance/spark?symbols=%5EGSPC,%5EIXIC,%5EDJI&range=1d&interval=1d&_=' + Date.now();
+      // 直接呼叫，不走 queue
+      const proxyUrl = (this.proxies[this._proxyIdx] || this.proxies[0]) + encodeURIComponent(url);
+      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(9000) });
+      const results = (await res.json())?.spark?.result ?? [];
       const map  = { '^GSPC':'sp500-badge', '^IXIC':'nasdaq-badge', '^DJI':'dow-badge' };
       const name = { '^GSPC':'S&P500', '^IXIC':'NASDAQ', '^DJI':'DOW' };
-      const isUSOpen = typeof APP !== 'undefined' ? APP.isUSMarketOpen() : false;
-      results.forEach(q => {
-        const elId = map[q.symbol];
-        if (!elId) return;
-        const p   = parseFloat(q.regularMarketPrice);
-        const pc  = parseFloat(q.regularMarketPreviousClose ?? p);
-        const chg = p - pc;
-        const pct = pc > 0 ? chg / pc * 100 : 0;
+      results.forEach(item => {
+        const meta = item?.response?.[0]?.meta;
+        if (!meta?.regularMarketPrice) return;
+        const sym  = item.symbol;
+        const p    = meta.regularMarketPrice;
+        const pc   = meta.chartPreviousClose ?? p;
+        const chg  = p - pc;
+        const pct  = pc > 0 ? chg / pc * 100 : 0;
         const sign = chg >= 0 ? '+' : '';
         const priceStr = p.toLocaleString('en-US', {maximumFractionDigits:2});
         const disp = isUSOpen
-          ? `${name[q.symbol]} ${priceStr} (${sign}${pct.toFixed(2)}%)`
-          : `${name[q.symbol]} ${priceStr}`;
-        const el = document.getElementById(elId);
+          ? `${name[sym]} ${priceStr} (${sign}${pct.toFixed(2)}%)`
+          : `${name[sym]} ${priceStr}`;
+        const el = document.getElementById(map[sym]);
         if (el) { el.textContent = disp; el.className = isUSOpen ? `index-chip ${chg >= 0 ? 'up' : 'dn'}` : 'index-chip'; }
       });
     } catch(e) { console.warn('[DATA] fetchUSIndexes failed:', e.message); }
