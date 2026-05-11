@@ -1348,13 +1348,17 @@ const APP = {
     setText('total-cost', '成本 '+fmtV(totalCost), '');
     setSignedText('total-pnl', pnl, fmtV);
     setSignedText('total-pnl-pct', roi, v => v.toFixed(2)+'%', true);
+    // 今天是否有開過盤（平日）
+    const todayIsWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
     const marketOpen = this.activeMarket === 'US' ? this.isUSMarketOpen() : this.isTWMarketOpen();
-    if (hasDayData && marketOpen) {
+    const shouldShowDayPnl = hasDayData && (marketOpen || todayIsWeekday);
+
+    if (shouldShowDayPnl) {
       setSignedText('day-pnl', dayPnl, fmtV);
       setSignedText('day-pnl-pct', dayPct, v => v.toFixed(2)+'%', true);
     } else {
       setText('day-pnl', '—', 'neutral');
-      setText('day-pnl-pct', marketOpen ? '待更新' : '休市', '');
+      setText('day-pnl-pct', todayIsWeekday ? '待更新' : '休市', '');
     }
     setSignedText('total-roi', roi, v => v.toFixed(2)+'%', true);
     setText('stock-count', this.portfolio.length+' 檔持股', '');
@@ -1407,7 +1411,9 @@ const APP = {
           <div class="si-row4">
             ${(() => {
               const isOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
-              if (!isOpen) return `<span style="color:var(--text-3);font-size:11px">休市</span>`;
+              const todayWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
+              const showChg = isOpen || (s.market !== 'US' && todayWeekday);
+              if (!showChg) return `<span style="color:var(--text-3);font-size:11px">休市</span>`;
               if (Math.abs(chg) > 0.01) return `<span class="${isUp?'up-color':'dn-color'}">${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)</span>`;
               return `<span style="color:var(--text-3);font-size:11px">今日 ±0</span>`;
             })()}
@@ -1481,7 +1487,9 @@ const APP = {
       document.getElementById('chart-price').textContent = price > 0 ? price.toFixed(2) : '—';
       const changeEl = document.getElementById('chart-change');
       const isMarketOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
-      if (!isMarketOpen) {
+      const todayWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
+      const showChg = isMarketOpen || (s.market !== 'US' && todayWeekday);
+      if (!showChg) {
         changeEl.textContent = '+0.00 (休市)';
         changeEl.className = 'chart-change neutral';
       } else if (price > 0 && Math.abs(chg) < 0.01) {
