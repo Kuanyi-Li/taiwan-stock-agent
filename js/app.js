@@ -6,17 +6,21 @@ const CURRENCY = {
   usdRate: null,
   async fetchUSDRate() {
     try {
-      const res = await DATA._fetchWithFallback('https://query1.finance.yahoo.com/v8/finance/chart/USDTWD=X?interval=1d&range=5d');
+      const res = await DATA._fetch('https://query2.finance.yahoo.com/v8/finance/chart/USDTWD=X?interval=1d&range=5d&_=' + Date.now());
       const json = await res.json();
       const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
       if (price) { this.usdRate = +price.toFixed(2); this._updateDisplay(); }
-    } catch(e) { this.usdRate = 31.5; }
+      else throw new Error('no price');
+    } catch(e) {
+      // 備援：用固定匯率
+      if (!this.usdRate) this.usdRate = 32.0;
+    }
   },
   _updateDisplay() {
     const el = document.getElementById('usd-rate-display');
     if (el && this.usdRate) el.textContent = `1 USD = ${this.usdRate} TWD`;
   },
-  toTWD(usd) { return usd * (this.usdRate || 31.5); },
+  toTWD(usd) { return usd * (this.usdRate || 32.0); },
 };
 
 // ── VIX module（台股波動恐慌指標）────────────────────
@@ -1317,6 +1321,8 @@ const APP = {
       const gainPct = s.price ? (s.price - s.cost) / s.cost * 100 : 0;
       const gainDisp = gainPct >= 0 ? `+${gainPct.toFixed(1)}%` : `${gainPct.toFixed(1)}%`;
       const daysHeld = s.date ? Math.floor((Date.now() - new Date(s.date).getTime()) / 86400000) : null;
+      const isUS = (s.market || APP.activeMarket) === 'US';
+      const priceDisp = s.price ? (isUS ? `US$${s.price.toFixed(2)}` : s.price.toFixed(2)) : '—';
       return `
         <div class="sig-overview-item ${sig.cls}" onclick="APP.selectStock('${s.code}', ${this.portfolio.indexOf(s)}, 'portfolio')">
           <div class="soi-left">
@@ -1324,7 +1330,7 @@ const APP = {
             <div class="soi-name">${s.name}</div>
           </div>
           <div class="soi-mid">
-            <div class="soi-price">${s.price ? s.price.toFixed(2) : '—'}</div>
+            <div class="soi-price">${priceDisp}</div>
             <div class="soi-gain ${gainPct>=0?'up-color':'dn-color'}">${gainDisp}</div>
           </div>
           <div class="soi-right">
@@ -1337,28 +1343,54 @@ const APP = {
   },
 
   renderPortfolioSummary() {
-    let totalVal = 0, totalCost = 0, dayPnl = 0;
+    const isUS = this.activeMarket === 'US';
+    const fx = isUS ? CURRENCY.toTWD(1) : 1;
+    let totalVal = 0, totalCost = 0, dayPnl = 0, dayPnlUSD = 0;
     let hasDayData = false;
     this.portfolio.forEach(s => {
       const price = s.price ?? s.cost;
       const prev  = s.prevClose ?? s.cost;
-      totalVal  += price * s.shares;
-      totalCost += s.cost  * s.shares;
-      dayPnl    += (price - prev) * s.shares;
+      totalVal  += price * s.shares;   // USD or TWD（原幣）
+      totalCost += s.cost  * s.shares; // 原幣
+      dayPnlUSD += (price - prev) * s.shares; // 原幣
+      dayPnl    += (price - prev) * s.shares * fx; // 換算台幣
       if (Math.abs(price - prev) > 0.01) hasDayData = true;
     });
-    const pnl = totalVal - totalCost;
-    const roi = totalCost > 0 ? pnl / totalCost * 100 : 0;
-    const dayPct = totalCost > 0 ? dayPnl / totalCost * 100 : 0;
-    const fmtV = n => {
+    const pnlUSD = totalVal - totalCost; // 原幣損益
+    const pnlTWD = pnlUSD * fx;          // 換算台幣損益
+    const roi = totalCost > 0 ? pnlUSD / totalCost * 100 : 0;
+    const dayPct = totalCost > 0 ? dayPnlUSD / totalCost * 100 : 0;
+
+    // 格式化：原幣顯示
+    const fmtOrig = n => {
       const abs = Math.abs(n);
+      if (isUS) return `US$${Math.abs(n) >= 1000 ? (n/1000).toFixed(1)+'K' : n.toFixed(0)}`;
       if (abs >= 1e6) return (n/1e4).toFixed(1)+'萬';
       if (abs >= 1e4) return (n/1e4).toFixed(2)+'萬';
       return n.toFixed(0)+'元';
     };
+    // 格式化：台幣換算
+    const fmtTWD = n => {
+      const abs = Math.abs(n);
+      if (abs >= 1e6) return `≈${(n/1e4).toFixed(1)}萬`;
+      if (abs >= 1e4) return `≈${(n/1e4).toFixed(2)}萬`;
+      return `≈${n.toFixed(0)}元`;
+    };
+    const fmtV = isUS
+      ? n => `${fmtOrig(n)} (${fmtTWD(n * fx)})`  // 損益：USD + 換算台幣
+      : n => {
+          const abs = Math.abs(n);
+          if (abs >= 1e6) return (n/1e4).toFixed(1)+'萬';
+          if (abs >= 1e4) return (n/1e4).toFixed(2)+'萬';
+          return n.toFixed(0)+'元';
+        };
+
+    // 市值/成本顯示原幣
+    setText('total-value', fmtOrig(totalVal), 'neutral');
+    setText('total-cost', '成本 '+fmtOrig(totalCost), '');
     setText('total-value', fmtV(totalVal), 'neutral');
     setText('total-cost', '成本 '+fmtV(totalCost), '');
-    setSignedText('total-pnl', pnl, fmtV);
+    setSignedText('total-pnl', pnlUSD, fmtV);
     setSignedText('total-pnl-pct', roi, v => v.toFixed(2)+'%', true);
     // 今天是否有開過盤（平日）
     const todayIsWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
@@ -1366,7 +1398,7 @@ const APP = {
     const shouldShowDayPnl = hasDayData && (marketOpen || todayIsWeekday);
 
     if (shouldShowDayPnl) {
-      setSignedText('day-pnl', dayPnl, fmtV);
+      setSignedText('day-pnl', dayPnlUSD, fmtV);
       setSignedText('day-pnl-pct', dayPct, v => v.toFixed(2)+'%', true);
     } else {
       setText('day-pnl', '—', 'neutral');
@@ -1386,12 +1418,38 @@ const APP = {
       const prev  = s.prevClose ?? s.cost;
       const chg   = price - prev;
       const chgPct = prev ? chg / prev * 100 : 0;
-      const pnl    = (price - s.cost) * s.shares;
-      const pnlPct = (price - s.cost) / s.cost * 100;
-      const isUp   = chg >= 0;
+      const isUS   = (s.market || APP.activeMarket) === 'US';
+      const fx     = isUS ? CURRENCY.toTWD(1) : 1;
+      const pnlOrig = (price - s.cost) * s.shares;        // 原幣損益
+      const pnlTWD  = pnlOrig * fx;                        // 換算台幣
+      const pnlPct  = (price - s.cost) / s.cost * 100;
+      const isUp    = chg >= 0;
       const isActive = s.code === this.activeSymbol;
       const sharesDisplay = sharesDisp(s.shares, s.market || APP.activeMarket);
-      const pnlDisplay = Math.abs(pnl) >= 10000 ? `${pnl>=0?'+':''}${(pnl/10000).toFixed(2)}萬` : `${pnl>=0?'+':''}${pnl.toFixed(0)}元`;
+
+      // 損益：原幣 + 換算台幣
+      const fmtPnl = (n, nTWD) => {
+        const origStr = isUS
+          ? `${n>=0?'+':''}US$${Math.abs(n).toFixed(0)}`
+          : (Math.abs(n) >= 10000 ? `${n>=0?'+':''}${(n/10000).toFixed(2)}萬` : `${n>=0?'+':''}${n.toFixed(0)}元`);
+        if (isUS) {
+          const twdStr = Math.abs(nTWD) >= 10000
+            ? `≈${nTWD>=0?'+':''}${(nTWD/10000).toFixed(1)}萬`
+            : `≈${nTWD>=0?'+':''}${nTWD.toFixed(0)}元`;
+          return `${origStr} (${twdStr})`;
+        }
+        return origStr;
+      };
+      const pnlDisplay = fmtPnl(pnlOrig, pnlTWD);
+
+      // 均價顯示
+      const costDisplay = isUS ? `均價US$${s.cost}` : `均價$${s.cost}`;
+
+      // 今日漲跌換算台幣（美股才顯示換算）
+      const chgTWD = chg * s.shares * fx;
+      const chgTWDStr = Math.abs(chgTWD) >= 10000
+        ? `≈${chgTWD>=0?'+':''}${(chgTWD/10000).toFixed(1)}萬`
+        : `≈${chgTWD>=0?'+':''}${chgTWD.toFixed(0)}元`;
       const sig = SIGNAL.quickEstimate(s);
       const mode = this.getStockMode(s.code); // 長線 or 短線
       // 持有天數
@@ -1417,7 +1475,7 @@ const APP = {
             <span class="si-shares">${sharesDisplay}</span>
           </div>
           <div class="si-row3">
-            <span class="si-cost">均價$${s.cost}</span>
+            <span class="si-cost">${costDisplay}</span>
             <span class="${pnl>=0?'up-color':'dn-color'}">${pnlDisplay}(${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%)</span>
           </div>
           <div class="si-row4">
@@ -1426,7 +1484,7 @@ const APP = {
               const todayWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
               const showChg = isOpen || (s.market !== 'US' && todayWeekday);
               if (!showChg) return `<span style="color:var(--text-3);font-size:11px">休市</span>`;
-              if (Math.abs(chg) > 0.01) return `<span class="${isUp?'up-color':'dn-color'}">${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)</span>`;
+              if (Math.abs(chg) > 0.01) return `<span class="${isUp?'up-color':'dn-color'}">${isUp?'▲':'▼'}${isUS ? `US$${Math.abs(chg).toFixed(2)}` : Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)${isUS ? ` ${chgTWDStr}` : ''}</span>`;
               return `<span style="color:var(--text-3);font-size:11px">今日 ±0</span>`;
             })()}
             ${daysHeld !== null ? `<span class="si-days">${daysHeld}天${annualRoi!==null?` ${annualRoi>=0?'+':''}${annualRoi.toFixed(0)}%/年`:''}</span>` : ''}
