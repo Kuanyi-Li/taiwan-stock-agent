@@ -1476,7 +1476,7 @@ const APP = {
           </div>
           <div class="si-row3">
             <span class="si-cost">${costDisplay}</span>
-            <span class="${pnl>=0?'up-color':'dn-color'}">${pnlDisplay}(${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%)</span>
+            <span class="${pnlOrig>=0?'up-color':'dn-color'}">${pnlDisplay}(${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%)</span>
           </div>
           <div class="si-row4">
             ${(() => {
