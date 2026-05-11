@@ -424,6 +424,11 @@ const ANALYSIS = {
     const adjScore = score + vixAdj * 0.5;
     const pct = Math.round(((adjScore + 5) / 10) * 100);
 
+    // 取得長短線模式
+    const symbol = this.lastSymbol || (typeof APP !== 'undefined' ? APP.activeSymbol : '');
+    const mode = (typeof APP !== 'undefined' && symbol) ? APP.getStockMode(symbol) : 'long';
+    const isLong = mode === 'long';
+
     // ★ 問題11: 用 SIGNAL.fromScore 確保左右側一致
     const stock = APP.getActiveStock();
     const gainPct = stock ? (ind.last.c - stock.cost) / stock.cost * 100 : 0;
