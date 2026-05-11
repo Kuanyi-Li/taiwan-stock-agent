@@ -419,21 +419,20 @@ const ANALYSIS = {
     const adjScore = score + vixAdj * 0.5;
     const pct = Math.round(((adjScore + 5) / 10) * 100);
 
-    // ★ 問題6: 取得長短線模式
-    const symbol = this.lastSymbol || (typeof APP !== 'undefined' ? APP.activeSymbol : '');
-    const mode = (typeof APP !== 'undefined' && symbol) ? APP.getStockMode(symbol) : 'long';
-    const isLong = mode === 'long';
+    // ★ 問題11: 用 SIGNAL.fromScore 確保左右側一致
+    const stock = APP.getActiveStock();
+    const gainPct = stock ? (ind.last.c - stock.cost) / stock.cost * 100 : 0;
+    const supportBreak = ind.last.c < (ind.support || 0) * 0.98;
+    const sigLevel = SIGNAL.fromScore(adjScore, gainPct, supportBreak, mode);
 
-    // ★ 問題6: 長線模式 action/confidence 門檻完全不同
-    let confidence, confClass, action;
+    // action 直接用 SIGNAL level 的 label，確保左右一致
+    let action, confidence, confClass;
     if (isLong) {
-      // 長線：基本抱到老，不輕易賣，只有極端情況才建議減碼
-      action     = adjScore >= 2 ? '買進加碼' : adjScore >= 0 ? '持有' : adjScore <= -4 ? '考慮減碼' : '持有';
+      action     = sigLevel.label;
       confidence = adjScore >= 3 ? '強力做多' : adjScore >= 1 ? '長線偏多' : adjScore <= -3 ? '留意風險' : '長線持有';
       confClass  = adjScore >= 2 ? 'high' : adjScore <= -3 ? 'low' : 'mid';
     } else {
-      // 短線：約1個月波段，敏感度高
-      action     = adjScore >= 2 ? '買進' : adjScore >= 1 ? '觀察買' : adjScore <= -2 ? '賣出' : adjScore <= -1 ? '觀察賣' : '持有';
+      action     = sigLevel.label;
       confidence = adjScore >= 3 ? '強烈買進' : adjScore >= 1.5 ? '偏多' : adjScore <= -3 ? '強烈賣出' : adjScore <= -1.5 ? '偏空' : '中性觀望';
       confClass  = adjScore >= 2 ? 'high' : adjScore <= -2 ? 'low' : 'mid';
     }
@@ -460,9 +459,7 @@ const ANALYSIS = {
       if (vixAdj > 0) bullReasons.push(`市場恐慌（VIX ${VIX.level}%）逆向機會`);
       else if (vixAdj < 0) bearReasons.push(`市場過熱（VIX ${VIX.level}%）注意回調`);
     }
-
-    // ★ 問題6: 持股損益門檻依長短線區分
-    const stock = APP.getActiveStock();
+    // 持股損益
     if (stock) {
       const gainPct = (ind.last.c - stock.cost) / stock.cost * 100;
       if (isLong) {

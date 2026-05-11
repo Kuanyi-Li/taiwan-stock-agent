@@ -1218,13 +1218,25 @@ const APP = {
     const usBar = document.getElementById('us-market-bar');
     if (twBar) twBar.style.display = market === 'US' ? 'none' : '';
     if (usBar) usBar.style.display = market === 'US' ? '' : 'none';
-    // 重置選中狀態
+    // ★ 完全重置選中狀態和K線
     this.activeSymbol = '';
+    this.activeIdx = -1;
+    CHART._currentLoadId = null;
+    CHART.currentData = [];
+    CHART.draw();
+    // 重置右側顯示
+    const nameEl = document.getElementById('chart-name');
+    if (nameEl) nameEl.textContent = '請選擇股票';
+    const priceEl = document.getElementById('chart-price');
+    if (priceEl) priceEl.textContent = '—';
+    const changeEl = document.getElementById('chart-change');
+    if (changeEl) { changeEl.textContent = ''; changeEl.className = 'chart-change'; }
+    const indRow = document.getElementById('ind-row');
+    if (indRow) indRow.innerHTML = '';
+
     this.renderAll();
     this._updateMarketStatus();
-    // 立即更新對應市場報價
     this.refreshPrices(true);
-    // 美股時抓美股大盤
     if (market === 'US') DATA.fetchUSIndexes();
   },
 
