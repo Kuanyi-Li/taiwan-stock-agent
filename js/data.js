@@ -83,10 +83,11 @@ const DATA = {
   // ── 台股報價（TWSE 批次，即時）─────────────────────
   async _twseBatch(codes) {
     if (!codes.length) return [];
-    const exCh = codes.map(c => `tse_${c}.tw`).join('|');
+    // ★ 用 %7C 直接串接，避免 encodeURIComponent 雙重編碼
+    const exCh = codes.map(c => `tse_${c}.tw`).join('%7C');
     try {
       const res = await this._fetch(
-        `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0&_=${Date.now()}`
+        `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${exCh}&json=1&delay=0&_=${Date.now()}`
       );
       const json  = await res.json();
       const items = json?.msgArray ?? [];
@@ -130,9 +131,15 @@ const DATA = {
         found.add(code);
       });
 
-      // ★ 用 Yahoo spark 補 z='-' 的股票
+      // ★ 不管 TWSE 有沒有值，都用 Yahoo spark 補（確保即時）
+      // noTrade 的優先補，有值的非同步更新
       if (noTradeCodes.length > 0) {
         this._yahooTWFallback(noTradeCodes);
+      }
+      // 有 TWSE 值的也補 Yahoo，避免 TWSE 有 session 問題時落後
+      const hasTradeCodes = [...found].filter(c => !noTradeCodes.includes(c));
+      if (hasTradeCodes.length > 0) {
+        this._yahooTWFallback(hasTradeCodes);
       }
 
       console.log(`[DATA] TWSE: ${found.size - noTradeCodes.length} realtime, ${noTradeCodes.length} yahoo fallback, ${codes.length - found.size} missing`);
@@ -171,6 +178,35 @@ const DATA = {
         });
       });
       console.log(`[DATA] Yahoo TW fallback: ${results.length}/${codes.length} updated`);
+
+      // ★ 同步回 APP portfolio 並重新渲染
+      if (typeof APP !== 'undefined') {
+        [...APP._twPortfolio, ...APP._twWatchlist].forEach(s => {
+          const q = this.priceStore[s.code];
+          if (q?.price && codes.includes(s.code)) {
+            s.price     = q.price;
+            s.prevClose = q.prevClose ?? s.prevClose;
+          }
+        });
+        APP.renderPortfolioSummary();
+        APP.renderStockList();
+        APP.renderWatchlist();
+        // 更新右側大圖
+        if (APP.activeSymbol && codes.includes(APP.activeSymbol)) {
+          const q = this.priceStore[APP.activeSymbol];
+          if (q?.price) {
+            const priceEl = document.getElementById('chart-price');
+            if (priceEl) priceEl.textContent = q.price.toFixed(2);
+            const chg = q.price - (q.prevClose ?? q.price);
+            const chgPct = q.prevClose ? chg / q.prevClose * 100 : 0;
+            const changeEl = document.getElementById('chart-change');
+            if (changeEl && Math.abs(chg) > 0.01) {
+              changeEl.textContent = `${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)`;
+              changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
+            }
+          }
+        }
+      }
     } catch(e) {
       console.warn('[DATA] Yahoo TW fallback failed:', e.message);
     }
@@ -179,10 +215,10 @@ const DATA = {
   // ── TPEX 上櫃補送 ────────────────────────────────────
   async _tpexBatch(codes) {
     if (!codes.length) return;
-    const exCh = codes.map(c => `otc_${c}.tw`).join('|');
+    const exCh = codes.map(c => `otc_${c}.tw`).join('%7C');
     try {
       const res = await this._fetch(
-        `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0&_=${Date.now()}`
+        `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${exCh}&json=1&delay=0&_=${Date.now()}`
       );
       const json = await res.json();
       (json?.msgArray ?? []).forEach(item => {
