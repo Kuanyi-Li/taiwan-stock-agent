@@ -91,34 +91,88 @@ const DATA = {
       const json  = await res.json();
       const items = json?.msgArray ?? [];
       const found = new Set();
+      const noTradeCodes = []; // z='-' 的股票，需要 Yahoo 補價
+
       items.forEach(item => {
         const code = item.c;
         if (!code) return;
         const priceRaw  = item.z && item.z !== '-' ? parseFloat(item.z) : null;
         const prevClose = parseFloat(item.y) || 0;
-        const price     = priceRaw ?? prevClose;
-        if (!price) return;
-        const chg    = +(price - prevClose).toFixed(2);
+
+        if (priceRaw === null) {
+          // z='-'，加入待補清單
+          noTradeCodes.push(code);
+          // 先存 prevClose，之後 Yahoo 會覆蓋
+          this._setPrice(code, {
+            price: prevClose, prevClose,
+            open: prevClose, high: prevClose, low: prevClose,
+            name: item.n || code, volume: 0,
+            chg: 0, chgPct: 0, noTrade: true,
+            source: 'twse-prev', market: 'TW',
+          });
+          found.add(code);
+          return;
+        }
+
+        const chg    = +(priceRaw - prevClose).toFixed(2);
         const chgPct = +(prevClose > 0 ? chg / prevClose * 100 : 0).toFixed(2);
         this._setPrice(code, {
-          price:     +price.toFixed(2),
+          price:     +priceRaw.toFixed(2),
           prevClose: +prevClose.toFixed(2),
           open:      +(parseFloat(item.o) || prevClose).toFixed(2),
-          high:      +(parseFloat(item.h) || price).toFixed(2),
-          low:       +(parseFloat(item.l) || price).toFixed(2),
+          high:      +(parseFloat(item.h) || priceRaw).toFixed(2),
+          low:       +(parseFloat(item.l) || priceRaw).toFixed(2),
           volume:    parseInt(item.v) || 0,
           name:      item.n || code,
-          chg, chgPct,
-          noTrade: priceRaw === null,
-          source:  'twse', market: 'TW',
+          chg, chgPct, noTrade: false,
+          source: 'twse', market: 'TW',
         });
         found.add(code);
       });
-      console.log(`[DATA] TWSE: ${found.size}/${codes.length} updated`);
+
+      // ★ 用 Yahoo spark 補 z='-' 的股票
+      if (noTradeCodes.length > 0) {
+        this._yahooTWFallback(noTradeCodes);
+      }
+
+      console.log(`[DATA] TWSE: ${found.size - noTradeCodes.length} realtime, ${noTradeCodes.length} yahoo fallback, ${codes.length - found.size} missing`);
       return codes.filter(c => !found.has(c));
     } catch(e) {
       console.warn('[DATA] TWSE failed:', e.message);
       return codes;
+    }
+  },
+
+  // ── Yahoo spark 補台股即時價（TWSE z='-' 時使用）────
+  async _yahooTWFallback(codes) {
+    if (!codes.length) return;
+    const symbols = codes.map(c => c + '.TW').join(',');
+    try {
+      const res = await this._fetch(
+        `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${symbols}&range=1d&interval=1d&_=${Date.now()}`
+      );
+      const results = (await res.json())?.spark?.result ?? [];
+      results.forEach(item => {
+        const meta = item?.response?.[0]?.meta;
+        if (!meta?.regularMarketPrice) return;
+        const code = item.symbol.replace('.TW', '');
+        const price = +meta.regularMarketPrice.toFixed(2);
+        const prev  = +(meta.chartPreviousClose ?? price).toFixed(2);
+        const chg   = +(price - prev).toFixed(2);
+        const chgPct= +(prev > 0 ? chg/prev*100 : 0).toFixed(2);
+        this._setPrice(code, {
+          price, prevClose: prev,
+          high: +(meta.regularMarketDayHigh ?? price).toFixed(2),
+          low:  +(meta.regularMarketDayLow  ?? price).toFixed(2),
+          volume: meta.regularMarketVolume ?? 0,
+          name: meta.shortName ?? code,
+          chg, chgPct, noTrade: false,
+          source: 'yahoo-tw-fallback', market: 'TW',
+        });
+      });
+      console.log(`[DATA] Yahoo TW fallback: ${results.length}/${codes.length} updated`);
+    } catch(e) {
+      console.warn('[DATA] Yahoo TW fallback failed:', e.message);
     }
   },
 
