@@ -103,14 +103,17 @@ const DATA = {
         if (priceRaw === null) {
           // z='-'，加入待補清單
           noTradeCodes.push(code);
-          // 先存 prevClose，之後 Yahoo 會覆蓋
-          this._setPrice(code, {
-            price: prevClose, prevClose,
-            open: prevClose, high: prevClose, low: prevClose,
-            name: item.n || code, volume: 0,
-            chg: 0, chgPct: 0, noTrade: true,
-            source: 'twse-prev', market: 'TW',
-          });
+          // ★ 只有在沒有即時報價時才用昨收（避免覆蓋 Yahoo 即時價）
+          const existing = this.priceStore[code];
+          if (!existing || existing.source === 'twse-prev') {
+            this._setPrice(code, {
+              price: prevClose, prevClose,
+              open: prevClose, high: prevClose, low: prevClose,
+              name: item.n || code, volume: 0,
+              chg: 0, chgPct: 0, noTrade: true,
+              source: 'twse-prev', market: 'TW',
+            });
+          }
           found.add(code);
           return;
         }
