@@ -583,7 +583,35 @@
   </div>
 </div>
 
-<!-- 自選清單 -->
+<!-- 編輯交易紀錄 -->
+<div class="modal-overlay" id="edit-trade-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>編輯交易紀錄</h3>
+      <button class="modal-close" onclick="closeModal('edit-trade-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">代號</label><input type="text" id="et-code" class="form-input" readonly></div>
+        <div class="form-group"><label class="form-label">動作</label><input type="text" id="et-action" class="form-input" readonly></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">股數 <span class="required">*</span></label><input type="number" id="et-shares" class="form-input" min="1" step="1"></div>
+        <div class="form-group"><label class="form-label">成交價 <span class="required">*</span></label><input type="number" id="et-price" class="form-input" step="0.01"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">交易日期</label><input type="date" id="et-date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">手續費/稅費</label><input type="number" id="et-fee" class="form-input" min="0" step="1"></div>
+      </div>
+      <div class="form-note" id="et-note">⚠️ 修改後將重新計算持股均價，請確認數字正確。</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('edit-trade-modal')">取消</button>
+      <button class="btn-danger" onclick="deleteTradeConfirm()">刪除</button>
+      <button class="btn-primary" onclick="saveEditTrade()">儲存</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="watch-modal">
   <div class="modal">
     <div class="modal-header"><h3 id="watch-modal-title">新增自選股</h3><button class="modal-close" onclick="closeModal('watch-modal')">✕</button></div>
