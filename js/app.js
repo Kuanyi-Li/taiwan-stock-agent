@@ -259,23 +259,94 @@ const GOALS = {
 // ── TRADES module ─────────────────────────────────────
 const TRADES = {
   get() { return JSON.parse(localStorage.getItem('twsa-trades') || '[]'); },
-  add(trade) {
-    const trades = this.get();
-    trades.unshift({ ...trade, id: Date.now() });
+  save(trades) {
     localStorage.setItem('twsa-trades', JSON.stringify(trades));
     SYNC.markDirty();
   },
+  add(trade) {
+    const trades = this.get();
+    trades.unshift({ ...trade, id: Date.now() });
+    this.save(trades);
+  },
+  getById(id) { return this.get().find(t => t.id === id); },
+  update(id, fields) {
+    const trades = this.get();
+    const idx = trades.findIndex(t => t.id === id);
+    if (idx === -1) return false;
+    trades[idx] = { ...trades[idx], ...fields };
+    this.save(trades);
+    return true;
+  },
+  delete(id) {
+    const trades = this.get().filter(t => t.id !== id);
+    this.save(trades);
+  },
+
+  // 根據所有交易紀錄重新計算持股均價和數量
+  recalcPortfolio() {
+    const trades = this.get();
+    const isUS = APP.activeMarket === 'US';
+    const storageKey = isUS ? 'ussa-portfolio' : 'twsa-portfolio';
+    const portfolio = JSON.parse(localStorage.getItem(storageKey) || '[]');
+
+    // 過濾當前市場的交易
+    const mktTrades = trades.filter(t => (t.market || 'TW') === (isUS ? 'US' : 'TW'));
+
+    // 重新建立每支股票的持倉
+    const holdings = {}; // code -> {shares, totalCost, firstDate}
+    // 按時間正序處理
+    [...mktTrades].reverse().forEach(t => {
+      if (!holdings[t.code]) holdings[t.code] = { shares: 0, totalCost: 0, firstDate: t.date };
+      if (t.action === 'buy') {
+        holdings[t.code].totalCost += t.price * t.shares;
+        holdings[t.code].shares    += t.shares;
+        if (!holdings[t.code].firstDate || t.date < holdings[t.code].firstDate) holdings[t.code].firstDate = t.date;
+      } else if (t.action === 'sell') {
+        holdings[t.code].shares -= t.shares;
+        // 賣出時均價不變，按比例扣除成本
+        if (holdings[t.code].shares > 0) {
+          const avgCost = holdings[t.code].totalCost / (holdings[t.code].shares + t.shares);
+          holdings[t.code].totalCost -= avgCost * t.shares;
+        } else {
+          holdings[t.code].totalCost = 0;
+        }
+      }
+    });
+
+    // 更新 portfolio
+    const newPortfolio = portfolio.map(s => {
+      const h = holdings[s.code];
+      if (!h || h.shares <= 0) return null; // 已清倉
+      return {
+        ...s,
+        shares: Math.max(0, Math.round(h.shares * 100) / 100),
+        cost:   h.shares > 0 ? +((h.totalCost / h.shares)).toFixed(4) : s.cost,
+        date:   h.firstDate || s.date,
+      };
+    }).filter(Boolean);
+
+    // 保存
+    const portfolio_key = isUS ? '_usPortfolio' : '_twPortfolio';
+    APP[portfolio_key] = newPortfolio;
+    APP.save();
+  },
+
   render() {
     const list = document.getElementById('trade-list');
     if (!list) return;
     const trades = this.get();
     if (!trades.length) { list.innerHTML = '<div class="empty-state">暫無交易紀錄</div>'; return; }
+    const isUS = APP.activeMarket === 'US';
     list.innerHTML = trades.slice(0, 50).map(t => {
       const isBuy = t.action === 'buy';
       const total = t.shares * t.price;
       const fee = t.fee || 0;
-      const totalDisplay = total >= 10000 ? `${(total/10000).toFixed(2)}萬` : `${total.toFixed(0)}元`;
-      const sharesDisplay = t.shares >= 1000 ? `${(t.shares/1000).toFixed(t.shares%1000===0?0:2)}張` : `${t.shares}股`;
+      const tIsUS = (t.market || 'TW') === 'US';
+      const totalDisplay = tIsUS
+        ? `US$${total.toFixed(0)}`
+        : (total >= 10000 ? `${(total/10000).toFixed(2)}萬` : `${total.toFixed(0)}元`);
+      const sharesDisplay = sharesDisp(t.shares, t.market || 'TW');
+      const priceDisplay = tIsUS ? `US$${t.price}` : `$${t.price}`;
       return `<div class="trade-item">
         <div class="ti-left">
           <span class="ti-action ${isBuy?'buy':'sell'}">${isBuy?'買進':'賣出'}</span>
@@ -283,13 +354,15 @@ const TRADES = {
           <span class="ti-name">${t.name}</span>
         </div>
         <div class="ti-mid">
-          <span>${sharesDisplay} @ $${t.price}</span>
+          <span>${sharesDisplay} @ ${priceDisplay}</span>
           <span class="ti-date">${t.date || '—'}</span>
         </div>
         <div class="ti-right">
           <span class="${isBuy?'dn-color':'up-color'}">${isBuy?'-':'+'}${totalDisplay}</span>
           ${fee ? `<span class="ti-fee">稅費 $${fee}</span>` : ''}
+          <button class="ti-edit-btn" onclick="openEditTrade(${t.id})" title="編輯">✏️</button>
         </div>
+        ${t.note ? `<div class="ti-note">${t.note}</div>` : ''}
       </div>`;
     }).join('');
   },
@@ -1883,7 +1956,56 @@ function openWatchModal() {
   if (codeEl) codeEl.placeholder = isUS ? 'TSLA' : '6505';
   document.getElementById('watch-modal')?.classList.add('show');
 }
-function openWatchlistModal() { openWatchModal(); }
+function openEditTrade(id) {
+  const t = TRADES.getById(id);
+  if (!t) return;
+  const modal = document.getElementById('edit-trade-modal');
+  modal._tradeId = id;
+  document.getElementById('et-code').value   = t.code;
+  document.getElementById('et-action').value = t.action === 'buy' ? '買進' : '賣出';
+  document.getElementById('et-shares').value = t.shares;
+  document.getElementById('et-price').value  = t.price;
+  document.getElementById('et-date').value   = t.date || '';
+  document.getElementById('et-fee').value    = t.fee || 0;
+  const tIsUS = (t.market || 'TW') === 'US';
+  const note = document.getElementById('et-note');
+  if (note) note.textContent = tIsUS
+    ? '⚠️ 修改後將重新計算美股持股均價，請確認數字正確。'
+    : '⚠️ 修改後將重新計算持股均價，請確認數字正確。';
+  modal.classList.add('show');
+}
+
+function saveEditTrade() {
+  const modal = document.getElementById('edit-trade-modal');
+  const id = modal._tradeId;
+  const shares = parseFloat(document.getElementById('et-shares').value);
+  const price  = parseFloat(document.getElementById('et-price').value);
+  const date   = document.getElementById('et-date').value;
+  const fee    = parseFloat(document.getElementById('et-fee').value) || 0;
+  if (!shares || !price) { showToast('請填寫股數和價格'); return; }
+  TRADES.update(id, { shares, price, date, fee });
+  TRADES.recalcPortfolio();
+  closeModal('edit-trade-modal');
+  TRADES.render();
+  APP.renderAll();
+  PIE.render();
+  showToast('交易紀錄已更新，持股重新計算完成');
+}
+
+function deleteTradeConfirm() {
+  const modal = document.getElementById('edit-trade-modal');
+  const id = modal._tradeId;
+  const t = TRADES.getById(id);
+  if (!t) return;
+  if (!confirm(`確定刪除這筆交易？\n${t.action==='buy'?'買進':'賣出'} ${t.code} ${t.shares}股 @ $${t.price}`)) return;
+  TRADES.delete(id);
+  TRADES.recalcPortfolio();
+  closeModal('edit-trade-modal');
+  TRADES.render();
+  APP.renderAll();
+  PIE.render();
+  showToast('交易已刪除，持股重新計算完成');
+}
 function closeModal(id) { document.getElementById(id)?.classList.remove('show'); }
 function runRecommend() { RECOMMEND.run(); }
 
