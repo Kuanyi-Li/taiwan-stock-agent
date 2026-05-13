@@ -1948,6 +1948,8 @@ function openAddModal() {
   document.getElementById('add-modal')?.classList.add('show');
 }
 
+function openWatchlistModal() { openWatchModal(); }
+
 function openWatchModal() {
   const isUS = APP.activeMarket === 'US';
   const title = document.getElementById('watch-modal-title');
