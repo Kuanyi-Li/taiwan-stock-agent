@@ -46,7 +46,18 @@ const DATA = {
   priceStore: {},
 
   _setPrice(code, fields) {
-    this.priceStore[code] = { ...(this.priceStore[code] ?? {}), ...fields, ts: Date.now() };
+    const existing = this.priceStore[code];
+    if (existing) {
+      // 來源優先序：twse/tpex > yahoo-spark/yahoo-us > yahoo-tw-fallback > twse-prev
+      const rank = s => s==='twse'||s==='tpex' ? 4 : s==='yahoo-spark'||s==='yahoo-us' ? 3 : s==='yahoo-tw-fallback' ? 2 : s==='twse-prev' ? 0 : 1;
+      const newRank = rank(fields.source);
+      const oldRank = rank(existing.source);
+      const newTs   = Date.now();
+      const oldTs   = existing.ts || 0;
+      // 舊資料來源優先序更高，且不超過 30 秒前 → 不覆蓋
+      if (oldRank > newRank && (newTs - oldTs) < 30000) return;
+    }
+    this.priceStore[code] = { ...(existing ?? {}), ...fields, ts: Date.now() };
   },
 
   // ── 判斷台股 / 美股 ───────────────────────────────────
