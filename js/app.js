@@ -387,25 +387,29 @@ const SIGNAL = {
     const adjusted = score + vixAdj * 0.5;
     const isLong = mode === 'long';
 
-    // ★ 問題6: 長線模式門檻完全不同
     if (isLong) {
-      if (supportBreak && gainPct <= -15) return this.LEVELS[0]; // 長線緊急：跌破支撐且虧損>15%
-      if (gainPct <= -15)  return this.LEVELS[1];                // 長線強賣：虧損超過停損線
-      if (gainPct <= -10)  return this.LEVELS[2];                // 長線減碼：接近停損
-      if (adjusted < 0)    return this.LEVELS[3];                // 長線持有觀望
-      if (adjusted < 2)    return this.LEVELS[3];                // 長線偏中性也持有
-      if (adjusted < 3.5)  return this.LEVELS[4];
-      if (adjusted < 4.5)  return this.LEVELS[5];
+      // 長線：停損門檻 -25%（-15% 只是觀察）
+      if (supportBreak && gainPct <= -25) return this.LEVELS[0]; // 跌破支撐且虧損>25%
+      if (gainPct <= -25)  return this.LEVELS[1];                // 虧損超過-25%才強賣
+      if (gainPct <= -15)  return this.LEVELS[2];                // -15% 建議減碼評估
+      // 技術面訊號（±10 範圍）
+      if (adjusted < 0)    return this.LEVELS[3];
+      if (adjusted < 4)    return this.LEVELS[3];  // 長線偏中性也持有
+      if (adjusted < 6)    return this.LEVELS[4];
+      if (adjusted < 8)    return this.LEVELS[5];
       return this.LEVELS[6];
     }
 
-    // 短線模式（原本邏輯）
+    // 短線模式（±10 範圍）
+    // ★ 獲利了結改為建議性（不強制 sell，改用 buy/hold 訊號）
     if (supportBreak || gainPct <= -8) return this.LEVELS[0];
-    if (adjusted <= -3 || gainPct >= 30) return this.LEVELS[1];
-    if (adjusted <= -1.5) return this.LEVELS[2];
-    if (adjusted < 1.5)   return this.LEVELS[3];
-    if (adjusted < 3)     return this.LEVELS[4];
-    if (adjusted < 4)     return this.LEVELS[5];
+    if (adjusted <= -5)  return this.LEVELS[1];
+    if (adjusted <= -2)  return this.LEVELS[2];
+    if (adjusted < 2)    return this.LEVELS[3];
+    // 獲利但技術面仍偏多 → 繼續持有，不強制賣
+    if (gainPct >= 35)   return this.LEVELS[3];  // 達目標但顯示觀望（提示了結但不強制）
+    if (adjusted < 5)    return this.LEVELS[4];
+    if (adjusted < 7)    return this.LEVELS[5];
     return this.LEVELS[6];
   },
 

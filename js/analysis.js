@@ -265,20 +265,18 @@ const ANALYSIS = {
     if (ind.obvSig === 'buy') score += 0.5;
     else if (ind.obvSig === 'sell') score -= 0.5;
 
-    // ★ ADX 趨勢強度調整（盤整時降低可信度）
+    // ★ ADX 趨勢強度調整（只在盤整時降低可信度，不在強趨勢時增強）
     const adxVal = ind.adx ?? 0;
     if (adxVal < 20) {
-      // 盤整期：所有訊號可信度降低 40%
+      // 盤整期：訊號可信度降低 40%
       score *= 0.6;
-    } else if (adxVal > 40) {
-      // 強趨勢：訊號增強 20%
-      score *= 1.2;
     }
-    // ADX 方向訊號
+    // ADX 方向訊號（不再重複用 ×1.2，只用方向）
     if (ind.adxSignal === 'buy') score += 1;
     else if (ind.adxSignal === 'sell') score -= 1;
 
-    return Math.max(-5, Math.min(5, score));
+    // ★ 範圍擴大到 ±10，避免 clip 損失區別力
+    return Math.max(-10, Math.min(10, score));
   },
 
   _updateIndicatorCards(ind) {
@@ -446,7 +444,7 @@ const ANALYSIS = {
     const score = this._calcScore(ind);
     const vixAdj = (typeof VIX !== 'undefined' ? VIX.score : 0) || 0;
     const adjScore = score + vixAdj * 0.5;
-    const pct = Math.round(((adjScore + 5) / 10) * 100);
+    const pct = Math.round(((adjScore + 10) / 20) * 100);
 
     // 取得長短線模式
     const symbol = this.lastSymbol || (typeof APP !== 'undefined' ? APP.activeSymbol : '');
@@ -463,12 +461,14 @@ const ANALYSIS = {
     let action, confidence, confClass;
     if (isLong) {
       action     = sigLevel.label;
-      confidence = adjScore >= 3 ? '強力做多' : adjScore >= 1 ? '長線偏多' : adjScore <= -3 ? '留意風險' : '長線持有';
-      confClass  = adjScore >= 2 ? 'high' : adjScore <= -3 ? 'low' : 'mid';
+      confidence = adjScore >= 6 ? '強力做多' : adjScore >= 3 ? '長線偏多' : adjScore <= -6 ? '留意風險' : '長線持有';
+      confClass  = adjScore >= 4 ? 'high' : adjScore <= -5 ? 'low' : 'mid';
     } else {
-      action     = sigLevel.label;
-      confidence = adjScore >= 3 ? '強烈買進' : adjScore >= 1.5 ? '偏多' : adjScore <= -3 ? '強烈賣出' : adjScore <= -1.5 ? '偏空' : '中性觀望';
-      confClass  = adjScore >= 2 ? 'high' : adjScore <= -2 ? 'low' : 'mid';
+      // 短線：達到獲利目標時特別標示
+      const atTarget = gainPct >= 35;
+      action     = atTarget ? `${sigLevel.label}（已達+${gainPct.toFixed(0)}%目標）` : sigLevel.label;
+      confidence = adjScore >= 6 ? '強烈買進' : adjScore >= 3 ? '偏多' : adjScore <= -6 ? '強烈賣出' : adjScore <= -3 ? '偏空' : '中性觀望';
+      confClass  = adjScore >= 4 ? 'high' : adjScore <= -4 ? 'low' : 'mid';
     }
 
     // 建構詳細原因清單
@@ -503,9 +503,8 @@ const ANALYSIS = {
         else if (gainPct <= -15) bearReasons.push(`虧損 ${gainPct.toFixed(1)}%，請確認基本面`);
         else if (gainPct < 0) bearReasons.push(`小幅虧損 ${gainPct.toFixed(1)}%，長線持有`);
       } else {
-        if (gainPct >= 50) bearReasons.push(`強力了結區 +${gainPct.toFixed(1)}%`);
-        else if (gainPct >= 35) bearReasons.push(`已獲利 +${gainPct.toFixed(1)}%，建議分批了結`);
-        else if (gainPct >= 20) bearReasons.push(`接近目標 +${gainPct.toFixed(1)}%，可開始減碼`);
+        if (gainPct >= 35) bearReasons.push(`已達短線目標 +${gainPct.toFixed(1)}%，建議考慮了結（參考技術面）`);
+        else if (gainPct >= 20) bearReasons.push(`接近目標 +${gainPct.toFixed(1)}%，開始留意了結時機`);
         else if (gainPct <= -6) bearReasons.push(`虧損 ${gainPct.toFixed(1)}%，接近停損`);
         else if (gainPct > 0) bullReasons.push(`持有獲利 +${gainPct.toFixed(1)}%`);
       }
@@ -735,15 +734,12 @@ const SELL = {
           urgency = this._esc(urgency, 'watch');
         }
       } else {
-        // ★ 短線：了結門檻提高（+35% 建議了結，+50% 強力了結）
-        if (gainPct >= 50) {
-          signals.push({ label:`獲利+${gainPct.toFixed(1)}%`, desc:'強力了結，建議出清至少70%倉位', urgency:'sell' });
-          urgency = this._esc(urgency, 'sell');
-        } else if (gainPct >= 35) {
-          signals.push({ label:`獲利+${gainPct.toFixed(1)}%`, desc:'達35%目標，建議分批了結', urgency:'sell' });
-          urgency = this._esc(urgency, 'sell');
+        // ★ 短線：了結門檻最高 +35%，且為建議性（不強制）
+        if (gainPct >= 35) {
+          signals.push({ label:`獲利+${gainPct.toFixed(1)}%達目標`, desc:'已達短線目標，建議考慮了結，但可參考技術面決定', urgency:'watch' });
+          urgency = this._esc(urgency, 'watch');
         } else if (gainPct >= 20) {
-          signals.push({ label:`獲利+${gainPct.toFixed(1)}%`, desc:'接近目標區間，可以開始分批減碼', urgency:'watch' });
+          signals.push({ label:`獲利+${gainPct.toFixed(1)}%`, desc:'接近目標區間，可以開始留意了結時機', urgency:'watch' });
           urgency = this._esc(urgency, 'watch');
         }
         // 短線停損維持 -6%
@@ -833,7 +829,7 @@ const SELL = {
           { batch:'第二批', action:`出${sd(shares*0.3)}`, desc:`跌破MA20$${ind?.ma20?.toFixed(1)??'—'}執行` },
           { batch:'剩餘部位', action:'持有觀察', desc:`停損$${ind?.support?.toFixed(1)??'—'}` },
         ],
-        note:`目標 +35~50%，目前已達 ${gainPct.toFixed(1)}%，建議保護獲利`,
+        note:`目標+35%，目前已達${gainPct.toFixed(1)}%，建議保護獲利但可依技術面調整`,
       };
     }
     return {
