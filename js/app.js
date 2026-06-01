@@ -1632,6 +1632,7 @@ const APP = {
       const chgPct = prev ? chg / prev * 100 : 0;
       const isUp  = chg >= 0;
       const sig = price > 0 ? SIGNAL.quickEstimate(s) : null;
+      const mode = this.getStockMode(s.code);
       const div = document.createElement('div');
       div.className = 'watch-item';
       div.innerHTML = `
@@ -1644,10 +1645,16 @@ const APP = {
           <div class="wi-price ${isUp?'up-color':'dn-color'}">${price>0?price.toFixed(2):'—'}</div>
           <div class="wi-change">${(() => {
             const isOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
-            if (!isOpen) return '<span style="color:var(--text-3);font-size:10px">休市</span>';
+            const todayWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
+            const showChg = isOpen || (!( (s.market||'TW')==='US') && todayWeekday);
+            if (!showChg) return '<span style="color:var(--text-3);font-size:10px">休市</span>';
             if (price > 0 && Math.abs(chg) > 0.001) return `<span class="${isUp?'up-color':'dn-color'}">${isUp?'+':''}${chgPct.toFixed(2)}%</span>`;
             return '';
           })()}</div>
+        </div>
+        <div class="wi-modes">
+          <button class="mode-btn ${mode==='long'?'active':''}" onclick="APP.setStockMode('${s.code}','long');APP.renderWatchlist();" title="長線">長</button>
+          <button class="mode-btn ${mode==='short'?'active':''}" onclick="APP.setStockMode('${s.code}','short');APP.renderWatchlist();" title="短線">短</button>
         </div>
         <button class="watch-del" onclick="APP.removeWatch(${i})">✕</button>`;
       wrap.appendChild(div);
