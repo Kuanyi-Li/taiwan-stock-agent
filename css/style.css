@@ -171,6 +171,10 @@ body {
 .wi-change { font-size: 10px; }
 .watch-del { background: none; border: none; color: var(--text-3); font-size: 12px; padding: 2px 4px; cursor: pointer; }
 .watch-del:hover { color: var(--red); }
+.wi-modes { display: flex; gap: 3px; align-items: center; }
+.wi-modes .mode-btn { font-size: 9px; padding: 2px 5px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-3); color: var(--text-3); cursor: pointer; font-weight: 600; transition: all 0.15s; }
+.wi-modes .mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.wi-modes .mode-btn:hover { opacity: 0.8; }
 
 /* ── Signal colours ── */
 .signal-emergency  { background: rgba(226,75,74,0.2);  color: #ff6b6b; border: 1px solid rgba(226,75,74,0.4); }
