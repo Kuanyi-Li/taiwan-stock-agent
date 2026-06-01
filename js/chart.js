@@ -52,6 +52,10 @@ const CHART = {
     const data = await DATA.fetchHistory(symbol, period);
     if (loadEl) loadEl.style.display = 'none';
     this.currentData = data;
+
+    // ★ 用即時報價更新最後一根K線的 close/high/low，讓K線和報價一致
+    this._patchLastCandle(symbol);
+
     this._resetZoom();
     this.draw();
 
@@ -61,6 +65,11 @@ const CHART = {
     if (!ANALYSIS._cache[symbol]) {
       this._runAnalysis(symbol);
     }
+  },
+
+  // 用即時報價更新顯示K線的最後一根
+  _patchLastCandle(symbol) {
+    this._patchCandleData(this.currentData, symbol);
   },
 
   // 用指定模式的資料分析（外部呼叫）
@@ -81,18 +90,18 @@ const CHART = {
     const period = this.ANALYSIS_PERIODS[mode] || this.ANALYSIS_PERIODS.long;
     DATA.fetchHistory(symbol, period).then(data => {
       if (data.length < 15) {
-        // 資料不足，只更新 UI（若仍是當前股票）
         if (APP.activeSymbol === symbol) {
           const sigAction = document.getElementById('sig-action');
           if (sigAction) { sigAction.textContent = '資料不足'; sigAction.style.color = 'var(--text-3)'; }
         }
         return;
       }
-      // ★ 永遠更新快取，但只有當前選中的股票才更新 UI
+      // ★ 用即時報價修正最後一根K線，避免Yahoo快照偏差影響指標計算
+      this._patchCandleData(data, symbol);
+
       if (APP.activeSymbol === symbol) {
-        ANALYSIS.run(data, symbol); // 更新快取 + UI
+        ANALYSIS.run(data, symbol);
       } else {
-        // 背景更新快取（不更新 UI）
         try {
           const ind = ANALYSIS._calcIndicators(data);
           ANALYSIS._cache[symbol] = { ind, candles: data };
@@ -103,6 +112,23 @@ const CHART = {
       const sigAction = document.getElementById('sig-action');
       if (sigAction) { sigAction.textContent = '分析失敗，請重試'; sigAction.style.color = 'var(--red)'; }
     });
+  },
+
+  // 用即時報價修正資料陣列的最後一根K線
+  _patchCandleData(data, symbol) {
+    if (!data.length) return;
+    const q = DATA.priceStore[symbol];
+    if (!q?.price || q.source === 'twse-prev') return;
+    const last = data[data.length - 1];
+    const d = new Date(last.t);
+    const now = new Date();
+    const isToday = d.getFullYear() === now.getFullYear() &&
+                    d.getMonth() === now.getMonth() &&
+                    d.getDate() === now.getDate();
+    if (!isToday) return;
+    last.c = q.price;
+    if (q.high && q.high > last.h) last.h = q.high;
+    if (q.low  && q.low  < last.l) last.l = q.low;
   },
 
   _resetZoom() {

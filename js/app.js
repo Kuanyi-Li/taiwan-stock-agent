@@ -1408,6 +1408,9 @@ const APP = {
             changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
           }
         }
+        // ★ 更新最後一根K線並重繪
+        CHART._patchLastCandle(this.activeSymbol);
+        CHART.draw();
       }
     }
     // ★ 問題3: 報價更新後不重繪圓餅圖（只有買賣操作才更新）
