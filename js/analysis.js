@@ -197,9 +197,6 @@ const ANALYSIS = {
     // CCI(20)
     if (ind.cciSignal === 'buy') score += 1;
     else if (ind.cciSignal === 'sell') score -= 1;
-    // ADX(14)
-    if (ind.adxSignal === 'buy') score += 1;
-    else if (ind.adxSignal === 'sell') score -= 1;
     // AO
     if (ind.aoSignal === 'buy') score += 0.5;
     else if (ind.aoSignal === 'sell') score -= 0.5;
@@ -224,18 +221,32 @@ const ANALYSIS = {
     if (ind.bbPos === 'oversold') score += 1;
     else if (ind.bbPos === 'overbought') score -= 1;
 
-    // ── 移動平均線 ──
+    // ── 移動平均線（分級權重）──
     const p = ind.last.c;
-    // EMA/SMA 各自判斷（與現價比較）
-    const maChecks = [
-      ind.ema10, ind.ema20, ind.ema30, ind.ema50, ind.ema100, ind.ema200,
-      ind.ma10,  ind.ma20,  ind.ma30,  ind.ma50,  ind.ma100,  ind.ma200,
-      ind.hullMA, ind.vwma20,
-    ];
-    maChecks.forEach(ma => {
+    // 長期均線（最重要，±0.4）
+    [ind.ema200, ind.ma200].forEach(ma => {
       if (ma == null) return;
-      if (p > ma) score += 0.15;
-      else score -= 0.15;
+      score += p > ma ? 0.4 : -0.4;
+    });
+    // 中長期均線（±0.3）
+    [ind.ema100, ind.ma100].forEach(ma => {
+      if (ma == null) return;
+      score += p > ma ? 0.3 : -0.3;
+    });
+    // 中期均線（±0.25）
+    [ind.ema50, ind.ma50].forEach(ma => {
+      if (ma == null) return;
+      score += p > ma ? 0.25 : -0.25;
+    });
+    // 短中期均線（±0.2）
+    [ind.ema20, ind.ma20].forEach(ma => {
+      if (ma == null) return;
+      score += p > ma ? 0.2 : -0.2;
+    });
+    // 短期均線（±0.15）
+    [ind.ema10, ind.ma10, ind.ema30, ind.ma30, ind.hullMA, ind.vwma20].forEach(ma => {
+      if (ma == null) return;
+      score += p > ma ? 0.15 : -0.15;
     });
     // 一目均衡表（Ichimoku）
     if (ind.ichimoku) {
@@ -249,6 +260,23 @@ const ANALYSIS = {
     // ── 量價 ──
     if (ind.volSurge && ind.chg > 0) score += 0.5;
     else if (ind.volSurge && ind.chg < 0) score -= 0.5;
+
+    // ★ OBV 能量潮（量能確認趨勢）
+    if (ind.obvSig === 'buy') score += 0.5;
+    else if (ind.obvSig === 'sell') score -= 0.5;
+
+    // ★ ADX 趨勢強度調整（盤整時降低可信度）
+    const adxVal = ind.adx ?? 0;
+    if (adxVal < 20) {
+      // 盤整期：所有訊號可信度降低 40%
+      score *= 0.6;
+    } else if (adxVal > 40) {
+      // 強趨勢：訊號增強 20%
+      score *= 1.2;
+    }
+    // ADX 方向訊號
+    if (ind.adxSignal === 'buy') score += 1;
+    else if (ind.adxSignal === 'sell') score -= 1;
 
     return Math.max(-5, Math.min(5, score));
   },
@@ -469,13 +497,15 @@ const ANALYSIS = {
     if (stock) {
       const gainPct = (ind.last.c - stock.cost) / stock.cost * 100;
       if (isLong) {
-        // 長線：除非跌很深，否則不提賣出
         if (gainPct >= 80) bullReasons.push(`長線已獲利 +${gainPct.toFixed(1)}%，可考慮部分了結`);
         else if (gainPct > 0) bullReasons.push(`持有獲利 +${gainPct.toFixed(1)}%，繼續持有`);
-        else if (gainPct <= -15) bearReasons.push(`虧損 ${gainPct.toFixed(1)}%，評估基本面是否改變`);
-        else if (gainPct < 0) bearReasons.push(`目前小幅虧損 ${gainPct.toFixed(1)}%，長線持有`);
+        else if (gainPct <= -25) bearReasons.push(`虧損 ${gainPct.toFixed(1)}%，評估基本面是否惡化`);
+        else if (gainPct <= -15) bearReasons.push(`虧損 ${gainPct.toFixed(1)}%，請確認基本面`);
+        else if (gainPct < 0) bearReasons.push(`小幅虧損 ${gainPct.toFixed(1)}%，長線持有`);
       } else {
-        if (gainPct >= 20) bearReasons.push(`已獲利 +${gainPct.toFixed(1)}%，建議部分了結`);
+        if (gainPct >= 50) bearReasons.push(`強力了結區 +${gainPct.toFixed(1)}%`);
+        else if (gainPct >= 35) bearReasons.push(`已獲利 +${gainPct.toFixed(1)}%，建議分批了結`);
+        else if (gainPct >= 20) bearReasons.push(`接近目標 +${gainPct.toFixed(1)}%，可開始減碼`);
         else if (gainPct <= -6) bearReasons.push(`虧損 ${gainPct.toFixed(1)}%，接近停損`);
         else if (gainPct > 0) bullReasons.push(`持有獲利 +${gainPct.toFixed(1)}%`);
       }
@@ -691,25 +721,32 @@ const SELL = {
     if (stock) {
       const gainPct = (currentPrice - stock.cost) / stock.cost * 100;
       if (isLong) {
-        // ★ 長線：基本抱到老，獲利門檻極高才建議了結
+        // ★ 長線：基本面導向，價格停損只在極端情況
         if (gainPct >= 100) {
           signals.push({ label:`長線獲利+${gainPct.toFixed(1)}%`, desc:'已翻倍，可考慮分批了結部分（非強制）', urgency:'watch' });
           urgency = this._esc(urgency, 'watch');
         }
-        // 長線停損：-15%
-        if (gainPct <= -15) {
-          signals.push({ label:`虧損${gainPct.toFixed(1)}%已達長線停損`, desc:'評估基本面是否改變，若無變化可繼續持有', urgency:'sell' });
+        // 長線停損：-25% 才真正建議減碼（極端情況），-15% 只提示評估基本面
+        if (gainPct <= -25) {
+          signals.push({ label:`虧損${gainPct.toFixed(1)}%`, desc:'已達極端停損，建議評估基本面是否惡化並考慮減碼', urgency:'sell' });
           urgency = this._esc(urgency, 'sell');
+        } else if (gainPct <= -15) {
+          signals.push({ label:`虧損${gainPct.toFixed(1)}%`, desc:'請確認基本面是否改變，若無變化繼續持有', urgency:'watch' });
+          urgency = this._esc(urgency, 'watch');
         }
       } else {
-        // 短線：20%/30% 了結，-6% 停損
-        if (gainPct >= 30) {
-          signals.push({ label:`獲利+${gainPct.toFixed(1)}%超高`, desc:'建議至少出清50%倉位，保留獲利', urgency:'sell' });
+        // ★ 短線：了結門檻提高（+35% 建議了結，+50% 強力了結）
+        if (gainPct >= 50) {
+          signals.push({ label:`獲利+${gainPct.toFixed(1)}%`, desc:'強力了結，建議出清至少70%倉位', urgency:'sell' });
+          urgency = this._esc(urgency, 'sell');
+        } else if (gainPct >= 35) {
+          signals.push({ label:`獲利+${gainPct.toFixed(1)}%`, desc:'達35%目標，建議分批了結', urgency:'sell' });
           urgency = this._esc(urgency, 'sell');
         } else if (gainPct >= 20) {
-          signals.push({ label:`已獲利+${gainPct.toFixed(1)}%`, desc:'達20%目標，建議分批了結', urgency:'sell' });
-          urgency = this._esc(urgency, 'sell');
+          signals.push({ label:`獲利+${gainPct.toFixed(1)}%`, desc:'接近目標區間，可以開始分批減碼', urgency:'watch' });
+          urgency = this._esc(urgency, 'watch');
         }
+        // 短線停損維持 -6%
         if (gainPct <= -6) {
           signals.push({ label:`虧損${gainPct.toFixed(1)}%`, desc:'已觸及停損線，建議執行停損', urgency:'urgent' });
           urgency = this._esc(urgency, 'urgent');
@@ -762,9 +799,9 @@ const SELL = {
         rows:[
           { batch:'第一步', action:'確認基本面', desc:'是否有重大負面消息或業績惡化？' },
           { batch:'若有問題', action:`考慮出${sd(shares*0.3)}（30%）`, desc:'先降低部位，觀察後續' },
-          { batch:'若無問題', action:'繼續持有', desc:`停損線設 $${(price*0.85).toFixed(1)}（-15%）` },
+          { batch:'若無問題', action:'繼續持有', desc:`停損線設 $${(price*0.75).toFixed(1)}（-25%，極端情況）` },
         ],
-        note:'長線投資人：短期回檔是機會，非威脅',
+        note:'長線投資人：短期回檔是機會，基本面未變則不賣',
       };
       if (urgency === 'urgent') return {
         title:'長線停損警示', color:'urgent',
@@ -788,7 +825,7 @@ const SELL = {
       note:`已獲利${gainPct>=0?'+':''}${gainPct.toFixed(1)}%，優先保護獲利`,
     };
     if (urgency === 'sell') {
-      const firstPct = gainPct >= 20 ? 0.4 : 0.25;
+      const firstPct = gainPct >= 35 ? 0.5 : 0.3;
       return {
         title:'分批獲利了結計畫', color:'sell',
         rows:[
@@ -796,7 +833,7 @@ const SELL = {
           { batch:'第二批', action:`出${sd(shares*0.3)}`, desc:`跌破MA20$${ind?.ma20?.toFixed(1)??'—'}執行` },
           { batch:'剩餘部位', action:'持有觀察', desc:`停損$${ind?.support?.toFixed(1)??'—'}` },
         ],
-        note:`建議先實現${gainPct>=0?gainPct.toFixed(1)+'%':'部分'}獲利`,
+        note:`目標 +35~50%，目前已達 ${gainPct.toFixed(1)}%，建議保護獲利`,
       };
     }
     return {
