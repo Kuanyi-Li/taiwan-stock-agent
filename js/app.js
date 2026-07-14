@@ -1128,7 +1128,7 @@ const RECOMMEND = {
 
         // ★ 相關性標註：與現有持股同板塊 → 提示
         const ownedSectors = new Set(
-          portfolio.map(s => this.activeCandidates.find(x => x.code === s.code)?.sector).filter(Boolean)
+          APP.portfolio.map(s => this.activeCandidates.find(x => x.code === s.code)?.sector).filter(Boolean)
         );
         const correlationWarn = ownedSectors.has(c.sector)
           ? `<div class="rec-corr-warn">⚠️ 與現有持股板塊相同（${c.sector}），相關性較高，請注意集中風險</div>`

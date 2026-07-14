@@ -373,7 +373,7 @@ const DATA = {
       const sym = this.isUSCode(symbol) ? symbol : symbol + '.TW';
       try {
         const res = await this._fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=${interval}&range=${range}`
+          `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=${interval}&range=${range}&_=${Date.now()}`
         );
         const json   = await res.json();
         const result = json?.chart?.result?.[0];
@@ -493,6 +493,7 @@ const DATA = {
       '3mo': { interval:'1d',  range:'1y'  },
       '6mo': { interval:'1wk', range:'2y'  },
       '1y':  { interval:'1wk', range:'2y'  },
+      '2y':  { interval:'1d',  range:'2y'  },
     })[period] ?? { interval:'1d', range:'1y' };
   },
 
