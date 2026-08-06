@@ -135,8 +135,15 @@ const CHART = {
 
   _resetZoom() {
     const n = this.currentData.length;
-    this.zoomStart = 0;
-    this.zoomEnd = n - 1;
+    // ★ 1日週期抓了較長歷史（供MA20/MA60計算），但預設只顯示最近約1個月
+    // 更早的資料仍在 currentData 中，可拖曳/縮放查看，MA也會用得到完整歷史
+    if (this.currentPeriod === '1d' && n > 24) {
+      this.zoomStart = n - 24;
+      this.zoomEnd = n - 1;
+    } else {
+      this.zoomStart = 0;
+      this.zoomEnd = n - 1;
+    }
   },
 
   _visibleData() {
@@ -199,7 +206,7 @@ const CHART = {
     if (!canvas || !this.currentData.length) return;
     const wrap = document.getElementById('candle-wrap');
     const W = wrap.clientWidth || 600;
-    const H = 300;
+    const H = 420;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = W * dpr; canvas.height = H * dpr;
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
@@ -432,7 +439,9 @@ const CHART = {
     const ch = document.getElementById('ch');
     const n = data.length;
 
-    const getIdx = mx => Math.max(0, Math.min(n-1, Math.round((mx - PAD.l) / ((W - PAD.l - PAD.r) / Math.max(1, n-1)))));
+    // ★ 與繪圖用的 xOf 完全同公式反推，避免十字準星偏移
+    // xOf(i) = PAD.l + i*(barW+gap) + barW/2
+    const getIdx = mx => Math.max(0, Math.min(n-1, Math.round((mx - PAD.l - barW/2) / (barW + gap))));
 
     // Crosshair
     canvas.onmousemove = e => {

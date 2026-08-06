@@ -487,7 +487,7 @@ const DATA = {
       '5m':  { interval:'5m',  range:'5d'  },
       '15m': { interval:'15m', range:'5d'  },
       '60m': { interval:'60m', range:'1mo' },
-      '1d':  { interval:'1d',  range:'1mo' },
+      '1d':  { interval:'1d',  range:'6mo' },
       '1wk': { interval:'1d',  range:'3mo' },
       '1mo': { interval:'1d',  range:'6mo' },
       '3mo': { interval:'1d',  range:'1y'  },
