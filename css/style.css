@@ -263,7 +263,7 @@ body {
 .tab-pane.active { display: block; }
 
 /* Canvas areas */
-.canvas-wrap { position: relative; padding: 8px 0 0; height: 316px; overflow: hidden; }
+.canvas-wrap { position: relative; padding: 8px 0 0; height: 436px; overflow: hidden; }
 .canvas-wrap canvas { display: block; user-select: none; }
 .vol-wrap { height: 64px; padding: 0; }
 .vol-wrap canvas { display: block; }
