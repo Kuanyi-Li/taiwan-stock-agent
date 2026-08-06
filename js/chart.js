@@ -49,10 +49,15 @@ const CHART = {
 
   async load(symbol, period) {
     this.currentPeriod = period;
+    this._loadToken = symbol; // ★ 記錄本次載入請求的股票，防止競速覆蓋
     const loadEl = document.getElementById('chart-loading');
     if (loadEl) loadEl.style.display = 'flex';
     const data = await DATA.fetchHistory(symbol, period);
     if (loadEl) loadEl.style.display = 'none';
+
+    // ★ 若載入期間使用者已切換到別支股票，這份較慢回來的資料不套用
+    if (this._loadToken !== symbol || APP.activeSymbol !== symbol) return;
+
     this.currentData = data;
 
     // ★ 用即時報價更新最後一根K線的 close/high/low，讓K線和報價一致

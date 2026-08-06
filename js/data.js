@@ -358,6 +358,7 @@ const DATA = {
 
   // ── K 線歷史資料 ──────────────────────────────────────
   histCache: {},
+  _twSuffixCache: {}, // symbol -> '.TW' or '.TWO'（記住上市/上櫃判斷結果）
   HIST_TTL: 120000,
 
   async fetchHistory(symbol, period = '3mo') {
@@ -369,53 +370,69 @@ const DATA = {
     if (cached && now - cached.ts < ttl) return cached.data;
 
     return this._enqueue(async () => {
-      // 台股加 .TW，美股直接用代碼
-      const sym = this.isUSCode(symbol) ? symbol : symbol + '.TW';
-      try {
-        const res = await this._fetch(
-          `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=${interval}&range=${range}&_=${Date.now()}`
-        );
-        const json   = await res.json();
-        const result = json?.chart?.result?.[0];
-        if (!result) throw new Error('No chart data');
-        const ts    = result.timestamp ?? [];
-        const ohlcv = result.indicators?.quote?.[0] ?? {};
-        const candles = [];
-        for (let i = 0; i < ts.length; i++) {
-          if (ohlcv.close?.[i] == null) continue;
-          candles.push({
-            t: ts[i] * 1000,
-            o: +((ohlcv.open?.[i]   ?? ohlcv.close[i])).toFixed(2),
-            h: +((ohlcv.high?.[i]   ?? ohlcv.close[i])).toFixed(2),
-            l: +((ohlcv.low?.[i]    ?? ohlcv.close[i])).toFixed(2),
-            c: +ohlcv.close[i].toFixed(2),
-            v: ohlcv.volume?.[i] ?? 0,
-          });
-        }
-        this.histCache[key] = { data: candles, ts: now };
-        // K線載入後同步補報價（避免覆蓋即時資料）
-        if (candles.length >= 1) {
-          const last = candles[candles.length - 1];
-          const prev = candles.length >= 2 ? candles[candles.length - 2].c : last.c;
-          const existing = this.priceStore[symbol];
-          if (!existing?.price || existing?.source === 'candle') {
-            this._setPrice(symbol, {
-              price: last.c, prevClose: prev,
-              open: last.o, high: last.h, low: last.l, volume: last.v,
-              chg:    +(last.c - prev).toFixed(2),
-              chgPct: +(prev > 0 ? (last.c - prev) / prev * 100 : 0).toFixed(2),
-              source: 'candle',
-              market: this.isUSCode(symbol) ? 'US' : 'TW',
+      // 台股：上市用 .TW，上櫃用 .TWO；美股直接用代碼
+      // 記住已確認的正確後綴，避免每次都要試錯
+      const isUS = this.isUSCode(symbol);
+      const cachedSuffix = this._twSuffixCache[symbol];
+      const knownTPEX = this.priceStore[symbol]?.source === 'tpex';
+      const suffixesToTry = isUS ? [''] :
+        cachedSuffix ? [cachedSuffix] :
+        knownTPEX ? ['.TWO', '.TW'] : ['.TW', '.TWO'];
+
+      let candles = null, lastErr = null;
+      for (const suffix of suffixesToTry) {
+        try {
+          const sym = symbol + suffix;
+          const res = await this._fetch(
+            `https://query2.finance.yahoo.com/v8/finance/chart/${sym}?interval=${interval}&range=${range}&_=${Date.now()}`
+          );
+          const json   = await res.json();
+          const result = json?.chart?.result?.[0];
+          if (!result || !result.timestamp?.length) throw new Error('No chart data');
+          const ts    = result.timestamp;
+          const ohlcv = result.indicators?.quote?.[0] ?? {};
+          const arr = [];
+          for (let i = 0; i < ts.length; i++) {
+            if (ohlcv.close?.[i] == null) continue;
+            arr.push({
+              t: ts[i] * 1000,
+              o: +((ohlcv.open?.[i]   ?? ohlcv.close[i])).toFixed(2),
+              h: +((ohlcv.high?.[i]   ?? ohlcv.close[i])).toFixed(2),
+              l: +((ohlcv.low?.[i]    ?? ohlcv.close[i])).toFixed(2),
+              c: +ohlcv.close[i].toFixed(2),
+              v: ohlcv.volume?.[i] ?? 0,
             });
           }
-        }
-        console.log(`[DATA] ${symbol}/${period}: ${candles.length} candles`);
-        return candles;
-      } catch(e) {
-        console.warn('[DATA] fetchHistory failed:', symbol, e.message);
+          if (!arr.length) throw new Error('Empty candles');
+          candles = arr;
+          if (!isUS) this._twSuffixCache[symbol] = suffix; // 記住成功的後綴
+          break;
+        } catch(e) { lastErr = e; }
+      }
+
+      if (!candles) {
+        console.warn('[DATA] fetchHistory failed:', symbol, lastErr?.message);
         if (cached) return cached.data;
         return this._mockCandles(symbol, period);
       }
+
+      this.histCache[key] = { data: candles, ts: now };
+      // K線載入後同步補報價（避免覆蓋即時資料）
+      const last = candles[candles.length - 1];
+      const prev = candles.length >= 2 ? candles[candles.length - 2].c : last.c;
+      const existing = this.priceStore[symbol];
+      if (!existing?.price || existing?.source === 'candle') {
+        this._setPrice(symbol, {
+          price: last.c, prevClose: prev,
+          open: last.o, high: last.h, low: last.l, volume: last.v,
+          chg:    +(last.c - prev).toFixed(2),
+          chgPct: +(prev > 0 ? (last.c - prev) / prev * 100 : 0).toFixed(2),
+          source: 'candle',
+          market: isUS ? 'US' : 'TW',
+        });
+      }
+      console.log(`[DATA] ${symbol}/${period}: ${candles.length} candles`);
+      return candles;
     });
   },
 
