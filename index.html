@@ -132,9 +132,9 @@
             <button class="period-btn" data-period="5m">5分</button>
             <button class="period-btn" data-period="15m">15分</button>
             <button class="period-btn" data-period="60m">1時</button>
-            <button class="period-btn" data-period="1d">1日</button>
+            <button class="period-btn active" data-period="1d">1日</button>
             <button class="period-btn" data-period="1wk">1週</button>
-            <button class="period-btn active" data-period="3mo">3月</button>
+            <button class="period-btn" data-period="3mo">3月</button>
             <button class="period-btn" data-period="6mo">6月</button>
             <button class="period-btn" data-period="1y">1年</button>
           </div>
@@ -160,6 +160,9 @@
           <div class="chart-tooltip" id="chart-tt"></div>
           <div class="chart-crosshair-v" id="cv"></div>
           <div class="chart-crosshair-h" id="ch"></div>
+        </div>
+        <div class="predict-disclaimer" id="predict-disclaimer" style="display:none">
+          ⚠️ 灰色區域為根據近期價格走勢、成交量統計外推的可能區間，<strong>非預測未來股價，僅供技術面參考</strong>，實際走勢受消息面、基本面等因素影響，請勿作為唯一下單依據。
         </div>
         <div class="vol-wrap"><canvas id="volChart"></canvas></div>
         <div class="ma-legend">
