@@ -1739,7 +1739,7 @@ const APP = {
 
     this.renderStockList();
 
-    const activePeriod = document.querySelector('.period-btn.active')?.dataset.period ?? '3mo';
+    const activePeriod = document.querySelector('.period-btn.active')?.dataset.period ?? '1d';
     const requestedCode = code;
     await CHART.load(code, activePeriod);
 

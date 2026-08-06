@@ -3,8 +3,10 @@
 
 const CHART = {
   currentData: [],
-  currentPeriod: '3mo',
+  currentPeriod: '1d',
   currentType: 'candle',
+  showPredict: true,
+  predictDays: 15,
   // Zoom/pan state
   zoomStart: 0,    // 顯示起始 index（0 = 最舊）
   zoomEnd: 0,      // 顯示結束 index
@@ -145,6 +147,48 @@ const CHART = {
     return this.currentData.slice(s, e + 1);
   },
 
+  // ── 技術面統計外推預測（非真實預測，僅供參考）──────
+  // 用「成交量加權線性迴歸」抓近期趨勢方向與強度，
+  // 用殘差標準差估計信賴區間，區間隨天數拉遠而擴大。
+  _computePrediction(days) {
+    const data = this.currentData;
+    const lookback = Math.min(40, data.length);
+    if (lookback < 10) return null;
+    const slice = data.slice(-lookback);
+    const closes = slice.map(d => d.c);
+    const vols = slice.map(d => Math.max(1, d.v || 1));
+    const n = closes.length;
+
+    // 成交量加權最小平方法回歸（量大的日子影響力較高）
+    let sw = 0, swx = 0, swy = 0;
+    for (let i = 0; i < n; i++) { sw += vols[i]; swx += vols[i]*i; swy += vols[i]*closes[i]; }
+    const xBar = swx/sw, yBar = swy/sw;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) { num += vols[i]*(i-xBar)*(closes[i]-yBar); den += vols[i]*(i-xBar)**2; }
+    const slope = den ? num/den : 0;
+    const intercept = yBar - slope*xBar;
+
+    // 殘差標準差（信賴帶寬度基礎）
+    const resid = closes.map((c,i) => c - (intercept + slope*i));
+    const variance = resid.reduce((a,b) => a + b*b, 0) / Math.max(1, n-2);
+    const stdErr = Math.sqrt(variance);
+
+    // 錨定最後收盤價，避免預測線與K線最後一點斷開
+    const lastIdx = n - 1;
+    const lastClose = data[data.length-1].c;
+    const predAtLast = intercept + slope*lastIdx;
+    const shift = lastClose - predAtLast;
+
+    const points = [];
+    for (let d = 1; d <= days; d++) {
+      const idx = lastIdx + d;
+      const mid = intercept + slope*idx + shift;
+      const band = stdErr * Math.sqrt(1 + d/n) * 1.5;
+      points.push({ day: d, mid, upper: mid + band, lower: mid - band });
+    }
+    return { slope, stdErr, points };
+  },
+
   draw() {
     this._drawMain();
     this._drawVol();
@@ -183,12 +227,24 @@ const CHART = {
     const ma20v = ma20.slice(visStart, visStart + n);
     const ma60v = ma60.slice(visStart, visStart + n);
 
+    // 只有在檢視最新資料（未拉到過去）時才顯示預測延伸
+    const showingLatest = (visStart + n) >= this.currentData.length;
+    const predictActive = this.showPredict && showingLatest;
+    const prediction = predictActive ? this._computePrediction(this.predictDays) : null;
+    const extraBars = prediction ? this.predictDays : 0;
+    const totalBars = n + extraBars;
+    const discEl = document.getElementById('predict-disclaimer');
+    if (discEl) discEl.style.display = prediction ? 'block' : 'none';
+
     const PAD = { l:6, r:56, t:16, b:28 };
     const chartW = W - PAD.l - PAD.r;
-    const barW = Math.max(1, Math.min(16, Math.floor(chartW / n) - 1));
-    const gap = Math.max(0, (chartW - barW * n) / Math.max(1, n - 1));
+    const barW = Math.max(1, Math.min(16, Math.floor(chartW / totalBars) - 1));
+    const gap = Math.max(0, (chartW - barW * totalBars) / Math.max(1, totalBars - 1));
 
     const allPrices = data.flatMap(d => [d.h, d.l]);
+    if (prediction) {
+      prediction.points.forEach(p => { allPrices.push(p.upper, p.lower); });
+    }
     const minP = Math.min(...allPrices) * 0.998;
     const maxP = Math.max(...allPrices) * 1.002;
     const priceRange = maxP - minP || 1;
@@ -243,6 +299,54 @@ const CHART = {
       ctx.stroke();
     };
     drawMA(ma5v, clr.ma5); drawMA(ma20v, clr.ma20); drawMA(ma60v, clr.ma60);
+
+    // ── 預測延伸線（技術面統計外推，非真實預測）──────
+    if (prediction) {
+      const predColor = isDark ? '#a78bfa' : '#7c3aed';
+      const lastX = xOf(n - 1), lastY = yOf(data[n-1].c);
+
+      // 信賴區間灰紫色陰影
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      prediction.points.forEach((p, i) => ctx.lineTo(xOf(n + i), yOf(p.upper)));
+      for (let i = prediction.points.length - 1; i >= 0; i--) {
+        ctx.lineTo(xOf(n + i), yOf(prediction.points[i].lower));
+      }
+      ctx.closePath();
+      ctx.fillStyle = isDark ? 'rgba(167,139,250,0.12)' : 'rgba(124,58,237,0.10)';
+      ctx.fill();
+
+      // 中線虛線
+      ctx.beginPath();
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = predColor; ctx.lineWidth = 1.5;
+      ctx.moveTo(lastX, lastY);
+      prediction.points.forEach((p, i) => ctx.lineTo(xOf(n + i), yOf(p.mid)));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // 上下界細虛線
+      ctx.beginPath(); ctx.setLineDash([2, 3]); ctx.strokeStyle = predColor; ctx.lineWidth = 0.8; ctx.globalAlpha = 0.6;
+      ctx.moveTo(lastX, lastY);
+      prediction.points.forEach((p, i) => ctx.lineTo(xOf(n + i), yOf(p.upper)));
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      prediction.points.forEach((p, i) => ctx.lineTo(xOf(n + i), yOf(p.lower)));
+      ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+      // 標籤
+      const lastP = prediction.points[prediction.points.length - 1];
+      const trendTxt = prediction.slope > 0 ? '↗ 偏多趨勢外推' : prediction.slope < 0 ? '↘ 偏空趨勢外推' : '→ 盤整外推';
+      ctx.fillStyle = predColor; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText(trendTxt, xOf(n) + 2, yOf(lastP.mid) - 4);
+
+      // 分隔虛線標示「今天」
+      ctx.beginPath(); ctx.setLineDash([2, 2]); ctx.strokeStyle = clr.grid; ctx.lineWidth = 1;
+      ctx.moveTo(lastX, PAD.t); ctx.lineTo(lastX, H - PAD.b);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
 
     // 垂直格線（問題7）
     const step = Math.max(1, Math.ceil(n / 6));
