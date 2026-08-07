@@ -159,13 +159,16 @@ const CHART = {
     return this.currentData.slice(s, e + 1);
   },
 
-  // ── 技術面統計外推預測（非真實預測，僅供參考）──────
-  // v2：近中期雙窗口迴歸 + ADX/RSI 動能修正 + 位階修正 + 標準預測區間公式
-  _computePrediction(days, symbol) {
-    const data = this.currentData;
+  // ── 共用：趨勢預測核心引擎（近中期回歸+ADX/RSI/位階修正）──
+  // 供主圖與總覽小圖表共用，確保兩邊邏輯完全一致
+  // opts: { nearLookback, midLookback, hlLookback, zScore }
+  _predictEngine(data, days, symbol, opts = {}) {
+    const nearLB = opts.nearLookback ?? 10;
+    const midLB  = opts.midLookback  ?? 40;
+    const hlLB   = opts.hlLookback   ?? 40;
+    const z      = opts.zScore ?? 1.3;
     if (data.length < 15) return null;
 
-    // 單一窗口的成交量加權線性迴歸
     const regress = lookback => {
       const nn = Math.min(lookback, data.length);
       const slice = data.slice(-nn);
@@ -183,22 +186,19 @@ const CHART = {
       return { slope, xBar, den, variance, n: nn };
     };
 
-    // ① 近期(10天)+中期(40天)雙窗口，近期反應快、中期看趨勢穩定度
-    const near = regress(10);
-    const mid  = regress(40);
+    const near = regress(nearLB);
+    const mid  = regress(midLB);
     if (!near || !mid || mid.n < 15) return null;
 
     let slope = near.slope * 0.6 + mid.slope * 0.4;
 
-    // ② ADX 趨勢強度：盤整時大幅收斂斜率，避免亂畫延伸線
     const ind = ANALYSIS._cache[symbol || (typeof APP !== 'undefined' ? APP.activeSymbol : '')]?.ind;
     const adx = ind?.adx;
     if (adx != null) {
-      if (adx < 20) slope *= 0.35;      // 明顯盤整，趨勢不可信
-      else if (adx < 25) slope *= 0.7;  // 弱趨勢，打折
+      if (adx < 20) slope *= 0.35;
+      else if (adx < 25) slope *= 0.7;
     }
 
-    // ③ RSI 超買超賣：對趨勢做溫和修正，避免持續朝極端外推
     const rsi = ind?.rsi;
     if (rsi != null) {
       if (rsi > 75) slope *= 0.5;
@@ -207,34 +207,50 @@ const CHART = {
       else if (rsi < 30) slope *= 0.75;
     }
 
-    // ④ 位階修正：已接近近期高點還在漲/接近近期低點還在跌 → 續勢力道打折（壓力／支撐概念）
-    const hlWindow = data.slice(-40);
+    const hlWindow = data.slice(-hlLB);
     const hi = Math.max(...hlWindow.map(d => d.h));
     const lo = Math.min(...hlWindow.map(d => d.l));
     const rangeHL = hi - lo || 1;
     const lastClose = data[data.length-1].c;
-    const posInRange = (lastClose - lo) / rangeHL; // 0=近期低點, 1=近期高點
+    const posInRange = (lastClose - lo) / rangeHL;
     if (slope > 0 && posInRange > 0.85) slope *= 0.5;
     else if (slope < 0 && posInRange < 0.15) slope *= 0.5;
 
-    // 殘差標準差：近中期加權合併，作為信賴區間基礎
     const s = Math.sqrt(near.variance * 0.6 + mid.variance * 0.4);
-
-    // 用標準線性迴歸預測區間公式（非拍腦袋倍數）：
-    // SE(x0) = s * sqrt(1 + 1/n + (x0-x̄)²/Sxx)
     const { n, xBar, den } = mid;
     const lastIdx = n - 1;
-    const z = 1.3; // ≈ 80% 概略信賴水準（成交量加權不完全符合古典假設，僅供參考）
 
     const points = [];
     for (let d = 1; d <= days; d++) {
-      const priceMid = lastClose + slope * d; // 直接以「每日變動」錨定當前價，避免截距不一致
+      const priceMid = lastClose + slope * d;
       const x0 = lastIdx + d;
-      const se = s * Math.sqrt(1 + 1/n + ((x0 - xBar) ** 2) / (den || 1));
+      const se = s * Math.sqrt(1 + 1/n + ((x0-xBar)**2)/(den||1));
       const band = se * z;
-      points.push({ day: d, mid: priceMid, upper: priceMid + band, lower: priceMid - band });
+      points.push({ day: d, mid: priceMid, upper: priceMid+band, lower: priceMid-band });
     }
-    return { slope, stdErr: s, points };
+
+    // 偏多/偏空程度分級：用預測終點相對現價的變化幅度%判斷
+    const pctChange = (slope * days) / lastClose * 100;
+    const trend = this._classifyTrend(pctChange);
+
+    return { slope, stdErr: s, points, pctChange, trend };
+  },
+
+  // 趨勢分級（供主圖與總覽小圖表共用）
+  _classifyTrend(pctChange) {
+    if (pctChange >= 8)  return { label:'強力偏多', short:'⇈偏多', dir:'up',   level:3 };
+    if (pctChange >= 3)  return { label:'偏多趨勢外推', short:'↗偏多', dir:'up',   level:2 };
+    if (pctChange >= 0.5) return { label:'微幅偏多', short:'↗微多', dir:'up',   level:1 };
+    if (pctChange > -0.5) return { label:'盤整外推', short:'→盤整', dir:'flat', level:0 };
+    if (pctChange > -3)  return { label:'微幅偏空', short:'↘微空', dir:'down', level:1 };
+    if (pctChange > -8)  return { label:'偏空趨勢外推', short:'↘偏空', dir:'down', level:2 };
+    return { label:'強力偏空', short:'⇊偏空', dir:'down', level:3 };
+  },
+
+  // ── 技術面統計外推預測（非真實預測，僅供參考）──────
+  // v2：近中期雙窗口迴歸 + ADX/RSI 動能修正 + 位階修正 + 標準預測區間公式
+  _computePrediction(days, symbol) {
+    return this._predictEngine(this.currentData, days, symbol, { nearLookback:10, midLookback:40, hlLookback:40, zScore:1.3 });
   },
 
   draw() {
@@ -386,11 +402,17 @@ const CHART = {
       ctx.stroke();
       ctx.setLineDash([]); ctx.globalAlpha = 1;
 
-      // 標籤
+      // 標籤（依偏多/偏空程度分級顯示，顏色隨強度加深）
       const lastP = prediction.points[prediction.points.length - 1];
-      const trendTxt = prediction.slope > 0 ? '↗ 偏多趨勢外推' : prediction.slope < 0 ? '↘ 偏空趨勢外推' : '→ 盤整外推';
-      ctx.fillStyle = predColor; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
-      ctx.fillText(trendTxt, xOf(n) + 2, yOf(lastP.mid) - 4);
+      const trend = prediction.trend;
+      const trendColors = {
+        up:   ['#c4b5fd', '#a78bfa', '#7c3aed'],   // 微多/偏多/強力偏多
+        down: ['#c4b5fd', '#a78bfa', '#7c3aed'],
+        flat: ['#9ca3af'],
+      };
+      const trendColor = trend.dir === 'flat' ? trendColors.flat[0] : trendColors[trend.dir][Math.min(2, trend.level - 1)];
+      ctx.fillStyle = trendColor; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText(`${trend.short} (${prediction.pctChange >= 0 ? '+' : ''}${prediction.pctChange.toFixed(1)}%)`, xOf(n) + 2, yOf(lastP.mid) - 4);
 
       // 分隔虛線標示「今天」
       ctx.beginPath(); ctx.setLineDash([2, 2]); ctx.strokeStyle = clr.grid; ctx.lineWidth = 1;

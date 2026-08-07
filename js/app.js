@@ -579,13 +579,18 @@ const Dashboard = {
       }
 
       const canvas = document.getElementById(`dash-canvas-${id}`);
-      if (canvas) this._drawMiniChart(canvas, data, c.code);
+      let prediction = null;
+      if (canvas) prediction = this._drawMiniChart(canvas, data, c.code);
 
-      // 訊號徽章（指數不顯示訊號）
+      const trendBadge = prediction
+        ? `<span class="dash-trend-badge dash-trend-${prediction.trend.dir}">${prediction.trend.short} ${prediction.pctChange>=0?'+':''}${prediction.pctChange.toFixed(1)}%</span>`
+        : '';
+
+      // 訊號徽章（指數只顯示趨勢分級，不顯示買賣訊號）
       const badgeEl = document.getElementById(`dash-badge-${id}`);
       if (badgeEl) {
         if (c.isIndex) {
-          badgeEl.innerHTML = '';
+          badgeEl.innerHTML = trendBadge;
         } else {
           const s = APP.portfolio.find(x => x.code === c.code) || { code: c.code, price, cost: price };
           const sig = SIGNAL.quickEstimate({ ...s, price });
@@ -599,7 +604,7 @@ const Dashboard = {
             const entry = price * 0.97;
             priceHtml = `<span class="dash-badge-price">進場 ${isUSStock?'US$':''}${entry.toFixed(2)}</span>`;
           }
-          badgeEl.innerHTML = `<span class="dash-badge ${sig.cls}">${sig.short} ${sig.label}</span>${priceHtml}`;
+          badgeEl.innerHTML = `<span class="dash-badge ${sig.cls}">${sig.short} ${sig.label}</span>${priceHtml}${trendBadge}`;
         }
       }
     } catch(e) {
@@ -608,47 +613,15 @@ const Dashboard = {
     }
   },
 
-  // 輕量預測（近中期雙窗口回歸，簡化版，供小圖表用）
+  // 輕量預測：直接呼叫 CHART 的共用預測引擎，確保與個股詳細頁完全同一套邏輯
+  // 只有近/中期回看天數依mini資料量縮小（資料只有約1個月）
   _miniPredict(data, days, code) {
-    if (data.length < 15) return null;
-    const regress = lookback => {
-      const nn = Math.min(lookback, data.length);
-      const slice = data.slice(-nn);
-      const closes = slice.map(d => d.c);
-      const vols = slice.map(d => Math.max(1, d.v || 1));
-      let sw=0,swx=0,swy=0;
-      for (let i=0;i<nn;i++){ sw+=vols[i]; swx+=vols[i]*i; swy+=vols[i]*closes[i]; }
-      const xBar=swx/sw, yBar=swy/sw;
-      let num=0,den=0;
-      for (let i=0;i<nn;i++){ num+=vols[i]*(i-xBar)*(closes[i]-yBar); den+=vols[i]*(i-xBar)**2; }
-      const slope = den?num/den:0;
-      const intercept = yBar-slope*xBar;
-      const resid = closes.map((c,i)=>c-(intercept+slope*i));
-      const variance = resid.reduce((a,b)=>a+b*b,0)/Math.max(1,nn-2);
-      return { slope, xBar, den, variance, n: nn };
-    };
-    const near = regress(8), mid = regress(Math.min(22, data.length));
-    if (!near || !mid) return null;
-    let slope = near.slope * 0.6 + mid.slope * 0.4;
-    const ind = ANALYSIS._cache[code]?.ind;
-    if (ind?.adx != null && ind.adx < 20) slope *= 0.4;
-    if (ind?.rsi != null) {
-      if (ind.rsi > 75 || ind.rsi < 25) slope *= 0.5;
-      else if (ind.rsi > 70 || ind.rsi < 30) slope *= 0.75;
-    }
-    const s = Math.sqrt(near.variance * 0.6 + mid.variance * 0.4);
-    const { n, xBar, den } = mid;
-    const lastIdx = n - 1;
-    const lastClose = data[data.length-1].c;
-    const points = [];
-    for (let d = 1; d <= days; d++) {
-      const priceMid = lastClose + slope * d;
-      const x0 = lastIdx + d;
-      const se = s * Math.sqrt(1 + 1/n + ((x0-xBar)**2)/(den||1));
-      const band = se * 1.3;
-      points.push({ mid: priceMid, upper: priceMid+band, lower: priceMid-band });
-    }
-    return { slope, points };
+    return CHART._predictEngine(data, days, code, {
+      nearLookback: 8,
+      midLookback: Math.min(22, data.length),
+      hlLookback: Math.min(22, data.length),
+      zScore: 1.3,
+    });
   },
 
   // 輕量K線+成交量+預測線繪製（單一canvas）
@@ -705,10 +678,11 @@ const Dashboard = {
       ctx.fillRect(x, top, barW, bh);
     });
 
-    // 預測延伸（灰紫區間 + 中線虛線）
+    // 預測延伸（灰紫區間 + 中線虛線 + 偏多偏空分級標籤）
     if (prediction) {
-      const predColor = '#a78bfa';
       const lastX = xOf(n-1) + barW/2, lastY = yOf(data[n-1].c);
+      const trend = prediction.trend;
+      const trendColorSet = trend.dir === 'flat' ? '#9ca3af' : ['#c4b5fd','#a78bfa','#7c3aed'][Math.min(2, trend.level - 1)];
       ctx.beginPath();
       ctx.moveTo(lastX, lastY);
       prediction.points.forEach((p, i) => ctx.lineTo(xOf(n+i)+barW/2, yOf(p.upper)));
@@ -719,11 +693,17 @@ const Dashboard = {
 
       ctx.beginPath();
       ctx.setLineDash([2,2]);
-      ctx.strokeStyle = predColor; ctx.lineWidth = 1;
+      ctx.strokeStyle = trendColorSet; ctx.lineWidth = 1;
       ctx.moveTo(lastX, lastY);
       prediction.points.forEach((p,i) => ctx.lineTo(xOf(n+i)+barW/2, yOf(p.mid)));
       ctx.stroke();
       ctx.setLineDash([]);
+
+      // 分級標籤（小字，畫在預測區左上角）
+      ctx.fillStyle = trendColorSet;
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(trend.short, xOf(n) + 2, 9);
     }
 
     // 成交量
@@ -735,6 +715,8 @@ const Dashboard = {
       const bh = Math.max(1, (d.v / maxV) * volH);
       ctx.fillRect(xOf(i), volTop + volH - bh, barW, bh);
     });
+
+    return prediction;
   },
 
   _onCardClick(code, source) {
@@ -2036,7 +2018,7 @@ const APP = {
           <button class="si-btn edit" onclick="editStockName('${s.code}', ${i})" title="編輯名稱">✎</button>
           <button class="si-btn del" onclick="APP.removeStock(${i})" title="移除">✕</button>
         </div>`;
-      div.querySelector('.si-main').addEventListener('click', () => this.selectStock(s.code, i, 'portfolio'));
+      div.querySelector('.si-main').addEventListener('click', () => goToStock(s.code, i, 'portfolio'));
       list.appendChild(div);
     });
   },
@@ -2057,12 +2039,12 @@ const APP = {
       const div = document.createElement('div');
       div.className = 'watch-item';
       div.innerHTML = `
-        <div class="wi-left" onclick="APP.selectStock('${s.code}',${i},'watch')">
+        <div class="wi-left" onclick="goToStock('${s.code}',${i},'watch')">
           <div class="wi-code">${s.code}</div>
           <div class="wi-name">${s.name}</div>
           ${sig ? `<div class="wi-signal ${sig.cls}">${sig.short} ${sig.label}</div>` : ''}
         </div>
-        <div class="wi-right" onclick="APP.selectStock('${s.code}',${i},'watch')">
+        <div class="wi-right" onclick="goToStock('${s.code}',${i},'watch')">
           <div class="wi-price ${isUp?'up-color':'dn-color'}">${price>0?price.toFixed(2):'—'}</div>
           <div class="wi-change">${(() => {
             const isOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
@@ -2473,6 +2455,20 @@ function saveEditCost() {
   PIE.render();
   closeModal('edit-cost-modal');
   showToast(`${code} 均價已更新為 ${market==='US'?'US$':'$'}${newCost}`);
+}
+
+// 側邊欄點擊股票：若目前在總覽頁，先切換到個股詳細畫面再選股
+function goToStock(code, idx, source) {
+  const dashEl = document.getElementById('dashboard-content');
+  const detailEl = document.getElementById('detail-content');
+  if (dashEl && detailEl && dashEl.style.display !== 'none') {
+    dashEl.style.display = 'none';
+    detailEl.style.display = '';
+    const btn = document.getElementById('dashboard-toggle-btn');
+    if (btn) btn.textContent = '🏠 總覽';
+  }
+  APP.selectStock(code, idx, source);
+  setTimeout(() => CHART.draw(), 80);
 }
 
 function closeModal(id) { document.getElementById(id)?.classList.remove('show'); }
