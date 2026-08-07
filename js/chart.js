@@ -286,9 +286,9 @@ const CHART = {
 
     const PAD = { l:6, r:56, t:16, b:28 };
     const chartW = W - PAD.l - PAD.r;
-    // ★ 固定間距比例（間距=K線寬度25%），避免總寬計算把多餘空間全塞成大縫隙
-    const gapRatio = 0.25;
-    const barW = Math.max(1, Math.min(14, chartW / (totalBars * (1 + gapRatio))));
+    // ★ 固定間距比例（間距=K線寬度20%），撐滿整個圖表寬度，避免留白
+    const gapRatio = 0.2;
+    const barW = Math.max(1, Math.min(40, chartW / (totalBars * (1 + gapRatio))));
     const gap = barW * gapRatio;
 
     const allPrices = data.flatMap(d => [d.h, d.l]);
@@ -463,8 +463,8 @@ const CHART = {
     const n = data.length;
     const PAD = { l:6, r:56, t:4, b:4 };
     const chartW = W - PAD.l - PAD.r;
-    const gapRatio = 0.25;
-    const barW = Math.max(1, Math.min(14, chartW / (n * (1 + gapRatio))));
+    const gapRatio = 0.2;
+    const barW = Math.max(1, Math.min(40, chartW / (n * (1 + gapRatio))));
     const gap = barW * gapRatio;
     const maxV = Math.max(...data.map(d => d.v)) || 1;
 
