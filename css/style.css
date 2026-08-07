@@ -75,33 +75,32 @@ body {
 .dashboard-toggle-btn { background: var(--bg-3); border: 1px solid var(--border); color: var(--text-1); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
 .dashboard-toggle-btn:hover { border-color: var(--green-l); color: var(--green-l); }
 
-.dashboard-view { padding: 16px 20px; max-width: 1800px; margin: 0 auto; }
-.dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.dashboard-content { height: calc(100vh - 48px - 24px); display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
+.dashboard-grid { flex: 1; display: grid; gap: 10px; overflow: hidden; min-height: 0; }
 
-.dash-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px; cursor: pointer; transition: border-color 0.15s, transform 0.1s; }
+.dash-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px; cursor: pointer; transition: border-color 0.15s, transform 0.1s; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .dash-card:hover { border-color: var(--green-l); transform: translateY(-1px); }
 .dash-card-index { border-color: rgba(55,138,221,0.35); background: rgba(55,138,221,0.04); }
 .dash-card-index:hover { border-color: var(--blue); }
 
-.dash-card-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.dash-card-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 3px; flex-shrink: 0; }
 .dash-card-code { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--text-1); }
 .dash-card-name { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.dash-card-price-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.dash-card-price-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; flex-shrink: 0; }
 .dash-card-price { font-family: var(--font-mono); font-size: 17px; font-weight: 700; }
 .dash-card-chg { font-size: 11px; font-weight: 600; }
 
-.dash-card-canvas { display: block; width: 100%; height: 90px; margin-bottom: 6px; }
+.dash-card-canvas { display: block; width: 100%; flex: 1; min-height: 0; }
 
-.dash-card-badge-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 20px; }
+.dash-card-badge-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 20px; flex-shrink: 0; margin-top: 4px; }
 .dash-badge { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
 .dash-badge-price { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); }
 .dash-badge-loading, .dash-badge-error { font-size: 10.5px; color: var(--text-3); }
 .dash-badge-error { color: var(--red); }
 
 @media (max-width: 700px) {
-  .dashboard-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-  .dashboard-view { padding: 10px; }
+  .dashboard-grid { gap: 8px; }
   .dash-card { padding: 8px; }
   .dash-card-price { font-size: 14px; }
 }
@@ -649,6 +648,8 @@ body {
   .section.flex-fill { max-height: 220px; }
   .watchlist { max-height: 100px; }
   .content { padding: 8px; }
+  .dashboard-content { height: auto; overflow: visible; }
+  .dashboard-grid { grid-auto-rows: minmax(160px, auto) !important; overflow: visible; }
   .chart-header { padding: 10px 12px 8px; }
   .chart-price { font-size: 20px; }
   .period-btn { font-size: 10px; padding: 3px 6px; }
