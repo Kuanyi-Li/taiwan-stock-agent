@@ -668,8 +668,10 @@ body {
     border-bottom: 1px solid var(--border);
     overflow: visible;
   }
-  .section.flex-fill { max-height: 220px; }
-  .watchlist { max-height: 100px; }
+  /* 持股清單/自選清單：行動版完整顯示，不用內部滾動（避免跟頁面捲動誤觸衝突）*/
+  .section.flex-fill { max-height: none; flex: none; overflow: visible; }
+  .watchlist { max-height: none; overflow: visible; }
+  .stock-list { overflow: visible; flex: none; }
   .content { padding: 8px; }
 
   /* ── 手機版頂部工具列：改用可換行的多列排列，不再擠壓成亂碼 ── */
