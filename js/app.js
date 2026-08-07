@@ -479,11 +479,24 @@ const Dashboard = {
     }
   },
 
+  isCompact() { return localStorage.getItem('dash-compact-mode') === '1'; },
+  toggleCompact() {
+    const now = !this.isCompact();
+    localStorage.setItem('dash-compact-mode', now ? '1' : '0');
+    const btn = document.getElementById('dash-mode-toggle');
+    if (btn) btn.textContent = now ? '🖼️ 完整模式' : '📋 精簡模式';
+    this.render();
+  },
+
   async render() {
     if (this._rendering) return;
     this._rendering = true;
     const grid = document.getElementById('dashboard-grid');
     if (!grid) { this._rendering = false; return; }
+    const compact = this.isCompact();
+    grid.classList.toggle('compact-grid', compact);
+    const btn = document.getElementById('dash-mode-toggle');
+    if (btn) btn.textContent = compact ? '🖼️ 完整模式' : '📋 精簡模式';
 
     // 卡片清單：加權/櫃買指數 + 持股 + 自選（依目前市場）
     const isUS = APP.activeMarket === 'US';
@@ -511,34 +524,59 @@ const Dashboard = {
 
     if (stockCards.length === 0) {
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">尚無持股或自選股，請先新增</div>`;
+      const sumEl = document.getElementById('dashboard-summary');
+      if (sumEl) sumEl.innerHTML = '';
       this._rendering = false;
       return;
     }
 
-    // 先畫出卡片骨架（含 loading canvas），資料抓回來後逐一補上
-    grid.innerHTML = cards.map((c, i) => this._cardSkeleton(c, i)).join('');
+    // 先畫出卡片骨架，資料抓回來後逐一補上
+    grid.innerHTML = cards.map((c, i) => this._cardSkeleton(c, i, compact)).join('');
 
-    // ★ 動態計算每列1~3張卡，讓整個網格剛好填滿容器高度、不需捲動
+    // ★ 動態計算每列卡片數，讓整個網格剛好填滿容器高度、不需捲動
+    // 精簡模式卡片較小，允許更多欄
     const total = cards.length;
-    const cols = Math.min(3, total);
+    const maxCols = compact ? 6 : 3;
+    const cols = Math.min(maxCols, total);
     const rows = Math.ceil(total / cols);
     grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
     grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
 
     // 逐一非同步抓資料並繪製（避免同時大量請求打爆 proxy）
+    this._sigTiers = {}; // 收集訊號分級供摘要列統計
     for (let i = 0; i < cards.length; i++) {
-      this._loadCard(cards[i], i);
-      await new Promise(r => setTimeout(r, 120)); // 輕微節流
+      await this._loadCard(cards[i], i, compact);
+      await new Promise(r => setTimeout(r, compact ? 40 : 120)); // 精簡模式資料量小，節流可縮短
     }
+    this._renderSummary(cards);
     this._rendering = false;
+  },
+
+  // 頂部摘要列：整體買/賣/觀望張數統計
+  _renderSummary(cards) {
+    const sumEl = document.getElementById('dashboard-summary');
+    if (!sumEl) return;
+    let buy = 0, sell = 0, hold = 0;
+    Object.values(this._sigTiers || {}).forEach(tier => {
+      if (tier >= 4) buy++;
+      else if (tier <= 2) sell++;
+      else hold++;
+    });
+    const total = buy + sell + hold;
+    if (!total) { sumEl.innerHTML = ''; return; }
+    sumEl.innerHTML = `
+      <span class="sum-chip" style="color:#E24B4A">🟥 ${buy} 檔建議買進</span>
+      <span class="sum-chip" style="color:var(--text-3)">⬜ ${hold} 檔持有觀望</span>
+      <span class="sum-chip" style="color:#1D9E75">🟩 ${sell} 檔建議減碼/出場</span>`;
   },
 
   _idOf(code) { return code.replace(/[^a-zA-Z0-9]/g, '_'); },
 
-  _cardSkeleton(c, i) {
+  _cardSkeleton(c, i, compact) {
     const id = this._idOf(c.code);
+    const canvasHtml = compact ? '' : `<canvas class="dash-card-canvas" id="dash-canvas-${id}"></canvas>`;
     return `
-      <div class="dash-card ${c.isIndex ? 'dash-card-index' : ''}" id="dash-card-${id}" onclick="Dashboard._onCardClick('${c.code}', ${c.isWatch ? "'watch'" : "'portfolio'"})">
+      <div class="dash-card ${c.isIndex ? 'dash-card-index' : ''} ${compact ? 'compact' : ''}" id="dash-card-${id}" onclick="Dashboard._onCardClick('${c.code}', ${c.isWatch ? "'watch'" : "'portfolio'"})">
         <div class="dash-card-head">
           <span class="dash-card-code">${c.code}</span>
           <span class="dash-card-name">${c.name}</span>
@@ -547,26 +585,31 @@ const Dashboard = {
           <span class="dash-card-price" id="dash-price-${id}">—</span>
           <span class="dash-card-chg" id="dash-chg-${id}"></span>
         </div>
-        <canvas class="dash-card-canvas" id="dash-canvas-${id}"></canvas>
+        ${canvasHtml}
         <div class="dash-card-badge-row" id="dash-badge-${id}">
           <span class="dash-badge-loading">載入中...</span>
         </div>
       </div>`;
   },
 
-  async _loadCard(c, i) {
+  async _loadCard(c, i, compact) {
     const id = this._idOf(c.code);
     try {
-      // ★ 抓完整1年日線（跟個股詳細頁的長線資料一樣），確保預測線100%一致
-      // 畫面只顯示最近一小段，但預測計算用完整資料（與詳細頁的 currentData 邏輯相同）
-      const data = await DATA.fetchHistory(c.code, '1d');
-      if (!data || data.length < 3) throw new Error('no data');
-      const last = data[data.length - 1];
-      const prev = data.length >= 2 ? data[data.length - 2].c : last.c;
-      // 若有即時報價，優先使用（比K線更即時）
+      // ★ 精簡模式：優先用已有的即時報價，不強制等完整歷史（更快），沒有才輕量抓一次
+      let price, prevClose, data = null;
       const live = DATA.priceStore[c.code];
-      const price = live?.price && live.source !== 'twse-prev' ? live.price : last.c;
-      const prevClose = live?.prevClose ?? prev;
+      if (compact && live?.price) {
+        price = live.price;
+        prevClose = live.prevClose ?? price;
+      } else {
+        // 抓完整1年日線（跟個股詳細頁的長線資料一樣），確保預測線100%一致
+        data = await DATA.fetchHistory(c.code, '1d');
+        if (!data || data.length < 3) throw new Error('no data');
+        const last = data[data.length - 1];
+        const prev = data.length >= 2 ? data[data.length - 2].c : last.c;
+        price = live?.price && live.source !== 'twse-prev' ? live.price : last.c;
+        prevClose = live?.prevClose ?? prev;
+      }
       const chg = price - prevClose;
       const chgPct = prevClose ? chg / prevClose * 100 : 0;
 
@@ -580,9 +623,11 @@ const Dashboard = {
         chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
       }
 
-      const canvas = document.getElementById(`dash-canvas-${id}`);
       let prediction = null;
-      if (canvas) prediction = this._drawMiniChart(canvas, data, c.code);
+      if (!compact) {
+        const canvas = document.getElementById(`dash-canvas-${id}`);
+        if (canvas && data) prediction = this._drawMiniChart(canvas, data, c.code);
+      }
 
       const trendBadge = prediction
         ? (() => {
@@ -603,6 +648,7 @@ const Dashboard = {
           const s = APP.portfolio.find(x => x.code === c.code) || { code: c.code, price, cost: price };
           const sig = SIGNAL.quickEstimate({ ...s, price });
           const tier = sig?.tier ?? 3;
+          this._sigTiers[c.code] = tier; // 供摘要列統計
           let priceHtml = '';
           if (tier <= 2) {
             // 賣出家族：顯示建議賣出參考價（現價附近）
@@ -1627,6 +1673,9 @@ const APP = {
     Dashboard.render();
     // 背景分析所有持股
     setTimeout(() => this._backgroundAnalyzeAll(), 500);
+    // ★ 事後驗證過去的預測準確度（背景執行，不卡畫面），之後每小時再檢查一次
+    setTimeout(() => PredictTrack.evaluate(), 3000);
+    setInterval(() => PredictTrack.evaluate(), 3600000);
 
     // ★ 核心修正：init 完成後 12 秒才解鎖自動上傳
     // 確保 refreshPrices、renderAll 等所有初始化動作都不會觸發上傳

@@ -220,6 +220,11 @@ const CHART = {
     if (slope > 0 && posInRange > 0.85) slope *= 0.5;
     else if (slope < 0 && posInRange < 0.15) slope *= 0.5;
 
+    // ★ 依過去預測準確度自動調整：方向常猜錯就收斂斜率，區間常沒包到就加寬信賴帶
+    const adj = (typeof PredictTrack !== 'undefined') ? PredictTrack.getAdjustment(symbol) : { slopeMul: 1, zMul: 1 };
+    slope *= adj.slopeMul;
+    const zAdj = z * adj.zMul;
+
     const s = Math.sqrt(near.variance * 0.6 + mid.variance * 0.4);
     const { n, xBar, den } = mid;
     const lastIdx = n - 1;
@@ -229,7 +234,7 @@ const CHART = {
       const priceMid = lastClose + slope * d;
       const x0 = lastIdx + d;
       const se = s * Math.sqrt(1 + 1/n + ((x0-xBar)**2)/(den||1));
-      const band = se * z;
+      const band = se * zAdj;
       points.push({ day: d, mid: priceMid, upper: priceMid+band, lower: priceMid-band });
     }
 
@@ -237,7 +242,12 @@ const CHART = {
     const pctChange = (slope * days) / lastClose * 100;
     const trend = this._classifyTrend(pctChange);
 
-    return { slope, stdErr: s, points, pctChange, trend };
+    // ★ 記錄本次預測，供日後回測評估準確度（節流：同股票每天只記一次）
+    if (typeof PredictTrack !== 'undefined' && symbol) {
+      PredictTrack.record(symbol, { lastClose, mid: points[points.length-1].mid, upper: points[points.length-1].upper, lower: points[points.length-1].lower, horizonDays: days, anchorTs: data[data.length-1].t });
+    }
+
+    return { slope, stdErr: s, points, pctChange, trend, adjustment: adj };
   },
 
   // 趨勢分級（供主圖與總覽小圖表共用）
@@ -318,6 +328,25 @@ const CHART = {
     const totalBars = n + extraBars;
     const discEl = document.getElementById('predict-disclaimer');
     if (discEl) discEl.style.display = prediction ? 'block' : 'none';
+    const accEl = document.getElementById('predict-accuracy');
+    if (accEl) {
+      if (prediction) {
+        const adj = prediction.adjustment;
+        if (adj && adj.sampleCount >= 5) {
+          const dirPct = adj.directionAccuracy != null ? (adj.directionAccuracy * 100).toFixed(0) + '%' : '—';
+          const hitPct = (adj.bandHitRate * 100).toFixed(0) + '%';
+          const adjusted = adj.slopeMul !== 1 || adj.zMul !== 1;
+          const scope = adj.basedOnSymbol ? '此股' : '全市場';
+          accEl.textContent = `📊 近期預測準確度（${scope}，${adj.sampleCount}次）：方向正確率 ${dirPct}｜區間命中率 ${hitPct}${adjusted ? '｜已依此自動微調預測強度' : ''}`;
+          accEl.style.display = 'block';
+        } else {
+          accEl.textContent = `📊 預測準確度統計中（樣本 ${adj?.sampleCount ?? 0}/5次，累積足夠後會顯示並自動微調）`;
+          accEl.style.display = 'block';
+        }
+      } else {
+        accEl.style.display = 'none';
+      }
+    }
 
     const PAD = { l:6, r:56, t:16, b:28 };
     const chartW = W - PAD.l - PAD.r;
@@ -714,5 +743,97 @@ const CHART = {
       if (i < period - 1) return null;
       return arr.slice(i - period + 1, i + 1).reduce((a, b) => a + b) / period;
     });
+  },
+};
+
+// ── PredictTrack ──────────────────────────────────────
+// 記錄每次預測，事後（時間到了）用實際股價驗證準確度，
+// 準確度不佳時自動調整下次預測的信心強度（斜率倍率）與區間寬度（z倍率）
+const PredictTrack = {
+  _key(market) { return market === 'US' ? 'ussa-predict-track' : 'twsa-predict-track'; },
+  _market() { return (typeof APP !== 'undefined' && APP.activeMarket === 'US') ? 'US' : 'TW'; },
+
+  get() {
+    try { return JSON.parse(localStorage.getItem(this._key(this._market())) || '[]'); }
+    catch(e) { return []; }
+  },
+  save(arr) {
+    localStorage.setItem(this._key(this._market()), JSON.stringify(arr.slice(-300))); // 最多留300筆
+  },
+
+  // 記錄一次新預測（同股票同天同天期只記一次，避免重複灌爆）
+  record(symbol, pred) {
+    const today = new Date().toISOString().slice(0, 10);
+    const list = this.get();
+    const exists = list.some(e => e.symbol === symbol && e.recordDate === today && e.horizonDays === pred.horizonDays);
+    if (exists) return;
+    list.push({
+      symbol, recordDate: today,
+      anchorTs: pred.anchorTs, horizonDays: pred.horizonDays,
+      lastClose: pred.lastClose, predMid: pred.mid, predUpper: pred.upper, predLower: pred.lower,
+      evaluated: false, actual: null, hit: null, directionCorrect: null,
+    });
+    this.save(list);
+  },
+
+  // 事後驗證：找出已過預測期限的記錄，用最新資料比對實際結果
+  async evaluate() {
+    const list = this.get();
+    const pending = list.filter(e => !e.evaluated);
+    if (!pending.length) return;
+    const bySymbol = {};
+    pending.forEach(e => { (bySymbol[e.symbol] ||= []).push(e); });
+
+    for (const symbol of Object.keys(bySymbol)) {
+      try {
+        const data = await DATA.fetchHistory(symbol, '1d');
+        const dayKey = ts => new Date(ts).toDateString();
+        bySymbol[symbol].forEach(e => {
+          const anchorIdx = data.findIndex(d => dayKey(d.t) === dayKey(e.anchorTs));
+          if (anchorIdx === -1) return; // 資料視窗已滑出（太舊），先跳過
+          const targetIdx = anchorIdx + e.horizonDays;
+          if (targetIdx >= data.length) return; // 還沒到預測期限
+          const actual = data[targetIdx].c;
+          e.actual = actual;
+          const predDir = e.predMid > e.lastClose ? 1 : e.predMid < e.lastClose ? -1 : 0;
+          const actualDir = actual > e.lastClose ? 1 : actual < e.lastClose ? -1 : 0;
+          e.directionCorrect = predDir === 0 ? null : (predDir === actualDir);
+          e.hit = actual >= e.predLower && actual <= e.predUpper;
+          e.evaluated = true;
+        });
+        await new Promise(r => setTimeout(r, 150)); // 節流，避免同時大量請求
+      } catch(err) { /* 靜默跳過失敗的股票 */ }
+    }
+    this.save(list);
+  },
+
+  // 準確度統計（symbol=null 表示全市場合併統計）
+  getStats(symbol) {
+    const list = this.get().filter(e => e.evaluated && (!symbol || e.symbol === symbol));
+    if (!list.length) return null;
+    const dirList = list.filter(e => e.directionCorrect !== null);
+    const dirAcc = dirList.length ? dirList.filter(e => e.directionCorrect).length / dirList.length : null;
+    const hitRate = list.filter(e => e.hit).length / list.length;
+    return { count: list.length, directionAccuracy: dirAcc, bandHitRate: hitRate };
+  },
+
+  // 依過去準確度自動調整：方向常猜錯→收斂斜率信心；區間命中率太低→加寬區間
+  getAdjustment(symbol) {
+    let stats = symbol ? this.getStats(symbol) : null;
+    let basedOnSymbol = !!stats && stats.count >= 5;
+    if (!basedOnSymbol) stats = this.getStats(null); // 個股樣本不夠，退回看全市場整體
+    if (!stats || stats.count < 5) return { slopeMul: 1, zMul: 1, sampleCount: stats?.count ?? 0, basedOnSymbol: false };
+
+    let slopeMul = 1, zMul = 1;
+    if (stats.directionAccuracy != null) {
+      if (stats.directionAccuracy < 0.40) slopeMul = 0.4;
+      else if (stats.directionAccuracy < 0.50) slopeMul = 0.65;
+      else if (stats.directionAccuracy > 0.65) slopeMul = 1.15;
+    }
+    if (stats.bandHitRate < 0.5) zMul = 1.5;
+    else if (stats.bandHitRate < 0.65) zMul = 1.25;
+    else if (stats.bandHitRate > 0.92) zMul = 0.9;
+
+    return { slopeMul, zMul, sampleCount: stats.count, directionAccuracy: stats.directionAccuracy, bandHitRate: stats.bandHitRate, basedOnSymbol };
   },
 };
