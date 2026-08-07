@@ -82,6 +82,8 @@ body {
 .dash-mode-toggle { background: var(--bg-3); border: 1px solid var(--border); color: var(--text-1); font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; flex-shrink: 0; }
 .dash-mode-toggle:hover { border-color: var(--green-l); color: var(--green-l); }
 .dashboard-grid { flex: 1; display: grid; gap: 10px; overflow: hidden; min-height: 0; }
+.dashboard-grid.scrollable { overflow-y: auto; overflow-x: hidden; grid-auto-rows: minmax(220px, 220px); align-content: start; }
+.dashboard-grid.scrollable.compact-grid { grid-auto-rows: minmax(78px, 78px); }
 
 .dash-card.compact { padding: 8px 10px; }
 .dash-card.compact .dash-card-canvas { display: none; }
