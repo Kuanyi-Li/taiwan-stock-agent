@@ -549,26 +549,13 @@ const CHART = {
       e.preventDefault();
       const totalN = this.currentData.length;
       const visN = this.zoomEnd - this.zoomStart + 1;
-      // deltaY > 0 = 滾輪向下 = 縮小（顯示更多）
-      // deltaY < 0 = 滾輪向上 = 放大（顯示更少）
-      const zoomIn = e.deltaY < 0;
-      const zoomFactor = 0.15;
-      const change = Math.max(1, Math.round(visN * zoomFactor));
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const ratio = mx / W;
-
-      let ns, ne;
-      if (zoomIn) {
-        // 放大：縮小顯示範圍
-        ns = this.zoomStart + Math.round(change * ratio);
-        ne = this.zoomEnd   - Math.round(change * (1 - ratio));
-      } else {
-        // 縮小：擴大顯示範圍
-        ns = this.zoomStart - Math.round(change * ratio);
-        ne = this.zoomEnd   + Math.round(change * (1 - ratio));
-      }
-      if (ne - ns < 5) { if (zoomIn) { ns = ne - 5; } else { ne = ns + 5; } }
+      // ★ 滾輪改為平移日期（不縮放），往下滾=看更早，往上滾=看更晚
+      const panAmount = Math.max(1, Math.round(visN * 0.15));
+      const dir = e.deltaY > 0 ? -1 : 1; // 向下滾動看更早的資料
+      let ns = this.zoomStart + dir * panAmount;
+      let ne = this.zoomEnd   + dir * panAmount;
+      if (ns < 0) { ne -= ns; ns = 0; }
+      if (ne > totalN - 1) { ns -= (ne - (totalN - 1)); ne = totalN - 1; }
       this.zoomStart = Math.max(0, ns);
       this.zoomEnd   = Math.min(totalN - 1, ne);
       this.draw();

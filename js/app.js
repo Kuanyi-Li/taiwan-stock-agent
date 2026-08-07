@@ -457,8 +457,8 @@ const Dashboard = {
   _rendering: false,
 
   toggle() {
-    const dv = document.getElementById('dashboard-view');
-    const detail = document.getElementById('detail-view');
+    const dv = document.getElementById('dashboard-content');
+    const detail = document.getElementById('detail-content');
     const isShowingDash = dv.style.display !== 'none';
     const btn = document.getElementById('dashboard-toggle-btn');
     if (isShowingDash) {
@@ -507,6 +507,13 @@ const Dashboard = {
     // 先畫出卡片骨架（含 loading canvas），資料抓回來後逐一補上
     grid.innerHTML = cards.map((c, i) => this._cardSkeleton(c, i)).join('');
 
+    // ★ 動態計算每列1~3張卡，讓整個網格剛好填滿容器高度、不需捲動
+    const total = cards.length;
+    const cols = Math.min(3, total);
+    const rows = Math.ceil(total / cols);
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+
     // 逐一非同步抓資料並繪製（避免同時大量請求打爆 proxy）
     for (let i = 0; i < cards.length; i++) {
       this._loadCard(cards[i], i);
@@ -526,7 +533,7 @@ const Dashboard = {
           <span class="dash-card-price" id="dash-price-${i}">—</span>
           <span class="dash-card-chg" id="dash-chg-${i}"></span>
         </div>
-        <canvas class="dash-card-canvas" id="dash-canvas-${i}" height="90"></canvas>
+        <canvas class="dash-card-canvas" id="dash-canvas-${i}"></canvas>
         <div class="dash-card-badge-row" id="dash-badge-${i}">
           <span class="dash-badge-loading">載入中...</span>
         </div>
@@ -557,7 +564,7 @@ const Dashboard = {
       }
 
       const canvas = document.getElementById(`dash-canvas-${i}`);
-      if (canvas) this._drawMiniChart(canvas, data);
+      if (canvas) this._drawMiniChart(canvas, data, c.code);
 
       // 訊號徽章（指數不顯示訊號）
       const badgeEl = document.getElementById(`dash-badge-${i}`);
@@ -586,11 +593,55 @@ const Dashboard = {
     }
   },
 
-  // 輕量K線+成交量繪製（單一canvas，上方蠟燭、下方一小條成交量）
-  _drawMiniChart(canvas, data) {
-    const wrap = canvas.parentElement;
-    const W = wrap.clientWidth || 260;
-    const H = 90;
+  // 輕量預測（近中期雙窗口回歸，簡化版，供小圖表用）
+  _miniPredict(data, days, code) {
+    if (data.length < 15) return null;
+    const regress = lookback => {
+      const nn = Math.min(lookback, data.length);
+      const slice = data.slice(-nn);
+      const closes = slice.map(d => d.c);
+      const vols = slice.map(d => Math.max(1, d.v || 1));
+      let sw=0,swx=0,swy=0;
+      for (let i=0;i<nn;i++){ sw+=vols[i]; swx+=vols[i]*i; swy+=vols[i]*closes[i]; }
+      const xBar=swx/sw, yBar=swy/sw;
+      let num=0,den=0;
+      for (let i=0;i<nn;i++){ num+=vols[i]*(i-xBar)*(closes[i]-yBar); den+=vols[i]*(i-xBar)**2; }
+      const slope = den?num/den:0;
+      const intercept = yBar-slope*xBar;
+      const resid = closes.map((c,i)=>c-(intercept+slope*i));
+      const variance = resid.reduce((a,b)=>a+b*b,0)/Math.max(1,nn-2);
+      return { slope, xBar, den, variance, n: nn };
+    };
+    const near = regress(8), mid = regress(Math.min(22, data.length));
+    if (!near || !mid) return null;
+    let slope = near.slope * 0.6 + mid.slope * 0.4;
+    const ind = ANALYSIS._cache[code]?.ind;
+    if (ind?.adx != null && ind.adx < 20) slope *= 0.4;
+    if (ind?.rsi != null) {
+      if (ind.rsi > 75 || ind.rsi < 25) slope *= 0.5;
+      else if (ind.rsi > 70 || ind.rsi < 30) slope *= 0.75;
+    }
+    const s = Math.sqrt(near.variance * 0.6 + mid.variance * 0.4);
+    const { n, xBar, den } = mid;
+    const lastIdx = n - 1;
+    const lastClose = data[data.length-1].c;
+    const points = [];
+    for (let d = 1; d <= days; d++) {
+      const priceMid = lastClose + slope * d;
+      const x0 = lastIdx + d;
+      const se = s * Math.sqrt(1 + 1/n + ((x0-xBar)**2)/(den||1));
+      const band = se * 1.3;
+      points.push({ mid: priceMid, upper: priceMid+band, lower: priceMid-band });
+    }
+    return { slope, points };
+  },
+
+  // 輕量K線+成交量+預測線繪製（單一canvas）
+  _drawMiniChart(canvas, data, code) {
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width || 260;
+    const H = rect.height || 90;
+    if (W < 5 || H < 5) return; // 尚未完成排版，跳過
     const dpr = window.devicePixelRatio || 1;
     canvas.width = W * dpr; canvas.height = H * dpr;
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
@@ -600,18 +651,26 @@ const Dashboard = {
 
     const n = data.length;
     if (!n) return;
-    const volH = 16, gapY = 2;
+    const volH = Math.max(10, H * 0.16), gapY = 2;
     const priceH = H - volH - gapY;
+
+    const predictDays = 8;
+    const prediction = this._miniPredict(data, predictDays, code);
+    const extraBars = prediction ? predictDays : 0;
+    const totalBars = n + extraBars;
 
     const PAD = { l:2, r:2 };
     const chartW = W - PAD.l - PAD.r;
     const gapRatio = 0.3;
-    const barW = Math.max(1, chartW / (n * (1 + gapRatio)));
+    const barW = Math.max(0.8, chartW / (totalBars * (1 + gapRatio)));
     const gap = barW * gapRatio;
     const xOf = i => PAD.l + i * (barW + gap);
 
     const highs = data.map(d => d.h), lows = data.map(d => d.l);
-    const maxP = Math.max(...highs), minP = Math.min(...lows);
+    let maxP = Math.max(...highs), minP = Math.min(...lows);
+    if (prediction) {
+      prediction.points.forEach(p => { maxP = Math.max(maxP, p.upper); minP = Math.min(minP, p.lower); });
+    }
     const range = (maxP - minP) || 1;
     const yOf = p => (1 - (p - minP) / range) * priceH;
 
@@ -631,6 +690,27 @@ const Dashboard = {
       ctx.fillRect(x, top, barW, bh);
     });
 
+    // 預測延伸（灰紫區間 + 中線虛線）
+    if (prediction) {
+      const predColor = '#a78bfa';
+      const lastX = xOf(n-1) + barW/2, lastY = yOf(data[n-1].c);
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      prediction.points.forEach((p, i) => ctx.lineTo(xOf(n+i)+barW/2, yOf(p.upper)));
+      for (let i = prediction.points.length-1; i>=0; i--) ctx.lineTo(xOf(n+i)+barW/2, yOf(prediction.points[i].lower));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(167,139,250,0.15)';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.setLineDash([2,2]);
+      ctx.strokeStyle = predColor; ctx.lineWidth = 1;
+      ctx.moveTo(lastX, lastY);
+      prediction.points.forEach((p,i) => ctx.lineTo(xOf(n+i)+barW/2, yOf(p.mid)));
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // 成交量
     const maxV = Math.max(...data.map(d => d.v)) || 1;
     const volTop = priceH + gapY;
@@ -643,8 +723,8 @@ const Dashboard = {
   },
 
   _onCardClick(code, source) {
-    const detail = document.getElementById('detail-view');
-    const dv = document.getElementById('dashboard-view');
+    const detail = document.getElementById('detail-content');
+    const dv = document.getElementById('dashboard-content');
     dv.style.display = 'none';
     detail.style.display = '';
     const btn = document.getElementById('dashboard-toggle-btn');
@@ -657,7 +737,7 @@ const Dashboard = {
 
   // 輕量更新：只更新價格文字/徽章，不重抓K線、不重繪canvas（節省資源）
   updateLivePrices() {
-    const dv = document.getElementById('dashboard-view');
+    const dv = document.getElementById('dashboard-content');
     if (!dv || dv.style.display === 'none') return;
     const isUS = APP.activeMarket === 'US';
     const stockCards = [
@@ -1568,7 +1648,7 @@ const APP = {
     this.refreshPrices(true);
     if (market === 'US') DATA.fetchUSIndexes();
     // 若總覽頁正顯示，切換市場後重新渲染（不同市場持股不同）
-    const dv = document.getElementById('dashboard-view');
+    const dv = document.getElementById('dashboard-content');
     if (dv && dv.style.display !== 'none') Dashboard.render();
   },
 
@@ -1833,7 +1913,7 @@ const APP = {
             <span class="si-shares">${sharesDisplay}</span>
           </div>
           <div class="si-row3">
-            <span class="si-cost">${costDisplay}</span>
+            <span class="si-cost" onclick="event.stopPropagation();openEditCostModal('${s.code}','${s.market||APP.activeMarket}')" title="點擊手動修改均價">${costDisplay} ✏️</span>
             <span class="${pnlOrig>=0?'up-color':'dn-color'}">${pnlDisplay}(${pnlPct>=0?'+':''}${pnlPct.toFixed(1)}%)</span>
           </div>
           <div class="si-row4">
@@ -2270,6 +2350,36 @@ function deleteTradeConfirm() {
   PIE.render();
   showToast('交易已刪除，持股重新計算完成');
 }
+
+function openEditCostModal(code, market) {
+  const list = market === 'US' ? APP._usPortfolio : APP._twPortfolio;
+  const s = list.find(x => x.code === code);
+  if (!s) return;
+  const modal = document.getElementById('edit-cost-modal');
+  modal._code = code;
+  modal._market = market;
+  document.getElementById('ec-code').value = code + '（' + s.name + '）';
+  document.getElementById('ec-current').value = (market === 'US' ? 'US$' : '$') + s.cost;
+  document.getElementById('ec-new-cost').value = s.cost;
+  modal.classList.add('show');
+}
+
+function saveEditCost() {
+  const modal = document.getElementById('edit-cost-modal');
+  const code = modal._code, market = modal._market;
+  const newCost = parseFloat(document.getElementById('ec-new-cost').value);
+  if (!newCost || newCost <= 0) { showToast('請輸入有效均價'); return; }
+  const list = market === 'US' ? APP._usPortfolio : APP._twPortfolio;
+  const s = list.find(x => x.code === code);
+  if (!s) return;
+  s.cost = newCost;
+  APP.save();
+  APP.renderAll();
+  PIE.render();
+  closeModal('edit-cost-modal');
+  showToast(`${code} 均價已更新為 ${market==='US'?'US$':'$'}${newCost}`);
+}
+
 function closeModal(id) { document.getElementById(id)?.classList.remove('show'); }
 function runRecommend() { RECOMMEND.run(); }
 
