@@ -286,8 +286,10 @@ const CHART = {
 
     const PAD = { l:6, r:56, t:16, b:28 };
     const chartW = W - PAD.l - PAD.r;
-    const barW = Math.max(1, Math.min(16, Math.floor(chartW / totalBars) - 1));
-    const gap = Math.max(0, (chartW - barW * totalBars) / Math.max(1, totalBars - 1));
+    // ★ 固定間距比例（間距=K線寬度25%），避免總寬計算把多餘空間全塞成大縫隙
+    const gapRatio = 0.25;
+    const barW = Math.max(1, Math.min(14, chartW / (totalBars * (1 + gapRatio))));
+    const gap = barW * gapRatio;
 
     const allPrices = data.flatMap(d => [d.h, d.l]);
     if (prediction) {
@@ -461,8 +463,9 @@ const CHART = {
     const n = data.length;
     const PAD = { l:6, r:56, t:4, b:4 };
     const chartW = W - PAD.l - PAD.r;
-    const barW = Math.max(1, Math.min(16, Math.floor(chartW / n) - 1));
-    const gap = Math.max(0, (chartW - barW * n) / Math.max(1, n - 1));
+    const gapRatio = 0.25;
+    const barW = Math.max(1, Math.min(14, chartW / (n * (1 + gapRatio))));
+    const gap = barW * gapRatio;
     const maxV = Math.max(...data.map(d => d.v)) || 1;
 
     data.forEach((d, i) => {
