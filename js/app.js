@@ -490,12 +490,23 @@ const Dashboard = {
     const indexCards = isUS
       ? [{ code:'^GSPC', name:'S&P 500', isIndex:true }]
       : [{ code:'^TWII', name:'加權指數', isIndex:true }];
-    const stockCards = [
+    const stockCardsRaw = [
       ...APP.portfolio.map(s => ({ code:s.code, name:s.name, isIndex:false, isWatch:false })),
       ...APP.watchlist
         .filter(w => !APP.portfolio.some(s => s.code === w.code))
         .map(w => ({ code:w.code, name:w.name, isIndex:false, isWatch:true })),
     ];
+    // ★ 依使用者自訂排序（若有），未列入排序的新股票排在後面
+    const order = this.getOrder();
+    const stockCards = order.length
+      ? [...stockCardsRaw].sort((a, b) => {
+          const ia = order.indexOf(a.code), ib = order.indexOf(b.code);
+          if (ia === -1 && ib === -1) return 0;
+          if (ia === -1) return 1;
+          if (ib === -1) return -1;
+          return ia - ib;
+        })
+      : stockCardsRaw;
     const cards = [...indexCards, ...stockCards];
 
     if (stockCards.length === 0) {
@@ -522,25 +533,29 @@ const Dashboard = {
     this._rendering = false;
   },
 
+  _idOf(code) { return code.replace(/[^a-zA-Z0-9]/g, '_'); },
+
   _cardSkeleton(c, i) {
+    const id = this._idOf(c.code);
     return `
-      <div class="dash-card ${c.isIndex ? 'dash-card-index' : ''}" id="dash-card-${i}" onclick="Dashboard._onCardClick('${c.code}', ${c.isWatch ? "'watch'" : "'portfolio'"})">
+      <div class="dash-card ${c.isIndex ? 'dash-card-index' : ''}" id="dash-card-${id}" onclick="Dashboard._onCardClick('${c.code}', ${c.isWatch ? "'watch'" : "'portfolio'"})">
         <div class="dash-card-head">
           <span class="dash-card-code">${c.code}</span>
           <span class="dash-card-name">${c.name}</span>
         </div>
         <div class="dash-card-price-row">
-          <span class="dash-card-price" id="dash-price-${i}">—</span>
-          <span class="dash-card-chg" id="dash-chg-${i}"></span>
+          <span class="dash-card-price" id="dash-price-${id}">—</span>
+          <span class="dash-card-chg" id="dash-chg-${id}"></span>
         </div>
-        <canvas class="dash-card-canvas" id="dash-canvas-${i}"></canvas>
-        <div class="dash-card-badge-row" id="dash-badge-${i}">
+        <canvas class="dash-card-canvas" id="dash-canvas-${id}"></canvas>
+        <div class="dash-card-badge-row" id="dash-badge-${id}">
           <span class="dash-badge-loading">載入中...</span>
         </div>
       </div>`;
   },
 
   async _loadCard(c, i) {
+    const id = this._idOf(c.code);
     try {
       const data = await DATA.fetchHistory(c.code, 'mini');
       if (!data || data.length < 3) throw new Error('no data');
@@ -553,8 +568,8 @@ const Dashboard = {
       const chg = price - prevClose;
       const chgPct = prevClose ? chg / prevClose * 100 : 0;
 
-      const priceEl = document.getElementById(`dash-price-${i}`);
-      const chgEl = document.getElementById(`dash-chg-${i}`);
+      const priceEl = document.getElementById(`dash-price-${id}`);
+      const chgEl = document.getElementById(`dash-chg-${id}`);
       const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
       if (priceEl) priceEl.textContent = (isUSStock ? 'US$' : '') + price.toFixed(2);
       if (chgEl) {
@@ -563,11 +578,11 @@ const Dashboard = {
         chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
       }
 
-      const canvas = document.getElementById(`dash-canvas-${i}`);
+      const canvas = document.getElementById(`dash-canvas-${id}`);
       if (canvas) this._drawMiniChart(canvas, data, c.code);
 
       // 訊號徽章（指數不顯示訊號）
-      const badgeEl = document.getElementById(`dash-badge-${i}`);
+      const badgeEl = document.getElementById(`dash-badge-${id}`);
       if (badgeEl) {
         if (c.isIndex) {
           badgeEl.innerHTML = '';
@@ -588,7 +603,7 @@ const Dashboard = {
         }
       }
     } catch(e) {
-      const badgeEl = document.getElementById(`dash-badge-${i}`);
+      const badgeEl = document.getElementById(`dash-badge-${id}`);
       if (badgeEl) badgeEl.innerHTML = `<span class="dash-badge-error">資料載入失敗</span>`;
     }
   },
@@ -739,18 +754,16 @@ const Dashboard = {
   updateLivePrices() {
     const dv = document.getElementById('dashboard-content');
     if (!dv || dv.style.display === 'none') return;
-    const isUS = APP.activeMarket === 'US';
     const stockCards = [
       ...APP.portfolio.map(s => ({ code:s.code, isWatch:false })),
       ...APP.watchlist.filter(w => !APP.portfolio.some(s => s.code === w.code)).map(w => ({ code:w.code, isWatch:true })),
     ];
-    const indexOffset = 1; // 第0張是指數卡
-    stockCards.forEach((c, si) => {
-      const i = si + indexOffset;
+    stockCards.forEach(c => {
+      const id = this._idOf(c.code);
       const q = DATA.priceStore[c.code];
       if (!q?.price) return;
-      const priceEl = document.getElementById(`dash-price-${i}`);
-      const chgEl = document.getElementById(`dash-chg-${i}`);
+      const priceEl = document.getElementById(`dash-price-${id}`);
+      const chgEl = document.getElementById(`dash-chg-${id}`);
       const isUSStock = DATA.isUSCode(c.code);
       if (priceEl) priceEl.textContent = (isUSStock ? 'US$' : '') + q.price.toFixed(2);
       if (chgEl && q.prevClose) {
@@ -761,6 +774,88 @@ const Dashboard = {
         chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
       }
     });
+  },
+
+  // ── 卡片排序（依市場分開儲存）──────────────────────
+  _orderKey() { return APP.activeMarket === 'US' ? 'ussa-dash-order' : 'twsa-dash-order'; },
+  getOrder() {
+    try { return JSON.parse(localStorage.getItem(this._orderKey()) || '[]'); }
+    catch(e) { return []; }
+  },
+  saveOrder(codes) {
+    localStorage.setItem(this._orderKey(), JSON.stringify(codes));
+  },
+
+  openReorderModal() {
+    const stockCardsRaw = [
+      ...APP.portfolio.map(s => ({ code:s.code, name:s.name, isWatch:false })),
+      ...APP.watchlist
+        .filter(w => !APP.portfolio.some(s => s.code === w.code))
+        .map(w => ({ code:w.code, name:w.name, isWatch:true })),
+    ];
+    if (!stockCardsRaw.length) { showToast('尚無持股或自選股可排序'); return; }
+    const order = this.getOrder();
+    const sorted = order.length
+      ? [...stockCardsRaw].sort((a, b) => {
+          const ia = order.indexOf(a.code), ib = order.indexOf(b.code);
+          if (ia === -1 && ib === -1) return 0;
+          if (ia === -1) return 1;
+          if (ib === -1) return -1;
+          return ia - ib;
+        })
+      : stockCardsRaw;
+
+    const list = document.getElementById('reorder-list');
+    list.innerHTML = sorted.map(c => `
+      <div class="reorder-item" draggable="true" data-code="${c.code}">
+        <span class="reorder-handle">☰</span>
+        <span class="reorder-code">${c.code}</span>
+        <span class="reorder-name">${c.name}</span>
+        <span class="reorder-tag">${c.isWatch ? '自選' : '持股'}</span>
+      </div>`).join('');
+
+    this._setupDragReorder(list);
+    document.getElementById('reorder-modal').classList.add('show');
+  },
+
+  _setupDragReorder(list) {
+    let dragEl = null;
+    list.querySelectorAll('.reorder-item').forEach(item => {
+      item.addEventListener('dragstart', () => {
+        dragEl = item;
+        setTimeout(() => item.classList.add('dragging'), 0);
+      });
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        list.querySelectorAll('.reorder-item').forEach(x => x.classList.remove('drag-over'));
+        dragEl = null;
+      });
+      item.addEventListener('dragover', e => {
+        e.preventDefault();
+        if (item === dragEl) return;
+        item.classList.add('drag-over');
+      });
+      item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+      item.addEventListener('drop', e => {
+        e.preventDefault();
+        item.classList.remove('drag-over');
+        if (!dragEl || item === dragEl) return;
+        const items = [...list.querySelectorAll('.reorder-item')];
+        const dragIdx = items.indexOf(dragEl);
+        const dropIdx = items.indexOf(item);
+        if (dragIdx < dropIdx) item.after(dragEl);
+        else item.before(dragEl);
+      });
+    });
+  },
+
+  saveReorder() {
+    const items = document.querySelectorAll('#reorder-list .reorder-item');
+    const codes = Array.from(items).map(el => el.dataset.code);
+    this.saveOrder(codes);
+    closeModal('reorder-modal');
+    showToast('排序已儲存');
+    this.render();
   },
 };
 
