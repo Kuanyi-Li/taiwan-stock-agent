@@ -26,6 +26,7 @@
       <button class="market-switch-btn active" data-market="TW">🇹🇼 台股</button>
       <button class="market-switch-btn" data-market="US">🇺🇸 美股</button>
     </div>
+    <button class="dashboard-toggle-btn" id="dashboard-toggle-btn" onclick="Dashboard.toggle()" title="總覽所有持股">🏠 總覽</button>
     <div class="topbar-market" id="tw-market-bar">
       <span class="badge closed" id="mkt-status">休市</span>
       <span class="index-chip" id="taiex-badge">加權 —</span>
@@ -51,8 +52,15 @@
   </div>
 </header>
 
+<!-- ── Dashboard（總覽）── -->
+<div class="dashboard-view" id="dashboard-view">
+  <div class="dashboard-grid" id="dashboard-grid">
+    <div class="empty-state" style="grid-column:1/-1">載入中...</div>
+  </div>
+</div>
+
 <!-- ── Layout ── -->
-<div class="app-layout">
+<div class="app-layout" id="detail-view" style="display:none">
 
   <!-- ── Sidebar ── -->
   <aside class="sidebar">
@@ -199,7 +207,6 @@
       <div class="main-tabs">
         <button class="main-tab-btn active" data-mtab="signals">買賣訊號</button>
         <button class="main-tab-btn" data-mtab="ai">下單建議</button>
-        <button class="main-tab-btn" data-mtab="goal">目標追蹤</button>
         <button class="main-tab-btn" data-mtab="trades">交易紀錄</button>
         <button class="main-tab-btn" data-mtab="alloc">資金分配</button>
         <button class="main-tab-btn" data-mtab="recommend">選股推薦</button>
@@ -315,105 +322,6 @@
           <div class="sell-plan-title" id="sell-plan-title"></div>
           <div id="sell-plan-rows"></div>
           <div class="sell-plan-note" id="sell-plan-note"></div>
-        </div>
-      </div>
-
-      <!-- ── 目標追蹤 ── -->
-      <div class="main-tab-pane" id="mtab-goal">
-        <div class="goal-dashboard">
-          <div class="goal-header">📈 長期投資目標 — 2-3年買房頭期款</div>
-
-          <!-- 資產結構 -->
-          <div class="goal-asset-section">
-            <div class="gas-title">資產結構（含現金）</div>
-            <div class="gas-bar-wrap">
-              <div class="gas-bar-stock" id="goal-asset-stock-bar" style="width:70%"></div>
-              <div class="gas-bar-cash"  id="goal-asset-cash-bar"  style="width:30%"></div>
-            </div>
-            <div class="gas-legend">
-              <span><span class="gas-dot" style="background:var(--green-l)"></span>股票 <span id="goal-stock-pct">—</span></span>
-              <span><span class="gas-dot" style="background:var(--amber)"></span>現金 <span id="goal-cash-pct">—</span></span>
-            </div>
-          </div>
-
-          <!-- 現金輸入 -->
-          <div class="goal-cash-section">
-            <div class="goal-cash-title">💰 現金資產（購屋用）</div>
-            <div class="cash-row">
-              <span class="cash-label">台幣現金</span>
-              <input type="number" id="cash-twd-input" class="cash-input" placeholder="0" min="0" step="1000">
-              <span class="cash-unit">元</span>
-            </div>
-            <div class="cash-row">
-              <span class="cash-label">美金現金</span>
-              <input type="number" id="cash-usd-input" class="cash-input" placeholder="0" min="0" step="100">
-              <span class="cash-unit">USD</span>
-              <span class="usd-rate" id="usd-rate-display">匯率載入中...</span>
-            </div>
-            <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <button class="cash-save-btn" onclick="saveCashSettings()">更新現金</button>
-              <span style="font-size:11px;color:var(--text-3)">美金自動換算台幣，匯率每小時更新</span>
-            </div>
-          </div>
-
-          <!-- 總計目標 -->
-          <div class="goal-grid">
-            <div class="goal-card">
-              <div class="gc-label">股票市值</div>
-              <div class="gc-value" id="goal-stock-val">—</div>
-            </div>
-            <div class="goal-card">
-              <div class="gc-label">台幣現金</div>
-              <div class="gc-value" id="goal-cash-twd-val">—</div>
-            </div>
-            <div class="goal-card">
-              <div class="gc-label">美金現金</div>
-              <div class="gc-value" id="goal-cash-usd-val">—</div>
-            </div>
-            <div class="goal-card">
-              <div class="gc-label">🏠 合計</div>
-              <div class="gc-value" id="goal-total-val" style="color:var(--green-l)">—</div>
-              <div class="gc-sub" id="goal-diff">計算中...</div>
-            </div>
-          </div>
-
-          <!-- 進度 -->
-          <div class="goal-progress-wrap">
-            <div class="gp-header">
-              <span class="gp-title">距目標 <span id="goal-target-val">300萬</span></span>
-              <span class="gp-pct" id="goal-pct">0%</span>
-            </div>
-            <div class="gp-bar-wrap"><div class="gp-bar" id="goal-progress-bar" style="width:0%"></div></div>
-            <div class="gp-diff" id="goal-diff-bar"></div>
-          </div>
-
-          <!-- 統計 -->
-          <div class="goal-stats">
-            <div class="gs-item">
-              <div class="gs-label">目前年化報酬</div>
-              <div class="gs-value" id="goal-annual-return">—</div>
-            </div>
-            <div class="gs-item">
-              <div class="gs-label">需年化報酬</div>
-              <div class="gs-value" id="goal-required-return">—</div>
-            </div>
-            <div class="gs-item">
-              <div class="gs-label">預計達標</div>
-              <div class="gs-value" id="goal-eta">—</div>
-            </div>
-          </div>
-
-          <!-- 資產成長曲線 -->
-          <div class="goal-value-chart">
-            <div class="gvc-title">📈 資產成長曲線</div>
-            <div class="gvc-wrap">
-              <canvas id="value-chart" style="width:100%;height:100px"></canvas>
-            </div>
-          </div>
-
-          <div style="font-size:11px;color:var(--text-3);line-height:1.6;background:var(--bg-2);border-radius:var(--radius-sm);padding:10px">
-            💡 目標金額和年限可在 ⚙ 設定 中修改。資產曲線每次開啟頁面自動記錄一個快照。
-          </div>
         </div>
       </div>
 
@@ -657,14 +565,6 @@
           <button class="btn-cancel" style="font-size:12px;padding:6px 14px" onclick="SYNC.manualDownload()">⬇ 強制下載</button>
         </div>
         <div id="sync-status" style="font-size:11px;color:var(--text-3);margin-top:6px">未設定</div>
-      </div>
-
-      <div class="settings-section">
-        <div class="settings-title">📈 投資目標</div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label">目標金額（萬元）</label><input type="number" id="goal-target-input" class="form-input" placeholder="300" value="300"></div>
-          <div class="form-group"><label class="form-label">目標年限（年）</label><input type="number" id="goal-years-input" class="form-input" placeholder="2.5" value="2.5" step="0.5"></div>
-        </div>
       </div>
 
       <div class="settings-section">
