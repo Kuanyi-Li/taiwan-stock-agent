@@ -542,14 +542,20 @@ const Dashboard = {
     // 先畫出卡片骨架，資料抓回來後逐一補上
     grid.innerHTML = cards.map((c, i) => this._cardSkeleton(c, i, compact)).join('');
 
-    // ★ 動態計算每列卡片數，讓整個網格剛好填滿容器高度、不需捲動
-    // 精簡模式卡片較小，允許更多欄
+    // ★ 12張卡以內：動態計算每列卡片數，讓整個網格剛好填滿容器高度、不需捲動
+    // 超過12張：卡片大小固定，改成滾輪捲動顯示，不再繼續自適應縮小
     const total = cards.length;
     const maxCols = compact ? 6 : 3;
     const cols = Math.min(maxCols, total);
-    const rows = Math.ceil(total / cols);
+    const overLimit = total > 12;
+    grid.classList.toggle('scrollable', overLimit);
     grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    if (overLimit) {
+      grid.style.gridTemplateRows = ''; // 交給 grid-auto-rows（CSS）決定固定高度
+    } else {
+      const rows = Math.ceil(total / cols);
+      grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    }
 
     // 逐一非同步抓資料並繪製（避免同時大量請求打爆 proxy）
     this._sigTiers = {}; // 收集訊號分級供摘要列統計
