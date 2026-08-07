@@ -623,12 +623,18 @@ const Dashboard = {
 
   // 輕量預測：直接呼叫 CHART 的共用預測引擎，與個股詳細頁完全同一套邏輯與參數
   // 近期10天/中期40天回看窗口與主圖完全相同（資料不足時內部會自動用全部可用資料）
+  // ★ 指標直接從完整資料同步算出（不依賴 ANALYSIS._cache 的背景分析時機，避免總覽/詳細頁不一致）
   _miniPredict(data, days, code) {
+    let ind;
+    try {
+      ind = ANALYSIS._cache[code]?.ind ?? ANALYSIS._calcIndicators(data);
+    } catch(e) { ind = null; }
     return CHART._predictEngine(data, days, code, {
       nearLookback: 10,
       midLookback: 40,
       hlLookback: 40,
       zScore: 1.3,
+      ind,
     });
   },
 
@@ -702,7 +708,7 @@ const Dashboard = {
       prediction.points.forEach((p, i) => ctx.lineTo(xOf(n+i)+barW/2, yOf(p.upper)));
       for (let i = prediction.points.length-1; i>=0; i--) ctx.lineTo(xOf(n+i)+barW/2, yOf(prediction.points[i].lower));
       ctx.closePath();
-      ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.14)`;
+      ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.08 + trend.level * 0.04})`;
       ctx.fill();
 
       ctx.beginPath();

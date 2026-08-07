@@ -192,7 +192,11 @@ const CHART = {
 
     let slope = near.slope * 0.6 + mid.slope * 0.4;
 
-    const ind = ANALYSIS._cache[symbol || (typeof APP !== 'undefined' ? APP.activeSymbol : '')]?.ind;
+    // ★ 優先用直接傳入的指標（避免依賴全域快取的時機差導致總覽/詳細頁不一致）
+    // 若沒有傳入，才 fallback 查詢快取
+    const ind = opts.ind !== undefined
+      ? opts.ind
+      : ANALYSIS._cache[symbol || (typeof APP !== 'undefined' ? APP.activeSymbol : '')]?.ind;
     const adx = ind?.adx;
     if (adx != null) {
       if (adx < 20) slope *= 0.35;
@@ -247,10 +251,11 @@ const CHART = {
     return { label:'強力偏空', short:'⇊ 強力偏空', dir:'down', level:3 };
   },
 
-  // 趨勢配色：偏多=紅色系、偏空=綠色系（同台股紅漲綠跌慣例），盤整=灰色，深淺代表強度
+  // 趨勢配色：偏多=紅色系、偏空=綠色系（同台股紅漲綠跌慣例），盤整=灰色
+  // 深色主題下，強度越高顏色要越亮越飽和（不是越深），否則深色在深底色上反而不顯眼
   _trendColor(trend) {
-    const reds   = ['#f4b8b7', '#E24B4A', '#a82f2e']; // 微幅偏多／偏多／強力偏多
-    const greens = ['#8fd4bc', '#1D9E75', '#0f6b4d']; // 微幅偏空／偏空／強力偏空
+    const reds   = ['#c98a89', '#E24B4A', '#ff5c5c']; // 微幅偏多／偏多／強力偏多（由淡到最鮮豔）
+    const greens = ['#7fae9d', '#1D9E75', '#2ee88f']; // 微幅偏空／偏空／強力偏空（由淡到最鮮豔）
     if (trend.dir === 'flat') return '#9ca3af';
     const idx = Math.min(2, Math.max(0, trend.level - 1));
     return trend.dir === 'up' ? reds[idx] : greens[idx];
@@ -259,7 +264,12 @@ const CHART = {
   // ── 技術面統計外推預測（非真實預測，僅供參考）──────
   // v2：近中期雙窗口迴歸 + ADX/RSI 動能修正 + 位階修正 + 標準預測區間公式
   _computePrediction(days, symbol) {
-    return this._predictEngine(this.currentData, days, symbol, { nearLookback:10, midLookback:40, hlLookback:40, zScore:1.3 });
+    // ★ 指標優先用快取（已算過就不重算，效能較好），沒有才即時算，跟總覽小圖用同一套判斷順序
+    let ind;
+    try {
+      ind = ANALYSIS._cache[symbol]?.ind ?? ANALYSIS._calcIndicators(this.currentData);
+    } catch(e) { ind = null; }
+    return this._predictEngine(this.currentData, days, symbol, { nearLookback:10, midLookback:40, hlLookback:40, zScore:1.3, ind });
   },
 
   draw() {
@@ -382,7 +392,7 @@ const CHART = {
       const lastX = xOf(n - 1), lastY = yOf(data[n-1].c);
 
       // 信賴區間陰影（顏色隨偏多/偏空/盤整而變）
-      const fillAlpha = isDark ? 0.14 : 0.10;
+      const fillAlpha = (isDark ? 0.08 : 0.06) + trend.level * 0.04;
       const rgbMap = { up:[226,75,74], down:[29,158,117], flat:[156,163,175] };
       const rgb = rgbMap[trend.dir];
       ctx.beginPath();
