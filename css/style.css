@@ -671,6 +671,39 @@ body {
   .section.flex-fill { max-height: 220px; }
   .watchlist { max-height: 100px; }
   .content { padding: 8px; }
+
+  /* ── 手機版頂部工具列：改用可換行的多列排列，不再擠壓成亂碼 ── */
+  .topbar {
+    height: auto; min-height: 48px;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 8px 10px;
+  }
+  .topbar-left {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    width: 100%;
+    gap: 6px;
+  }
+  .topbar-right { flex-shrink: 0; margin-left: auto; }
+  .logo span { display: none; }
+  .market-switch-btn {
+    flex-shrink: 0; white-space: nowrap;
+    font-size: 11px; padding: 5px 8px;
+  }
+  .dashboard-toggle-btn {
+    flex-shrink: 0; white-space: nowrap;
+    font-size: 11px; padding: 5px 8px;
+  }
+  .topbar-market {
+    flex-wrap: wrap; row-gap: 4px;
+    width: 100%;
+  }
+  .topbar-market .vix-badge { display: none; } /* 次要資訊，行動版先隱藏節省空間 */
+  .index-chip, .badge { white-space: nowrap; }
+
+  /* 確保各主要區塊在行動版都滿版寬度，不會右側留白 */
+  .sidebar, .dashboard-content, #detail-content, .content { width: 100%; box-sizing: border-box; }
   .dashboard-content { height: auto; overflow: visible; }
   .dashboard-header { flex-wrap: wrap; gap: 6px; }
   .dashboard-summary { font-size: 11px; gap: 6px; }
@@ -693,8 +726,6 @@ body {
   .si-actions { opacity: 1; }
   .modal { max-width: calc(100vw - 32px); }
   .form-row { flex-direction: column; gap: 0; }
-  .topbar { padding: 0 12px; gap: 8px; }
-  .logo span { display: none; }
   .clock { display: none; }
   .si-signal-badge { display: none; }
   .rec-card-header { flex-wrap: wrap; }
