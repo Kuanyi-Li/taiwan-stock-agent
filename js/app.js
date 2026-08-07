@@ -557,11 +557,13 @@ const Dashboard = {
   async _loadCard(c, i) {
     const id = this._idOf(c.code);
     try {
-      const data = await DATA.fetchHistory(c.code, 'mini');
+      // ★ 抓完整1年日線（跟個股詳細頁的長線資料一樣），確保預測線100%一致
+      // 畫面只顯示最近一小段，但預測計算用完整資料（與詳細頁的 currentData 邏輯相同）
+      const data = await DATA.fetchHistory(c.code, '1d');
       if (!data || data.length < 3) throw new Error('no data');
       const last = data[data.length - 1];
       const prev = data.length >= 2 ? data[data.length - 2].c : last.c;
-      // 若有即時報價，優先使用（比mini K線更即時）
+      // 若有即時報價，優先使用（比K線更即時）
       const live = DATA.priceStore[c.code];
       const price = live?.price && live.source !== 'twse-prev' ? live.price : last.c;
       const prevClose = live?.prevClose ?? prev;
@@ -631,7 +633,8 @@ const Dashboard = {
   },
 
   // 輕量K線+成交量+預測線繪製（單一canvas）
-  _drawMiniChart(canvas, data, code) {
+  // fullData：完整歷史（供預測計算，與詳細頁一致）；畫面只顯示最近一小段蠟燭
+  _drawMiniChart(canvas, fullData, code) {
     const rect = canvas.getBoundingClientRect();
     const W = rect.width || 260;
     const H = rect.height || 90;
@@ -643,13 +646,16 @@ const Dashboard = {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
 
+    const DISPLAY_N = 24; // 畫面只顯示最近24根蠟燭（跟主圖預設1日週期一致視覺密度）
+    const data = fullData.slice(-DISPLAY_N);
     const n = data.length;
     if (!n) return;
     const volH = Math.max(10, H * 0.16), gapY = 2;
     const priceH = H - volH - gapY;
 
     const predictDays = 15; // 與個股詳細頁一致
-    const prediction = this._miniPredict(data, predictDays, code);
+    // ★ 預測用完整歷史資料計算，與個股詳細頁的 currentData 邏輯完全相同
+    const prediction = this._miniPredict(fullData, predictDays, code);
     const extraBars = prediction ? predictDays : 0;
     const totalBars = n + extraBars;
 
@@ -709,14 +715,14 @@ const Dashboard = {
 
       // 分級標籤（放大字體+底色背景，確保清楚可讀）
       const labelText = `${trend.short} ${prediction.pctChange>=0?'+':''}${prediction.pctChange.toFixed(1)}%`;
-      ctx.font = 'bold 11px sans-serif';
+      ctx.font = 'bold 14px sans-serif';
       const tw = ctx.measureText(labelText).width;
       const lx = Math.max(2, xOf(n) - 2), ly = 3;
       ctx.fillStyle = 'rgba(13,17,23,0.8)';
-      ctx.fillRect(lx - 2, ly, tw + 6, 14);
+      ctx.fillRect(lx - 2, ly, tw + 8, 17);
       ctx.fillStyle = trendColor;
       ctx.textAlign = 'left';
-      ctx.fillText(labelText, lx + 1, ly + 11);
+      ctx.fillText(labelText, lx + 2, ly + 13);
     }
 
     // 成交量

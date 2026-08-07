@@ -419,14 +419,14 @@ const CHART = {
       const lastP = prediction.points[prediction.points.length - 1];
       const labelText = `${trend.short}  ${prediction.pctChange >= 0 ? '+' : ''}${prediction.pctChange.toFixed(1)}%`;
       const labelX = xOf(n) + 4, labelY = yOf(lastP.mid);
-      ctx.font = 'bold 13px sans-serif';
+      ctx.font = 'bold 17px sans-serif';
       const textW = ctx.measureText(labelText).width;
       ctx.fillStyle = isDark ? 'rgba(13,17,23,0.85)' : 'rgba(255,255,255,0.9)';
-      ctx.fillRect(labelX - 4, labelY - 16, textW + 8, 20);
+      ctx.fillRect(labelX - 4, labelY - 20, textW + 10, 26);
       ctx.strokeStyle = predColor; ctx.lineWidth = 1;
-      ctx.strokeRect(labelX - 4, labelY - 16, textW + 8, 20);
+      ctx.strokeRect(labelX - 4, labelY - 20, textW + 10, 26);
       ctx.fillStyle = predColor; ctx.textAlign = 'left';
-      ctx.fillText(labelText, labelX, labelY - 2);
+      ctx.fillText(labelText, labelX, labelY + 1);
 
       // 分隔虛線標示「今天」
       ctx.beginPath(); ctx.setLineDash([2, 2]); ctx.strokeStyle = clr.grid; ctx.lineWidth = 1;
