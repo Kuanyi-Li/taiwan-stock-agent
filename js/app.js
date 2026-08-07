@@ -498,11 +498,20 @@ const Dashboard = {
     const btn = document.getElementById('dash-mode-toggle');
     if (btn) btn.textContent = compact ? '🖼️ 完整模式' : '📋 精簡模式';
 
-    // 卡片清單：加權/櫃買指數 + 持股 + 自選（依目前市場）
+    // 卡片清單：大盤指數（多個）+ 持股 + 自選（依目前市場）
     const isUS = APP.activeMarket === 'US';
+    // 費城半導體指數（^SOX）跟台股（尤其半導體權值股）高度相關，兩邊市場都顯示
     const indexCards = isUS
-      ? [{ code:'^GSPC', name:'S&P 500', isIndex:true }]
-      : [{ code:'^TWII', name:'加權指數', isIndex:true }];
+      ? [
+          { code:'^GSPC', name:'S&P 500', isIndex:true },
+          { code:'^IXIC', name:'那斯達克', isIndex:true },
+          { code:'^DJI',  name:'道瓊工業', isIndex:true },
+          { code:'^SOX',  name:'費城半導體', isIndex:true },
+        ]
+      : [
+          { code:'^TWII', name:'加權指數', isIndex:true },
+          { code:'^SOX',  name:'費城半導體', isIndex:true },
+        ];
     const stockCardsRaw = [
       ...APP.portfolio.map(s => ({ code:s.code, name:s.name, isIndex:false, isWatch:false })),
       ...APP.watchlist
@@ -549,6 +558,9 @@ const Dashboard = {
       await new Promise(r => setTimeout(r, compact ? 40 : 120)); // 精簡模式資料量小，節流可縮短
     }
     this._renderSummary(cards);
+    // 卡片自己算好的指標已寫回全域快取，順便刷新側邊欄讓訊號同步更新
+    APP.renderStockList();
+    APP._renderSignalOverview();
     this._rendering = false;
   },
 
@@ -621,6 +633,15 @@ const Dashboard = {
         const isUp = chg >= 0;
         chgEl.className = 'dash-card-chg ' + (isUp ? 'up-color' : 'dn-color');
         chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
+      }
+
+      // ★ 關鍵修正：卡片自己算完的指標直接寫回全域快取，
+      // 這樣訊號徽章第一次渲染就有正確結果，不用等背景分析、也不會卡在「分析中」
+      if (!compact && data && !c.isIndex && !ANALYSIS._cache[c.code]) {
+        try {
+          const ind = ANALYSIS._calcIndicators(data);
+          ANALYSIS._cache[c.code] = { ind, candles: data };
+        } catch(e) { /* 靜默失敗，quickEstimate 會fallback */ }
       }
 
       let prediction = null;
@@ -728,7 +749,7 @@ const Dashboard = {
 
     // ── 格線（水平3條 + 垂直分段），淡色不搶眼 ──
     const isDark = !document.body.classList.contains('light-mode');
-    const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    const gridColor = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)';
     ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
     ctx.setLineDash([2, 3]);
     // 水平格線：上/中/下三條
@@ -759,6 +780,18 @@ const Dashboard = {
       const top = Math.min(yo, yc), bh = Math.max(1, Math.abs(yc - yo));
       ctx.fillRect(x, top, barW, bh);
     });
+
+    // ── 均價水平線（若持有此股票）──────────────────────
+    const heldStock = code ? APP.portfolio.find(s => s.code === code) : null;
+    if (heldStock?.cost && heldStock.cost >= minP && heldStock.cost <= maxP) {
+      const costY = yOf(heldStock.cost);
+      ctx.beginPath();
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = '#eab308'; ctx.lineWidth = 1;
+      ctx.moveTo(0, costY); ctx.lineTo(W, costY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
     // 預測延伸（區間 + 中線虛線 + 偏多偏空分級標籤，紅漲綠跌配色與主圖一致）
     if (prediction) {
@@ -2020,7 +2053,19 @@ const APP = {
     if (!list) return;
     if (!this.portfolio.length) { this._showEmptyPortfolio(); return; }
     list.innerHTML = '';
-    this.portfolio.forEach((s, i) => {
+    // ★ 套用總覽頁的自訂排序（若有設定），維持左右一致
+    const order = (typeof Dashboard !== 'undefined') ? Dashboard.getOrder() : [];
+    const orderedPortfolio = order.length
+      ? [...this.portfolio].sort((a, b) => {
+          const ia = order.indexOf(a.code), ib = order.indexOf(b.code);
+          if (ia === -1 && ib === -1) return 0;
+          if (ia === -1) return 1;
+          if (ib === -1) return -1;
+          return ia - ib;
+        })
+      : this.portfolio;
+    orderedPortfolio.forEach((s) => {
+      const i = this.portfolio.indexOf(s); // 保留原始索引供 selectStock/removeStock 等函式使用
       const price = s.price ?? s.cost;
       const prev  = s.prevClose ?? s.cost;
       const chg   = price - prev;

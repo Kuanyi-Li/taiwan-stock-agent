@@ -220,6 +220,20 @@ const CHART = {
     if (slope > 0 && posInRange > 0.85) slope *= 0.5;
     else if (slope < 0 && posInRange < 0.15) slope *= 0.5;
 
+    // ★ 費城半導體指數(SOX)連動修正：SOX與台灣半導體權值股高度正相關，
+    // 若SOX近期動能明顯，對台股半導體個股的斜率做小幅同向修正（權重15%，避免喧賓奪主）
+    const semiSet = this.SEMI_TICKERS || (this.SEMI_TICKERS = new Set(['2330','2454','3711','2303','3034','2408','5347','8299','3443','2449','6415']));
+    if (symbol && semiSet.has(symbol)) {
+      const soxData = DATA.histCache?.['^SOX_1d']?.data;
+      if (soxData && soxData.length >= 12) {
+        const soxRecent = soxData.slice(-10);
+        const soxChgPct = (soxRecent[soxRecent.length-1].c - soxRecent[0].c) / soxRecent[0].c * 100;
+        // SOX 10日變動% 轉換成類似量級的斜率修正，加權15%混入
+        const soxSlopeEquiv = (soxChgPct / 100 * lastClose) / 10;
+        slope = slope * 0.85 + soxSlopeEquiv * 0.15;
+      }
+    }
+
     // ★ 依過去預測準確度自動調整：方向常猜錯就收斂斜率，區間常沒包到就加寬信賴帶
     const adj = (typeof PredictTrack !== 'undefined') ? PredictTrack.getAdjustment(symbol) : { slopeMul: 1, zMul: 1 };
     slope *= adj.slopeMul;
