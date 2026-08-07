@@ -392,14 +392,21 @@ const DATA = {
           const ts    = result.timestamp;
           const ohlcv = result.indicators?.quote?.[0] ?? {};
           const arr = [];
+          // ★ 資料破損防護：Yahoo 偶爾對 open/high/low 回傳 0（而非 null），
+          // ?? 運算子不會攔到 0，需另外判斷，否則會出現 o=h=l=0 的異常K線
+          const validOrClose = (v, closeVal) => (v == null || v === 0) ? closeVal : v;
           for (let i = 0; i < ts.length; i++) {
-            if (ohlcv.close?.[i] == null) continue;
+            const closeVal = ohlcv.close?.[i];
+            if (closeVal == null || closeVal === 0) continue; // close本身無效就整根丟棄
+            const o = validOrClose(ohlcv.open?.[i], closeVal);
+            const h = validOrClose(ohlcv.high?.[i], closeVal);
+            const l = validOrClose(ohlcv.low?.[i],  closeVal);
             arr.push({
               t: ts[i] * 1000,
-              o: +((ohlcv.open?.[i]   ?? ohlcv.close[i])).toFixed(2),
-              h: +((ohlcv.high?.[i]   ?? ohlcv.close[i])).toFixed(2),
-              l: +((ohlcv.low?.[i]    ?? ohlcv.close[i])).toFixed(2),
-              c: +ohlcv.close[i].toFixed(2),
+              o: +o.toFixed(2),
+              h: +Math.max(h, o, closeVal).toFixed(2), // 確保 high 不小於 open/close
+              l: +Math.min(l, o, closeVal).toFixed(2), // 確保 low 不大於 open/close
+              c: +closeVal.toFixed(2),
               v: ohlcv.volume?.[i] ?? 0,
             });
           }
