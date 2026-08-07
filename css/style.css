@@ -99,6 +99,16 @@ body {
 .dash-badge-loading, .dash-badge-error { font-size: 10.5px; color: var(--text-3); }
 .dash-badge-error { color: var(--red); }
 
+.reorder-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.reorder-item { display: flex; align-items: center; gap: 10px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; cursor: grab; user-select: none; transition: opacity 0.15s, transform 0.1s; }
+.reorder-item:active { cursor: grabbing; }
+.reorder-item.dragging { opacity: 0.4; }
+.reorder-item.drag-over { border-color: var(--green-l); transform: scale(1.01); }
+.reorder-handle { color: var(--text-3); font-size: 14px; flex-shrink: 0; }
+.reorder-code { font-family: var(--font-mono); font-weight: 700; font-size: 12px; flex-shrink: 0; min-width: 52px; }
+.reorder-name { font-size: 12px; color: var(--text-2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reorder-tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--bg-3); color: var(--text-3); flex-shrink: 0; }
+
 @media (max-width: 700px) {
   .dashboard-grid { gap: 8px; }
   .dash-card { padding: 8px; }
