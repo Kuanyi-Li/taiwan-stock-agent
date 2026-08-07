@@ -583,7 +583,13 @@ const Dashboard = {
       if (canvas) prediction = this._drawMiniChart(canvas, data, c.code);
 
       const trendBadge = prediction
-        ? `<span class="dash-trend-badge dash-trend-${prediction.trend.dir}">${prediction.trend.short} ${prediction.pctChange>=0?'+':''}${prediction.pctChange.toFixed(1)}%</span>`
+        ? (() => {
+            const tc = CHART._trendColor(prediction.trend);
+            const bgAlpha = prediction.trend.dir === 'flat' ? 0.12 : (0.10 + prediction.trend.level * 0.05);
+            const rgbMap = { up:[226,75,74], down:[29,158,117], flat:[156,163,175] };
+            const rgb = rgbMap[prediction.trend.dir];
+            return `<span class="dash-trend-badge" style="color:${tc};background:rgba(${rgb[0]},${rgb[1]},${rgb[2]},${bgAlpha});border:1px solid ${tc}">${prediction.trend.short} ${prediction.pctChange>=0?'+':''}${prediction.pctChange.toFixed(1)}%</span>`;
+          })()
         : '';
 
       // 訊號徽章（指數只顯示趨勢分級，不顯示買賣訊號）
@@ -613,13 +619,13 @@ const Dashboard = {
     }
   },
 
-  // 輕量預測：直接呼叫 CHART 的共用預測引擎，確保與個股詳細頁完全同一套邏輯
-  // 只有近/中期回看天數依mini資料量縮小（資料只有約1個月）
+  // 輕量預測：直接呼叫 CHART 的共用預測引擎，與個股詳細頁完全同一套邏輯與參數
+  // 近期10天/中期40天回看窗口與主圖完全相同（資料不足時內部會自動用全部可用資料）
   _miniPredict(data, days, code) {
     return CHART._predictEngine(data, days, code, {
-      nearLookback: 8,
-      midLookback: Math.min(22, data.length),
-      hlLookback: Math.min(22, data.length),
+      nearLookback: 10,
+      midLookback: 40,
+      hlLookback: 40,
       zScore: 1.3,
     });
   },
@@ -642,7 +648,7 @@ const Dashboard = {
     const volH = Math.max(10, H * 0.16), gapY = 2;
     const priceH = H - volH - gapY;
 
-    const predictDays = 8;
+    const predictDays = 15; // 與個股詳細頁一致
     const prediction = this._miniPredict(data, predictDays, code);
     const extraBars = prediction ? predictDays : 0;
     const totalBars = n + extraBars;
@@ -678,32 +684,39 @@ const Dashboard = {
       ctx.fillRect(x, top, barW, bh);
     });
 
-    // 預測延伸（灰紫區間 + 中線虛線 + 偏多偏空分級標籤）
+    // 預測延伸（區間 + 中線虛線 + 偏多偏空分級標籤，紅漲綠跌配色與主圖一致）
     if (prediction) {
       const lastX = xOf(n-1) + barW/2, lastY = yOf(data[n-1].c);
       const trend = prediction.trend;
-      const trendColorSet = trend.dir === 'flat' ? '#9ca3af' : ['#c4b5fd','#a78bfa','#7c3aed'][Math.min(2, trend.level - 1)];
+      const trendColor = CHART._trendColor(trend);
+      const rgbMap = { up:[226,75,74], down:[29,158,117], flat:[156,163,175] };
+      const rgb = rgbMap[trend.dir];
       ctx.beginPath();
       ctx.moveTo(lastX, lastY);
       prediction.points.forEach((p, i) => ctx.lineTo(xOf(n+i)+barW/2, yOf(p.upper)));
       for (let i = prediction.points.length-1; i>=0; i--) ctx.lineTo(xOf(n+i)+barW/2, yOf(prediction.points[i].lower));
       ctx.closePath();
-      ctx.fillStyle = 'rgba(167,139,250,0.15)';
+      ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.14)`;
       ctx.fill();
 
       ctx.beginPath();
       ctx.setLineDash([2,2]);
-      ctx.strokeStyle = trendColorSet; ctx.lineWidth = 1;
+      ctx.strokeStyle = trendColor; ctx.lineWidth = 1.5;
       ctx.moveTo(lastX, lastY);
       prediction.points.forEach((p,i) => ctx.lineTo(xOf(n+i)+barW/2, yOf(p.mid)));
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 分級標籤（小字，畫在預測區左上角）
-      ctx.fillStyle = trendColorSet;
-      ctx.font = 'bold 9px sans-serif';
+      // 分級標籤（放大字體+底色背景，確保清楚可讀）
+      const labelText = `${trend.short} ${prediction.pctChange>=0?'+':''}${prediction.pctChange.toFixed(1)}%`;
+      ctx.font = 'bold 11px sans-serif';
+      const tw = ctx.measureText(labelText).width;
+      const lx = Math.max(2, xOf(n) - 2), ly = 3;
+      ctx.fillStyle = 'rgba(13,17,23,0.8)';
+      ctx.fillRect(lx - 2, ly, tw + 6, 14);
+      ctx.fillStyle = trendColor;
       ctx.textAlign = 'left';
-      ctx.fillText(trend.short, xOf(n) + 2, 9);
+      ctx.fillText(labelText, lx + 1, ly + 11);
     }
 
     // 成交量

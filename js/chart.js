@@ -238,13 +238,22 @@ const CHART = {
 
   // 趨勢分級（供主圖與總覽小圖表共用）
   _classifyTrend(pctChange) {
-    if (pctChange >= 8)  return { label:'強力偏多', short:'⇈偏多', dir:'up',   level:3 };
-    if (pctChange >= 3)  return { label:'偏多趨勢外推', short:'↗偏多', dir:'up',   level:2 };
-    if (pctChange >= 0.5) return { label:'微幅偏多', short:'↗微多', dir:'up',   level:1 };
-    if (pctChange > -0.5) return { label:'盤整外推', short:'→盤整', dir:'flat', level:0 };
-    if (pctChange > -3)  return { label:'微幅偏空', short:'↘微空', dir:'down', level:1 };
-    if (pctChange > -8)  return { label:'偏空趨勢外推', short:'↘偏空', dir:'down', level:2 };
-    return { label:'強力偏空', short:'⇊偏空', dir:'down', level:3 };
+    if (pctChange >= 8)  return { label:'強力偏多', short:'⇈ 強力偏多', dir:'up',   level:3 };
+    if (pctChange >= 3)  return { label:'偏多趨勢外推', short:'↗ 偏多', dir:'up',   level:2 };
+    if (pctChange >= 0.5) return { label:'微幅偏多', short:'↗ 微幅偏多', dir:'up',   level:1 };
+    if (pctChange > -0.5) return { label:'盤整外推', short:'→ 盤整', dir:'flat', level:0 };
+    if (pctChange > -3)  return { label:'微幅偏空', short:'↘ 微幅偏空', dir:'down', level:1 };
+    if (pctChange > -8)  return { label:'偏空趨勢外推', short:'↘ 偏空', dir:'down', level:2 };
+    return { label:'強力偏空', short:'⇊ 強力偏空', dir:'down', level:3 };
+  },
+
+  // 趨勢配色：偏多=紅色系、偏空=綠色系（同台股紅漲綠跌慣例），盤整=灰色，深淺代表強度
+  _trendColor(trend) {
+    const reds   = ['#f4b8b7', '#E24B4A', '#a82f2e']; // 微幅偏多／偏多／強力偏多
+    const greens = ['#8fd4bc', '#1D9E75', '#0f6b4d']; // 微幅偏空／偏空／強力偏空
+    if (trend.dir === 'flat') return '#9ca3af';
+    const idx = Math.min(2, Math.max(0, trend.level - 1));
+    return trend.dir === 'up' ? reds[idx] : greens[idx];
   },
 
   // ── 技術面統計外推預測（非真實預測，僅供參考）──────
@@ -368,10 +377,14 @@ const CHART = {
 
     // ── 預測延伸線（技術面統計外推，非真實預測）──────
     if (prediction) {
-      const predColor = isDark ? '#a78bfa' : '#7c3aed';
+      const trend = prediction.trend;
+      const predColor = this._trendColor(trend);
       const lastX = xOf(n - 1), lastY = yOf(data[n-1].c);
 
-      // 信賴區間灰紫色陰影
+      // 信賴區間陰影（顏色隨偏多/偏空/盤整而變）
+      const fillAlpha = isDark ? 0.14 : 0.10;
+      const rgbMap = { up:[226,75,74], down:[29,158,117], flat:[156,163,175] };
+      const rgb = rgbMap[trend.dir];
       ctx.beginPath();
       ctx.moveTo(lastX, lastY);
       prediction.points.forEach((p, i) => ctx.lineTo(xOf(n + i), yOf(p.upper)));
@@ -379,13 +392,13 @@ const CHART = {
         ctx.lineTo(xOf(n + i), yOf(prediction.points[i].lower));
       }
       ctx.closePath();
-      ctx.fillStyle = isDark ? 'rgba(167,139,250,0.12)' : 'rgba(124,58,237,0.10)';
+      ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${fillAlpha})`;
       ctx.fill();
 
       // 中線虛線
       ctx.beginPath();
       ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = predColor; ctx.lineWidth = 1.5;
+      ctx.strokeStyle = predColor; ctx.lineWidth = 2;
       ctx.moveTo(lastX, lastY);
       prediction.points.forEach((p, i) => ctx.lineTo(xOf(n + i), yOf(p.mid)));
       ctx.stroke();
@@ -402,17 +415,18 @@ const CHART = {
       ctx.stroke();
       ctx.setLineDash([]); ctx.globalAlpha = 1;
 
-      // 標籤（依偏多/偏空程度分級顯示，顏色隨強度加深）
+      // 標籤（依偏多/偏空程度分級，大字體+底色背景，清楚易讀）
       const lastP = prediction.points[prediction.points.length - 1];
-      const trend = prediction.trend;
-      const trendColors = {
-        up:   ['#c4b5fd', '#a78bfa', '#7c3aed'],   // 微多/偏多/強力偏多
-        down: ['#c4b5fd', '#a78bfa', '#7c3aed'],
-        flat: ['#9ca3af'],
-      };
-      const trendColor = trend.dir === 'flat' ? trendColors.flat[0] : trendColors[trend.dir][Math.min(2, trend.level - 1)];
-      ctx.fillStyle = trendColor; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'left';
-      ctx.fillText(`${trend.short} (${prediction.pctChange >= 0 ? '+' : ''}${prediction.pctChange.toFixed(1)}%)`, xOf(n) + 2, yOf(lastP.mid) - 4);
+      const labelText = `${trend.short}  ${prediction.pctChange >= 0 ? '+' : ''}${prediction.pctChange.toFixed(1)}%`;
+      const labelX = xOf(n) + 4, labelY = yOf(lastP.mid);
+      ctx.font = 'bold 13px sans-serif';
+      const textW = ctx.measureText(labelText).width;
+      ctx.fillStyle = isDark ? 'rgba(13,17,23,0.85)' : 'rgba(255,255,255,0.9)';
+      ctx.fillRect(labelX - 4, labelY - 16, textW + 8, 20);
+      ctx.strokeStyle = predColor; ctx.lineWidth = 1;
+      ctx.strokeRect(labelX - 4, labelY - 16, textW + 8, 20);
+      ctx.fillStyle = predColor; ctx.textAlign = 'left';
+      ctx.fillText(labelText, labelX, labelY - 2);
 
       // 分隔虛線標示「今天」
       ctx.beginPath(); ctx.setLineDash([2, 2]); ctx.strokeStyle = clr.grid; ctx.lineWidth = 1;
