@@ -414,6 +414,52 @@ const CHART = {
     };
     drawMA(ma5v, clr.ma5); drawMA(ma20v, clr.ma20); drawMA(ma60v, clr.ma60);
 
+    // ── 均價水平線（若持有此股票）──────────────────────
+    const activeSym = (typeof APP !== 'undefined') ? APP.activeSymbol : null;
+    const heldStock = activeSym
+      ? [...APP._twPortfolio, ...APP._usPortfolio].find(s => s.code === activeSym)
+      : null;
+    if (heldStock?.cost && heldStock.cost >= minP && heldStock.cost <= maxP) {
+      const costY = yOf(heldStock.cost);
+      ctx.beginPath();
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = '#eab308'; ctx.lineWidth = 1.3;
+      ctx.moveTo(PAD.l, costY); ctx.lineTo(PAD.l + chartW, costY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 標籤
+      const costLabel = `均價 ${heldStock.cost.toFixed(heldStock.cost < 10 ? 3 : 2)}`;
+      ctx.font = 'bold 11px sans-serif';
+      const lw = ctx.measureText(costLabel).width;
+      ctx.fillStyle = 'rgba(13,17,23,0.85)';
+      ctx.fillRect(PAD.l + 2, costY - 15, lw + 8, 16);
+      ctx.fillStyle = '#eab308';
+      ctx.textAlign = 'left';
+      ctx.fillText(costLabel, PAD.l + 6, costY - 3);
+    }
+
+    // ── 每筆成交價格標記（買=▲紅、賣=▼綠，只標在可視K線範圍內的交易）──
+    if (typeof TRADES !== 'undefined' && activeSym) {
+      const trades = TRADES.get().filter(t => t.code === activeSym);
+      const visStartTs = data[0]?.t, visEndTs = data[data.length-1]?.t;
+      trades.forEach(t => {
+        const tTs = new Date(t.date).getTime();
+        if (!visStartTs || tTs < visStartTs || tTs > visEndTs + 86400000) return;
+        // 找最接近的K線索引
+        let closestI = 0, minDiff = Infinity;
+        data.forEach((d, i) => { const diff = Math.abs(d.t - tTs); if (diff < minDiff) { minDiff = diff; closestI = i; } });
+        if (t.price < minP || t.price > maxP) return;
+        const x = xOf(closestI), y = yOf(t.price);
+        const isBuy = t.action === 'buy';
+        ctx.fillStyle = isBuy ? '#E24B4A' : '#1D9E75';
+        ctx.beginPath();
+        if (isBuy) { ctx.moveTo(x, y+7); ctx.lineTo(x-5, y+15); ctx.lineTo(x+5, y+15); }
+        else { ctx.moveTo(x, y-7); ctx.lineTo(x-5, y-15); ctx.lineTo(x+5, y-15); }
+        ctx.closePath();
+        ctx.fill();
+      });
+    }
+
     // ── 預測延伸線（技術面統計外推，非真實預測）──────
     if (prediction) {
       const trend = prediction.trend;
