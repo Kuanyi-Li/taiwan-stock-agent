@@ -101,7 +101,7 @@ body {
 .dash-card-price { font-family: var(--font-mono); font-size: 17px; font-weight: 700; }
 .dash-card-chg { font-size: 11px; font-weight: 600; }
 
-.dash-card-canvas { display: block; width: 100%; flex: 1; min-height: 0; }
+.dash-card-canvas { display: block; width: 100%; flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; }
 
 .dash-card-badge-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 6px; min-height: 20px; flex-shrink: 0; margin-top: 4px; }
 .dash-trend-badge { font-size: 13px; font-weight: 700; padding: 3px 8px; border-radius: 4px; white-space: nowrap; }
