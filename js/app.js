@@ -452,6 +452,238 @@ const SIGNAL = {
   },
 };
 
+// ── DASHBOARD module（總覽：所有持股K線+成交量+訊號卡片）──
+const Dashboard = {
+  _rendering: false,
+
+  toggle() {
+    const dv = document.getElementById('dashboard-view');
+    const detail = document.getElementById('detail-view');
+    const isShowingDash = dv.style.display !== 'none';
+    const btn = document.getElementById('dashboard-toggle-btn');
+    if (isShowingDash) {
+      // 切到個股詳細（若尚無選中股票，選第一支）
+      dv.style.display = 'none';
+      detail.style.display = '';
+      if (btn) btn.textContent = '🏠 總覽';
+      if (!APP.activeSymbol && APP.portfolio.length) {
+        APP.selectStock(APP.portfolio[0].code, 0, 'portfolio');
+      } else if (CHART.currentData.length) {
+        setTimeout(() => CHART.draw(), 50); // 修正剛顯示時canvas寬度計算
+      }
+    } else {
+      detail.style.display = 'none';
+      dv.style.display = '';
+      if (btn) btn.textContent = '📈 個股';
+      this.render();
+    }
+  },
+
+  async render() {
+    if (this._rendering) return;
+    this._rendering = true;
+    const grid = document.getElementById('dashboard-grid');
+    if (!grid) { this._rendering = false; return; }
+
+    // 卡片清單：加權/櫃買指數 + 持股 + 自選（依目前市場）
+    const isUS = APP.activeMarket === 'US';
+    const indexCards = isUS
+      ? [{ code:'^GSPC', name:'S&P 500', isIndex:true }]
+      : [{ code:'^TWII', name:'加權指數', isIndex:true }];
+    const stockCards = [
+      ...APP.portfolio.map(s => ({ code:s.code, name:s.name, isIndex:false, isWatch:false })),
+      ...APP.watchlist
+        .filter(w => !APP.portfolio.some(s => s.code === w.code))
+        .map(w => ({ code:w.code, name:w.name, isIndex:false, isWatch:true })),
+    ];
+    const cards = [...indexCards, ...stockCards];
+
+    if (stockCards.length === 0) {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">尚無持股或自選股，請先新增</div>`;
+      this._rendering = false;
+      return;
+    }
+
+    // 先畫出卡片骨架（含 loading canvas），資料抓回來後逐一補上
+    grid.innerHTML = cards.map((c, i) => this._cardSkeleton(c, i)).join('');
+
+    // 逐一非同步抓資料並繪製（避免同時大量請求打爆 proxy）
+    for (let i = 0; i < cards.length; i++) {
+      this._loadCard(cards[i], i);
+      await new Promise(r => setTimeout(r, 120)); // 輕微節流
+    }
+    this._rendering = false;
+  },
+
+  _cardSkeleton(c, i) {
+    return `
+      <div class="dash-card ${c.isIndex ? 'dash-card-index' : ''}" id="dash-card-${i}" onclick="Dashboard._onCardClick('${c.code}', ${c.isWatch ? "'watch'" : "'portfolio'"})">
+        <div class="dash-card-head">
+          <span class="dash-card-code">${c.code}</span>
+          <span class="dash-card-name">${c.name}</span>
+        </div>
+        <div class="dash-card-price-row">
+          <span class="dash-card-price" id="dash-price-${i}">—</span>
+          <span class="dash-card-chg" id="dash-chg-${i}"></span>
+        </div>
+        <canvas class="dash-card-canvas" id="dash-canvas-${i}" height="90"></canvas>
+        <div class="dash-card-badge-row" id="dash-badge-${i}">
+          <span class="dash-badge-loading">載入中...</span>
+        </div>
+      </div>`;
+  },
+
+  async _loadCard(c, i) {
+    try {
+      const data = await DATA.fetchHistory(c.code, 'mini');
+      if (!data || data.length < 3) throw new Error('no data');
+      const last = data[data.length - 1];
+      const prev = data.length >= 2 ? data[data.length - 2].c : last.c;
+      // 若有即時報價，優先使用（比mini K線更即時）
+      const live = DATA.priceStore[c.code];
+      const price = live?.price && live.source !== 'twse-prev' ? live.price : last.c;
+      const prevClose = live?.prevClose ?? prev;
+      const chg = price - prevClose;
+      const chgPct = prevClose ? chg / prevClose * 100 : 0;
+
+      const priceEl = document.getElementById(`dash-price-${i}`);
+      const chgEl = document.getElementById(`dash-chg-${i}`);
+      const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
+      if (priceEl) priceEl.textContent = (isUSStock ? 'US$' : '') + price.toFixed(2);
+      if (chgEl) {
+        const isUp = chg >= 0;
+        chgEl.className = 'dash-card-chg ' + (isUp ? 'up-color' : 'dn-color');
+        chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
+      }
+
+      const canvas = document.getElementById(`dash-canvas-${i}`);
+      if (canvas) this._drawMiniChart(canvas, data);
+
+      // 訊號徽章（指數不顯示訊號）
+      const badgeEl = document.getElementById(`dash-badge-${i}`);
+      if (badgeEl) {
+        if (c.isIndex) {
+          badgeEl.innerHTML = '';
+        } else {
+          const s = APP.portfolio.find(x => x.code === c.code) || { code: c.code, price, cost: price };
+          const sig = SIGNAL.quickEstimate({ ...s, price });
+          const tier = sig?.tier ?? 3;
+          let priceHtml = '';
+          if (tier <= 2) {
+            // 賣出家族：顯示建議賣出參考價（現價附近）
+            priceHtml = `<span class="dash-badge-price">參考 ${isUSStock?'US$':''}${price.toFixed(2)}</span>`;
+          } else if (tier >= 4) {
+            // 買進家族：顯示建議進場價（現價回檔3%）
+            const entry = price * 0.97;
+            priceHtml = `<span class="dash-badge-price">進場 ${isUSStock?'US$':''}${entry.toFixed(2)}</span>`;
+          }
+          badgeEl.innerHTML = `<span class="dash-badge ${sig.cls}">${sig.short} ${sig.label}</span>${priceHtml}`;
+        }
+      }
+    } catch(e) {
+      const badgeEl = document.getElementById(`dash-badge-${i}`);
+      if (badgeEl) badgeEl.innerHTML = `<span class="dash-badge-error">資料載入失敗</span>`;
+    }
+  },
+
+  // 輕量K線+成交量繪製（單一canvas，上方蠟燭、下方一小條成交量）
+  _drawMiniChart(canvas, data) {
+    const wrap = canvas.parentElement;
+    const W = wrap.clientWidth || 260;
+    const H = 90;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const n = data.length;
+    if (!n) return;
+    const volH = 16, gapY = 2;
+    const priceH = H - volH - gapY;
+
+    const PAD = { l:2, r:2 };
+    const chartW = W - PAD.l - PAD.r;
+    const gapRatio = 0.3;
+    const barW = Math.max(1, chartW / (n * (1 + gapRatio)));
+    const gap = barW * gapRatio;
+    const xOf = i => PAD.l + i * (barW + gap);
+
+    const highs = data.map(d => d.h), lows = data.map(d => d.l);
+    const maxP = Math.max(...highs), minP = Math.min(...lows);
+    const range = (maxP - minP) || 1;
+    const yOf = p => (1 - (p - minP) / range) * priceH;
+
+    data.forEach((d, i) => {
+      const isUp = d.c >= d.o;
+      const color = isUp ? '#E24B4A' : '#1D9E75';
+      const x = xOf(i);
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1;
+      // 影線
+      ctx.beginPath();
+      ctx.moveTo(x + barW/2, yOf(d.h));
+      ctx.lineTo(x + barW/2, yOf(d.l));
+      ctx.stroke();
+      // 實體
+      const yo = yOf(d.o), yc = yOf(d.c);
+      const top = Math.min(yo, yc), bh = Math.max(1, Math.abs(yc - yo));
+      ctx.fillRect(x, top, barW, bh);
+    });
+
+    // 成交量
+    const maxV = Math.max(...data.map(d => d.v)) || 1;
+    const volTop = priceH + gapY;
+    data.forEach((d, i) => {
+      const isUp = d.c >= d.o;
+      ctx.fillStyle = isUp ? 'rgba(226,75,74,0.5)' : 'rgba(29,158,117,0.5)';
+      const bh = Math.max(1, (d.v / maxV) * volH);
+      ctx.fillRect(xOf(i), volTop + volH - bh, barW, bh);
+    });
+  },
+
+  _onCardClick(code, source) {
+    const detail = document.getElementById('detail-view');
+    const dv = document.getElementById('dashboard-view');
+    dv.style.display = 'none';
+    detail.style.display = '';
+    const btn = document.getElementById('dashboard-toggle-btn');
+    if (btn) btn.textContent = '🏠 總覽';
+    const list = source === 'watch' ? APP.watchlist : APP.portfolio;
+    const idx = list.findIndex(s => s.code === code);
+    APP.selectStock(code, idx >= 0 ? idx : 0, source);
+    setTimeout(() => CHART.draw(), 80);
+  },
+
+  // 輕量更新：只更新價格文字/徽章，不重抓K線、不重繪canvas（節省資源）
+  updateLivePrices() {
+    const dv = document.getElementById('dashboard-view');
+    if (!dv || dv.style.display === 'none') return;
+    const isUS = APP.activeMarket === 'US';
+    const stockCards = [
+      ...APP.portfolio.map(s => ({ code:s.code, isWatch:false })),
+      ...APP.watchlist.filter(w => !APP.portfolio.some(s => s.code === w.code)).map(w => ({ code:w.code, isWatch:true })),
+    ];
+    const indexOffset = 1; // 第0張是指數卡
+    stockCards.forEach((c, si) => {
+      const i = si + indexOffset;
+      const q = DATA.priceStore[c.code];
+      if (!q?.price) return;
+      const priceEl = document.getElementById(`dash-price-${i}`);
+      const chgEl = document.getElementById(`dash-chg-${i}`);
+      const isUSStock = DATA.isUSCode(c.code);
+      if (priceEl) priceEl.textContent = (isUSStock ? 'US$' : '') + q.price.toFixed(2);
+      if (chgEl && q.prevClose) {
+        const chg = q.price - q.prevClose;
+        const chgPct = chg / q.prevClose * 100;
+        const isUp = chg >= 0;
+        chgEl.className = 'dash-card-chg ' + (isUp ? 'up-color' : 'dn-color');
+        chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
+      }
+    });
+  },
+};
+
 // ── ORDER module ──────────────────────────────────────
 const ORDER = {
   suggestEntry: 0, suggestSL: 0, suggestTP: 0, score: 0,
@@ -1209,6 +1441,8 @@ const APP = {
     // 先顯示本機資料，背景同步雲端
     SYNC.autoDownloadOnStart(); // 不 await，背景執行
     if (this.portfolio.length > 0) this.selectStock(this.portfolio[0].code, 0, 'portfolio');
+    // ★ 總覽頁為預設首頁，載入完成後渲染
+    Dashboard.render();
     // 背景分析所有持股
     setTimeout(() => this._backgroundAnalyzeAll(), 500);
 
@@ -1333,6 +1567,9 @@ const APP = {
     this._updateMarketStatus();
     this.refreshPrices(true);
     if (market === 'US') DATA.fetchUSIndexes();
+    // 若總覽頁正顯示，切換市場後重新渲染（不同市場持股不同）
+    const dv = document.getElementById('dashboard-view');
+    if (dv && dv.style.display !== 'none') Dashboard.render();
   },
 
   _updateMarketStatus() {
@@ -1417,6 +1654,8 @@ const APP = {
     GOALS.updateDashboard();
     GOALS.recordSnapshot();
     this._renderSignalOverview();
+    // 總覽頁若正在顯示，只更新價格文字（不重抓K線，避免頻繁重繪）
+    Dashboard.updateLivePrices();
     // ★ 問題3: 移除「報價已更新」toast
   },
 
@@ -2070,7 +2309,7 @@ function openSellStockModal(code, idx) {
   const note = document.getElementById('sell-modal-note');
   if (note) note.textContent = isUS
     ? '美股一般無交易稅，僅計算手續費（各券商不同，預設$0）。'
-    : '⚠️ 手續費 0.1425%（最低$20）+ 交易稅 0.3%，自動計入紀錄。';
+    : '⚠️ 手續費 0.1425%（最低$20）+ 交易稅（ETF 0.1%／個股 0.3%），自動計入紀錄。';
   document.getElementById('sell-modal')?.classList.add('show');
   document.getElementById('sell-modal')._idx = idx;
 }
@@ -2127,6 +2366,14 @@ function confirmBuy() {
   showToast(`${s.name} 加碼 ${shares}股 @ ${isUS?'$':'NT$'}${price}，新均價 ${isUS?'$':'NT$'}${s.cost.toFixed(2)}`);
 }
 
+// 台股證交稅：ETF(00開頭代碼) 0.1%，一般股票 0.3%
+function isTWETF(code) {
+  return /^00\d{2,4}$/.test(code);
+}
+function sellTaxRate(code) {
+  return isTWETF(code) ? 0.001 : 0.003;
+}
+
 function confirmSell() {
   const modal = document.getElementById('sell-modal');
   const idx = modal._idx;
@@ -2140,8 +2387,8 @@ function confirmSell() {
   const isUS = APP.activeMarket === 'US';
   const tradeValue = price * shares;
   const pnl = (price - s.cost) * shares;
-  // 台股：手續費 0.1425% + 交易稅 0.3%；美股：無費用
-  const sellTax = isUS ? 0 : Math.round(tradeValue * 0.003);
+  // 台股：手續費 0.1425% + 交易稅（ETF 0.1% / 一般股票 0.3%）；美股：無費用
+  const sellTax = isUS ? 0 : Math.round(tradeValue * sellTaxRate(s.code));
   const fee     = isUS ? 0 : Math.max(20, Math.round(tradeValue * 0.001425));
   const totalFee = fee + sellTax;
   const currency = isUS ? 'USD' : 'NT$';

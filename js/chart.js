@@ -461,10 +461,17 @@ const CHART = {
     const data = this._visibleData();
     if (!data.length) return;
     const n = data.length;
+
+    // ★ 與主圖對齊：若有預測延伸，總bar數要一致，成交量才不會超出真實K線範圍
+    const visStart = this.zoomStart;
+    const showingLatest = (visStart + n) >= this.currentData.length;
+    const predictActive = this.showPredict && showingLatest && this.currentData.length >= 15;
+    const totalBars = predictActive ? n + this.predictDays : n;
+
     const PAD = { l:6, r:56, t:4, b:4 };
     const chartW = W - PAD.l - PAD.r;
     const gapRatio = 0.2;
-    const barW = Math.max(1, Math.min(40, chartW / (n * (1 + gapRatio))));
+    const barW = Math.max(1, Math.min(40, chartW / (totalBars * (1 + gapRatio))));
     const gap = barW * gapRatio;
     const maxV = Math.max(...data.map(d => d.v)) || 1;
 

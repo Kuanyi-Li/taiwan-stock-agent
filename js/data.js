@@ -370,9 +370,10 @@ const DATA = {
     if (cached && now - cached.ts < ttl) return cached.data;
 
     return this._enqueue(async () => {
-      // 台股：上市用 .TW，上櫃用 .TWO；美股直接用代碼
+      // 台股：上市用 .TW，上櫃用 .TWO；美股/指數(^開頭)直接用代碼
       // 記住已確認的正確後綴，避免每次都要試錯
-      const isUS = this.isUSCode(symbol);
+      const isIndex = symbol.startsWith('^');
+      const isUS = isIndex || this.isUSCode(symbol);
       const cachedSuffix = this._twSuffixCache[symbol];
       const knownTPEX = this.priceStore[symbol]?.source === 'tpex';
       const suffixesToTry = isUS ? [''] :
@@ -509,6 +510,7 @@ const DATA = {
   _periodToParams(period) {
     return ({
       '5m':  { interval:'5m',  range:'5d'  },
+      'mini':{ interval:'1d',  range:'1mo' },
       '15m': { interval:'15m', range:'5d'  },
       '60m': { interval:'60m', range:'1mo' },
       '1d':  { interval:'1d',  range:'1y'  },
