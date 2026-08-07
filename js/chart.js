@@ -160,45 +160,81 @@ const CHART = {
   },
 
   // ── 技術面統計外推預測（非真實預測，僅供參考）──────
-  // 用「成交量加權線性迴歸」抓近期趨勢方向與強度，
-  // 用殘差標準差估計信賴區間，區間隨天數拉遠而擴大。
-  _computePrediction(days) {
+  // v2：近中期雙窗口迴歸 + ADX/RSI 動能修正 + 位階修正 + 標準預測區間公式
+  _computePrediction(days, symbol) {
     const data = this.currentData;
-    const lookback = Math.min(40, data.length);
-    if (lookback < 10) return null;
-    const slice = data.slice(-lookback);
-    const closes = slice.map(d => d.c);
-    const vols = slice.map(d => Math.max(1, d.v || 1));
-    const n = closes.length;
+    if (data.length < 15) return null;
 
-    // 成交量加權最小平方法回歸（量大的日子影響力較高）
-    let sw = 0, swx = 0, swy = 0;
-    for (let i = 0; i < n; i++) { sw += vols[i]; swx += vols[i]*i; swy += vols[i]*closes[i]; }
-    const xBar = swx/sw, yBar = swy/sw;
-    let num = 0, den = 0;
-    for (let i = 0; i < n; i++) { num += vols[i]*(i-xBar)*(closes[i]-yBar); den += vols[i]*(i-xBar)**2; }
-    const slope = den ? num/den : 0;
-    const intercept = yBar - slope*xBar;
+    // 單一窗口的成交量加權線性迴歸
+    const regress = lookback => {
+      const nn = Math.min(lookback, data.length);
+      const slice = data.slice(-nn);
+      const closes = slice.map(d => d.c);
+      const vols = slice.map(d => Math.max(1, d.v || 1));
+      let sw = 0, swx = 0, swy = 0;
+      for (let i = 0; i < nn; i++) { sw += vols[i]; swx += vols[i]*i; swy += vols[i]*closes[i]; }
+      const xBar = swx/sw, yBar = swy/sw;
+      let num = 0, den = 0;
+      for (let i = 0; i < nn; i++) { num += vols[i]*(i-xBar)*(closes[i]-yBar); den += vols[i]*(i-xBar)**2; }
+      const slope = den ? num/den : 0;
+      const intercept = yBar - slope*xBar;
+      const resid = closes.map((c,i) => c - (intercept + slope*i));
+      const variance = resid.reduce((a,b) => a + b*b, 0) / Math.max(1, nn-2);
+      return { slope, xBar, den, variance, n: nn };
+    };
 
-    // 殘差標準差（信賴帶寬度基礎）
-    const resid = closes.map((c,i) => c - (intercept + slope*i));
-    const variance = resid.reduce((a,b) => a + b*b, 0) / Math.max(1, n-2);
-    const stdErr = Math.sqrt(variance);
+    // ① 近期(10天)+中期(40天)雙窗口，近期反應快、中期看趨勢穩定度
+    const near = regress(10);
+    const mid  = regress(40);
+    if (!near || !mid || mid.n < 15) return null;
 
-    // 錨定最後收盤價，避免預測線與K線最後一點斷開
-    const lastIdx = n - 1;
+    let slope = near.slope * 0.6 + mid.slope * 0.4;
+
+    // ② ADX 趨勢強度：盤整時大幅收斂斜率，避免亂畫延伸線
+    const ind = ANALYSIS._cache[symbol || (typeof APP !== 'undefined' ? APP.activeSymbol : '')]?.ind;
+    const adx = ind?.adx;
+    if (adx != null) {
+      if (adx < 20) slope *= 0.35;      // 明顯盤整，趨勢不可信
+      else if (adx < 25) slope *= 0.7;  // 弱趨勢，打折
+    }
+
+    // ③ RSI 超買超賣：對趨勢做溫和修正，避免持續朝極端外推
+    const rsi = ind?.rsi;
+    if (rsi != null) {
+      if (rsi > 75) slope *= 0.5;
+      else if (rsi > 70) slope *= 0.75;
+      else if (rsi < 25) slope *= 0.5;
+      else if (rsi < 30) slope *= 0.75;
+    }
+
+    // ④ 位階修正：已接近近期高點還在漲/接近近期低點還在跌 → 續勢力道打折（壓力／支撐概念）
+    const hlWindow = data.slice(-40);
+    const hi = Math.max(...hlWindow.map(d => d.h));
+    const lo = Math.min(...hlWindow.map(d => d.l));
+    const rangeHL = hi - lo || 1;
     const lastClose = data[data.length-1].c;
-    const predAtLast = intercept + slope*lastIdx;
-    const shift = lastClose - predAtLast;
+    const posInRange = (lastClose - lo) / rangeHL; // 0=近期低點, 1=近期高點
+    if (slope > 0 && posInRange > 0.85) slope *= 0.5;
+    else if (slope < 0 && posInRange < 0.15) slope *= 0.5;
+
+    // 殘差標準差：近中期加權合併，作為信賴區間基礎
+    const s = Math.sqrt(near.variance * 0.6 + mid.variance * 0.4);
+
+    // 用標準線性迴歸預測區間公式（非拍腦袋倍數）：
+    // SE(x0) = s * sqrt(1 + 1/n + (x0-x̄)²/Sxx)
+    const { n, xBar, den } = mid;
+    const lastIdx = n - 1;
+    const z = 1.3; // ≈ 80% 概略信賴水準（成交量加權不完全符合古典假設，僅供參考）
 
     const points = [];
     for (let d = 1; d <= days; d++) {
-      const idx = lastIdx + d;
-      const mid = intercept + slope*idx + shift;
-      const band = stdErr * Math.sqrt(1 + d/n) * 1.5;
-      points.push({ day: d, mid, upper: mid + band, lower: mid - band });
+      const priceMid = lastClose + slope * d; // 直接以「每日變動」錨定當前價，避免截距不一致
+      const x0 = lastIdx + d;
+      const se = s * Math.sqrt(1 + 1/n + ((x0 - xBar) ** 2) / (den || 1));
+      const band = se * z;
+      points.push({ day: d, mid: priceMid, upper: priceMid + band, lower: priceMid - band });
     }
-    return { slope, stdErr, points };
+    return { slope, stdErr: s, points };
   },
 
   draw() {
@@ -242,7 +278,7 @@ const CHART = {
     // 只有在檢視最新資料（未拉到過去）時才顯示預測延伸
     const showingLatest = (visStart + n) >= this.currentData.length;
     const predictActive = this.showPredict && showingLatest;
-    const prediction = predictActive ? this._computePrediction(this.predictDays) : null;
+    const prediction = predictActive ? this._computePrediction(this.predictDays, APP.activeSymbol) : null;
     const extraBars = prediction ? this.predictDays : 0;
     const totalBars = n + extraBars;
     const discEl = document.getElementById('predict-disclaimer');
