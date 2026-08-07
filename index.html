@@ -121,6 +121,10 @@
 
     <!-- ── 總覽（Dashboard）── -->
     <div class="dashboard-content" id="dashboard-content">
+      <div class="dashboard-header">
+        <div class="dashboard-summary" id="dashboard-summary"></div>
+        <button class="dash-mode-toggle" id="dash-mode-toggle" onclick="Dashboard.toggleCompact()">📋 精簡模式</button>
+      </div>
       <div class="dashboard-grid" id="dashboard-grid">
         <div class="empty-state" style="grid-column:1/-1">載入中...</div>
       </div>
@@ -176,6 +180,7 @@
         <div class="predict-disclaimer" id="predict-disclaimer" style="display:none">
           ⚠️ 灰色區域為綜合近中期價格走勢、成交量、ADX趨勢強度、RSI動能、近期高低點位階統計外推的可能區間，<strong>非預測未來股價，僅供技術面參考</strong>，實際走勢受消息面、基本面等因素影響，請勿作為唯一下單依據。
         </div>
+        <div class="predict-accuracy" id="predict-accuracy" style="display:none"></div>
         <div class="vol-wrap"><canvas id="volChart"></canvas></div>
         <div class="ma-legend">
           <span style="color:#EF9F27">● MA5</span>
