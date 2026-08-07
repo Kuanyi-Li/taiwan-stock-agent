@@ -94,10 +94,7 @@ body {
 .dash-card-canvas { display: block; width: 100%; flex: 1; min-height: 0; }
 
 .dash-card-badge-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 6px; min-height: 20px; flex-shrink: 0; margin-top: 4px; }
-.dash-trend-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
-.dash-trend-up   { color: #a78bfa; background: rgba(167,139,250,0.12); }
-.dash-trend-down { color: #a78bfa; background: rgba(167,139,250,0.12); }
-.dash-trend-flat { color: #9ca3af; background: rgba(156,163,175,0.12); }
+.dash-trend-badge { font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
 .dash-badge { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
 .dash-badge-price { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); }
 .dash-badge-loading, .dash-badge-error { font-size: 10.5px; color: var(--text-3); }
