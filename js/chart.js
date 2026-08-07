@@ -140,10 +140,10 @@ const CHART = {
 
   _resetZoom() {
     const n = this.currentData.length;
-    // ★ 1日週期抓了較長歷史（供MA20/MA60計算），但預設只顯示最近約1個月
+    // ★ 1日週期抓了較長歷史（供MA20/MA60計算），預設顯示最近約60個交易日（近3個月）
     // 更早的資料仍在 currentData 中，可拖曳/縮放查看，MA也會用得到完整歷史
-    if (this.currentPeriod === '1d' && n > 24) {
-      this.zoomStart = n - 24;
+    if (this.currentPeriod === '1d' && n > 60) {
+      this.zoomStart = n - 60;
       this.zoomEnd = n - 1;
     } else {
       this.zoomStart = 0;
