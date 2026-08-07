@@ -28,7 +28,6 @@
     </div>
     <button class="dashboard-toggle-btn" id="dashboard-toggle-btn" onclick="Dashboard.toggle()" title="總覽所有持股">🏠 總覽</button>
     <button class="dashboard-toggle-btn" onclick="Dashboard.openReorderModal()" title="調整總覽卡片排序">↕ 排序</button>
-    <button class="dashboard-toggle-btn" onclick="Calendar.openModal()" title="財經行事曆">📅 行事曆</button>
     <div class="topbar-market" id="tw-market-bar">
       <span class="badge closed" id="mkt-status">休市</span>
       <span class="index-chip" id="taiex-badge">加權 —</span>
@@ -572,21 +571,6 @@
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('reorder-modal')">取消</button>
       <button class="btn-primary" onclick="Dashboard.saveReorder()">儲存</button>
-    </div>
-  </div>
-</div>
-<div class="modal-overlay" id="calendar-modal">
-  <div class="modal">
-    <div class="modal-header">
-      <h3>📅 財經行事曆</h3>
-      <button class="modal-close" onclick="closeModal('calendar-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-note" style="margin-bottom:10px">🏛️ FOMC會議、📋 台股法定財報申報截止日（非個股實際公告日）、📊 美股個股財報日（依持股/自選股自動掃描，快取3天）。僅供時程參考，不構成投資建議。</div>
-      <div id="calendar-list" class="calendar-list"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('calendar-modal')">關閉</button>
     </div>
   </div>
 </div>
