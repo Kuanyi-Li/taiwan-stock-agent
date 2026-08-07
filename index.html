@@ -52,15 +52,8 @@
   </div>
 </header>
 
-<!-- ── Dashboard（總覽）── -->
-<div class="dashboard-view" id="dashboard-view">
-  <div class="dashboard-grid" id="dashboard-grid">
-    <div class="empty-state" style="grid-column:1/-1">載入中...</div>
-  </div>
-</div>
-
 <!-- ── Layout ── -->
-<div class="app-layout" id="detail-view" style="display:none">
+<div class="app-layout" id="detail-view">
 
   <!-- ── Sidebar ── -->
   <aside class="sidebar">
@@ -125,6 +118,16 @@
   <!-- ── Main Content ── -->
   <main class="content">
 
+    <!-- ── 總覽（Dashboard）── -->
+    <div class="dashboard-content" id="dashboard-content">
+      <div class="dashboard-grid" id="dashboard-grid">
+        <div class="empty-state" style="grid-column:1/-1">載入中...</div>
+      </div>
+    </div>
+
+    <!-- ── 個股詳細 ── -->
+    <div id="detail-content" style="display:none">
+
     <!-- ── Chart Card ── -->
     <div class="card">
       <div class="chart-header">
@@ -177,7 +180,7 @@
           <span style="color:#EF9F27">● MA5</span>
           <span style="color:#378ADD">● MA20</span>
           <span style="color:#D4537E">● MA60</span>
-          <span style="color:var(--text-3);font-size:10px">滾輪縮放 / 拖曳平移</span>
+          <span style="color:var(--text-3);font-size:10px">滾輪移動日期 / 拖曳平移</span>
         </div>
       </div>
 
@@ -429,6 +432,8 @@
 
     </div><!-- end feature card -->
 
+    </div><!-- end detail-content -->
+
   </main>
 </div>
 
@@ -520,6 +525,28 @@
       <button class="btn-cancel" onclick="closeModal('edit-trade-modal')">取消</button>
       <button class="btn-danger" onclick="deleteTradeConfirm()">刪除</button>
       <button class="btn-primary" onclick="saveEditTrade()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 手動修改均價 -->
+<div class="modal-overlay" id="edit-cost-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>手動修改均價</h3>
+      <button class="modal-close" onclick="closeModal('edit-cost-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">代號</label><input type="text" id="ec-code" class="form-input" readonly></div>
+        <div class="form-group"><label class="form-label">目前均價</label><input type="text" id="ec-current" class="form-input" readonly></div>
+      </div>
+      <div class="form-group"><label class="form-label">新均價 <span class="required">*</span></label><input type="number" id="ec-new-cost" class="form-input" step="0.0001"></div>
+      <div class="form-note">⚠️ 這只會直接覆蓋均價，不會新增或修改交易紀錄。若之後編輯/新增交易紀錄，均價可能會被重新計算覆蓋。</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('edit-cost-modal')">取消</button>
+      <button class="btn-primary" onclick="saveEditCost()">儲存</button>
     </div>
   </div>
 </div>
