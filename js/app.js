@@ -726,6 +726,24 @@ const Dashboard = {
     const range = (maxP - minP) || 1;
     const yOf = p => (1 - (p - minP) / range) * priceH;
 
+    // ── 格線（水平3條 + 垂直分段），淡色不搶眼 ──
+    const isDark = !document.body.classList.contains('light-mode');
+    const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    // 水平格線：上/中/下三條
+    [0, 0.5, 1].forEach(frac => {
+      const y = frac * priceH;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    });
+    // 垂直格線：依可視K線數平均分4段
+    const vStep = Math.max(1, Math.ceil(n / 4));
+    for (let i = 0; i < n; i += vStep) {
+      const x = xOf(i);
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, priceH); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
     data.forEach((d, i) => {
       const isUp = d.c >= d.o;
       const color = isUp ? '#E24B4A' : '#1D9E75';
