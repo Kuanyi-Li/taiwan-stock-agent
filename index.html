@@ -352,6 +352,7 @@
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
             <span style="font-size:13px;font-weight:600">交易紀錄（最近50筆）</span>
             <div class="export-row">
+              <button class="export-btn" onclick="openAddTradeModal()">＋ 新增交易</button>
               <button class="export-btn" onclick="APP.exportData()">⬇ 匯出備份</button>
               <button class="export-btn" onclick="document.getElementById('import-file').click()">⬆ 匯入備份</button>
               <input type="file" id="import-file" style="display:none" accept=".json" onchange="APP.importData(this.files[0])">
@@ -583,6 +584,48 @@
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('alert-modal')">取消</button>
       <button class="btn-primary" onclick="PriceAlert.saveFromModal()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="add-trade-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>＋ 新增交易紀錄</h3>
+      <button class="modal-close" onclick="closeModal('add-trade-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">市場</label>
+          <select id="at-market" class="form-input">
+            <option value="TW">台股</option>
+            <option value="US">美股</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">動作</label>
+          <select id="at-action" class="form-input">
+            <option value="buy">買進</option>
+            <option value="sell">賣出</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">代號 <span class="required">*</span></label><input type="text" id="at-code" class="form-input" placeholder="2330" oninput="autoFetchStockName(this.value,'at-name')"></div>
+        <div class="form-group"><label class="form-label">名稱</label><input type="text" id="at-name" class="form-input" placeholder="自動帶入或手動輸入"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">股數 <span class="required">*</span></label><input type="number" id="at-shares" class="form-input" min="1" step="1"></div>
+        <div class="form-group"><label class="form-label">成交價 <span class="required">*</span></label><input type="number" id="at-price" class="form-input" step="0.01"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">交易日期 <span class="required">*</span></label><input type="date" id="at-date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">手續費/稅費</label><input type="number" id="at-fee" class="form-input" min="0" step="1" value="0"></div>
+      </div>
+      <div class="form-note">💡 用於補登過去的交易紀錄（例如忘記記錄、或匯入其他平台的歷史交易）。儲存後會自動依全部交易紀錄重新計算持股均價。</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('add-trade-modal')">取消</button>
+      <button class="btn-primary" onclick="saveAddTrade()">新增</button>
     </div>
   </div>
 </div>
