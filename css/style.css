@@ -179,6 +179,16 @@ body {
 /* Portfolio Summary */
 .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .s-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; }
+.concentration-warn { font-size: 11px; padding: 6px 9px; border-radius: var(--radius-sm); margin-top: 8px; line-height: 1.5; }
+.concentration-warn.high { background: rgba(226,75,74,0.1); border: 1px solid rgba(226,75,74,0.3); color: #E24B4A; }
+.concentration-warn.mid { background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.3); color: #eab308; }
+.trade-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.trade-stat-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; }
+.trade-stat-label { font-size: 10px; color: var(--text-3); margin-bottom: 3px; }
+.trade-stat-value { font-size: 15px; font-weight: 700; font-family: var(--font-mono); }
+.exdiv-item { display: flex; justify-content: space-between; align-items: center; font-size: 11px; padding: 4px 7px; background: var(--bg-2); border-radius: 4px; }
+.exdiv-code { font-family: var(--font-mono); font-weight: 700; }
+.exdiv-date { color: var(--text-3); }
 .s-label { font-size: 10px; color: var(--text-3); margin-bottom: 3px; }
 .s-value { font-size: 15px; font-weight: 600; font-family: var(--font-mono); }
 .s-value.neutral { color: var(--text-1); }
@@ -212,6 +222,7 @@ body {
   font-weight: 500; white-space: nowrap;
 }
 .si-btn { width: 22px; height: 20px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg-3); color: var(--text-2); font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.si-btn.alert-active { border-color: #eab308; color: #eab308; background: rgba(234,179,8,0.1); }
 .si-btn.buy:hover { background: rgba(226,75,74,0.15); color: var(--red); border-color: var(--red); }
 .si-btn.sell:hover { background: rgba(29,158,117,0.15); color: var(--green-l); border-color: var(--green-l); }
 .si-btn.del:hover { background: rgba(226,75,74,0.15); color: var(--red-l); }
