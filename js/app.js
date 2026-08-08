@@ -701,6 +701,14 @@ const Performance = {
           <div class="perf-card-title">📅 本月/今年損益</div>
           <div id="perf-period-pnl"></div>
         </div>
+      </div>
+      <div class="perf-card" style="margin-bottom:14px">
+        <div class="perf-card-title">📊 月度已實現損益</div>
+        <div class="perf-big-canvas-wrap" style="height:160px"><canvas id="perf-monthly-canvas"></canvas></div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-card-title">🏅 個股累計損益排行</div>
+        <div id="perf-stock-ranking"></div>
       </div>`;
 
     this._drawNetWorthChart();
@@ -708,6 +716,98 @@ const Performance = {
     this._renderSectorBreakdown();
     this._renderBestWorst();
     this._renderPeriodPnl();
+    this._drawMonthlyPnlChart();
+    this._renderStockRanking();
+  },
+
+  // ── 月度已實現損益長條圖（近12個月）─────────────────
+  _drawMonthlyPnlChart() {
+    const canvas = document.getElementById('perf-monthly-canvas');
+    if (!canvas) return;
+    const wrap = canvas.parentElement;
+    const W = wrap.clientWidth || 600, H = 160;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const isDark = !document.body.classList.contains('light-mode');
+    const axisColor = isDark ? '#8b949e' : '#57606a';
+
+    const sells = TRADES.get().filter(t => t.action === 'sell' && t.realizedPnl != null);
+    const months = [];
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push(d.toISOString().slice(0, 7));
+    }
+    const byMonth = {};
+    months.forEach(m => byMonth[m] = 0);
+    sells.forEach(t => {
+      const m = t.date?.slice(0, 7);
+      if (m && byMonth[m] != null) byMonth[m] += t.realizedPnl;
+    });
+    const values = months.map(m => byMonth[m]);
+
+    if (!sells.length) {
+      ctx.fillStyle = axisColor; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('尚無已實現交易資料', W/2, H/2);
+      return;
+    }
+
+    const PAD = { l:50, r:10, t:10, b:24 };
+    const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
+    const maxAbs = Math.max(...values.map(Math.abs), 1);
+    const zeroY = PAD.t + chartH / 2;
+    const barW = chartW / months.length * 0.6;
+    const gap = chartW / months.length;
+
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(PAD.l, zeroY); ctx.lineTo(W - PAD.r, zeroY); ctx.stroke();
+
+    months.forEach((m, i) => {
+      const v = values[i];
+      const x = PAD.l + i * gap + (gap - barW) / 2;
+      const bh = Math.abs(v) / maxAbs * (chartH / 2 - 4);
+      const y = v >= 0 ? zeroY - bh : zeroY;
+      ctx.fillStyle = v >= 0 ? '#E24B4A' : (v < 0 ? '#1D9E75' : 'rgba(255,255,255,0.1)');
+      ctx.fillRect(x, y, barW, Math.max(1, bh));
+
+      if (i % 2 === 0 || months.length <= 6) {
+        ctx.fillStyle = axisColor; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(m.slice(5), x + barW/2, H - 8);
+      }
+    });
+  },
+
+  // ── 個股累計已實現損益排行（由高到低）───────────────
+  _renderStockRanking() {
+    const el = document.getElementById('perf-stock-ranking');
+    if (!el) return;
+    const sells = TRADES.get().filter(t => t.action === 'sell' && t.realizedPnl != null);
+    if (!sells.length) { el.innerHTML = '<div class="empty-state" style="padding:10px 0">尚無已實現交易</div>'; return; }
+    const byCode = {};
+    sells.forEach(t => {
+      const key = `${t.market||'TW'}_${t.code}`;
+      if (!byCode[key]) byCode[key] = { code: t.code, name: t.name, pnl: 0, count: 0 };
+      byCode[key].pnl += t.realizedPnl;
+      byCode[key].count += 1;
+    });
+    const sorted = Object.values(byCode).sort((a,b) => b.pnl - a.pnl);
+    const maxAbs = Math.max(...sorted.map(s => Math.abs(s.pnl)), 1);
+    el.innerHTML = sorted.map(s => {
+      const pct = Math.abs(s.pnl) / maxAbs * 100;
+      const color = s.pnl >= 0 ? '#E24B4A' : '#1D9E75';
+      return `
+        <div class="perf-sector-row" style="margin-bottom:6px">
+          <span class="perf-sector-name" style="width:110px">${s.code} ${s.name}</span>
+          <div class="perf-sector-track"><div class="perf-sector-fill" style="width:${pct}%;background:${color}"></div></div>
+          <span class="perf-sector-pct" style="width:90px;color:${color}">${s.pnl>=0?'+':''}${s.pnl.toFixed(0)}元</span>
+        </div>`;
+    }).join('');
   },
 
   _drawNetWorthChart() {
@@ -723,15 +823,20 @@ const Performance = {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
 
+    const isDark = !document.body.classList.contains('light-mode');
+    const axisColor = isDark ? '#8b949e' : '#57606a';   // canvas fillStyle 不支援 CSS 變數，必須用實際色碼
+    const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
+    const axisLineColor = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)';
+
     const benchEl = document.getElementById('perf-benchmark');
     if (history.length < 2) {
-      ctx.fillStyle = 'var(--text-3)'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = axisColor; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
       ctx.fillText('資料累積中，明天再回來看趨勢', W/2, H/2);
       if (benchEl) benchEl.textContent = '';
       return;
     }
 
-    const PAD = { l:50, r:10, t:10, b:24 };
+    const PAD = { l:52, r:12, t:10, b:26 };
     const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
     const values = history.map(h => h.value);
     const minV = Math.min(...values), maxV = Math.max(...values);
@@ -740,17 +845,18 @@ const Performance = {
     const xOf = i => PAD.l + (i / (n-1)) * chartW;
     const yOf = v => PAD.t + chartH - ((v - minV) / range) * chartH;
 
-    // 格線 + Y軸標籤
-    const isDark = !document.body.classList.contains('light-mode');
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-    ctx.fillStyle = 'var(--text-3)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    // 水平格線 + Y軸標籤（3條）
+    ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
     [0, 0.5, 1].forEach(f => {
       const y = PAD.t + f * chartH;
+      ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
       const val = maxV - f * range;
-      ctx.fillText(val >= 10000 ? (val/10000).toFixed(0)+'萬' : val.toFixed(0), PAD.l - 6, y + 3);
+      ctx.fillStyle = axisColor;
+      ctx.fillText(val >= 10000 ? (val/10000).toFixed(0)+'萬' : val.toFixed(0), PAD.l - 8, y + 4);
     });
 
+    // 面積 + 折線
     const isUp = values[n-1] >= values[0];
     const color = isUp ? '#E24B4A' : '#1D9E75';
     ctx.beginPath();
@@ -766,11 +872,24 @@ const Performance = {
     ctx.strokeStyle = color; ctx.lineWidth = 2;
     ctx.stroke();
 
-    // X軸日期標籤（頭尾）
-    ctx.fillStyle = 'var(--text-3)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText(history[0].date, PAD.l, H - 6);
-    ctx.textAlign = 'right';
-    ctx.fillText(history[n-1].date, W - PAD.r, H - 6);
+    // 水平座標軸（底線）+ 垂直座標軸（左線）
+    ctx.strokeStyle = axisLineColor; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t + chartH); ctx.lineTo(W - PAD.r, PAD.t + chartH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + chartH); ctx.stroke();
+
+    // X軸日期刻度（頭、中、尾，含垂直輔助虛線）
+    ctx.font = '11px sans-serif';
+    ctx.setLineDash([2,3]);
+    const tickIdxs = n >= 3 ? [0, Math.floor((n-1)/2), n-1] : [0, n-1];
+    tickIdxs.forEach((idx, k) => {
+      const x = xOf(idx);
+      ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, PAD.t + chartH); ctx.stroke();
+      ctx.fillStyle = axisColor;
+      ctx.textAlign = k === 0 ? 'left' : (k === tickIdxs.length - 1 ? 'right' : 'center');
+      ctx.fillText(history[idx].date.slice(5), x, H - 8); // 只顯示 MM-DD
+    });
+    ctx.setLineDash([]);
 
     GOALS._renderBenchmarkCompare(history, 'perf-benchmark');
   },
@@ -3118,6 +3237,41 @@ function deleteTradeConfirm() {
   APP.renderAll();
   PIE.render();
   showToast('交易已刪除，持股重新計算完成');
+}
+
+function openAddTradeModal() {
+  const modal = document.getElementById('add-trade-modal');
+  document.getElementById('at-market').value = APP.activeMarket;
+  document.getElementById('at-action').value = 'buy';
+  document.getElementById('at-code').value = '';
+  document.getElementById('at-name').value = '';
+  document.getElementById('at-shares').value = '';
+  document.getElementById('at-price').value = '';
+  document.getElementById('at-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('at-fee').value = 0;
+  modal.classList.add('show');
+}
+
+function saveAddTrade() {
+  const market = document.getElementById('at-market').value;
+  const action = document.getElementById('at-action').value;
+  const code   = document.getElementById('at-code').value.trim().toUpperCase();
+  let name     = document.getElementById('at-name').value.trim();
+  const shares = parseFloat(document.getElementById('at-shares').value);
+  const price  = parseFloat(document.getElementById('at-price').value);
+  const date   = document.getElementById('at-date').value;
+  const fee    = parseFloat(document.getElementById('at-fee').value) || 0;
+
+  if (!code || !shares || !price || !date) { showToast('請填寫代號、股數、成交價、日期'); return; }
+  if (!name) name = code;
+
+  TRADES.add({ date, code, name, action, shares, price, fee, market });
+  TRADES.recalcPortfolio();
+  closeModal('add-trade-modal');
+  APP.renderAll();
+  PIE.render();
+  TRADES.render();
+  showToast(`已新增交易：${action==='buy'?'買進':'賣出'} ${code} ${shares}股 @ ${price}`);
 }
 
 function openEditCostModal(code, market) {
