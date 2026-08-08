@@ -787,7 +787,7 @@ const Performance = {
           ${['1m','3m','6m','1y','all'].map(p => `<button class="perf-period-btn ${p===this._period?'active':''}" data-period="${p}" onclick="Performance.setPeriod('${p}')">${ {'1m':'1個月','3m':'3個月','6m':'6個月','1y':'1年','all':'全部'}[p] }</button>`).join('')}
         </div>
         <div class="perf-big-canvas-wrap"><canvas id="perf-networth-canvas"></canvas></div>
-        <div id="perf-benchmark" style="margin-top:8px;font-size:12px;color:var(--text-2)"></div>
+        <div id="perf-benchmark" style="margin-top:10px;font-size:15px;font-weight:600;color:var(--text-1)"></div>
       </div>
       <div class="perf-grid">
         <div class="perf-card">
@@ -880,7 +880,7 @@ const Performance = {
       // 資料跨年時顯示 YY/MM，否則只顯示 MM
       const spansYears = months[0].slice(0,4) !== months[months.length-1].slice(0,4);
       const label = spansYears ? m.slice(2).replace('-','/') : m.slice(5) + '月';
-      ctx.fillStyle = axisColor; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = axisColor; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
       ctx.fillText(label, x + barW/2, H - 8);
     });
   },
@@ -948,7 +948,7 @@ const Performance = {
     const yOf = v => PAD.t + chartH - ((v - minV) / range) * chartH;
 
     // 水平格線 + Y軸標籤（3條）
-    ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+    ctx.font = '13px sans-serif'; ctx.textAlign = 'right';
     [0, 0.5, 1].forEach(f => {
       const y = PAD.t + f * chartH;
       ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
@@ -980,7 +980,7 @@ const Performance = {
     ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + chartH); ctx.stroke();
 
     // X軸日期刻度（依可視寬度與資料時間跨度自適應決定刻度數與格式）
-    ctx.font = '11px sans-serif';
+    ctx.font = '13px sans-serif';
     ctx.setLineDash([2,3]);
     // 寬度每 130px 大約能容納一個刻度，且不超過資料點數
     const maxTicks = Math.max(2, Math.min(n, Math.floor(chartW / 130) + 1));
