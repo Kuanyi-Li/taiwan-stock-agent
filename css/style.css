@@ -76,6 +76,26 @@ body {
 .dashboard-toggle-btn:hover { border-color: var(--green-l); color: var(--green-l); }
 
 .dashboard-content { height: calc(100vh - 48px - 24px); display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
+.performance-content { padding: 4px; max-height: calc(100vh - 48px - 24px); overflow-y: auto; }
+.perf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.perf-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; }
+.perf-card-title { font-size: 12px; font-weight: 700; color: var(--text-2); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.perf-big-canvas-wrap { height: 220px; position: relative; }
+.perf-period-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+.perf-period-btn { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-2); cursor: pointer; }
+.perf-period-btn.active { background: var(--green-l); color: #fff; border-color: var(--green-l); }
+.perf-stat-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.perf-stat-row:last-child { border-bottom: none; }
+.perf-stat-name { color: var(--text-2); }
+.perf-stat-num { font-family: var(--font-mono); font-weight: 700; }
+.perf-sector-bar-wrap { display: flex; flex-direction: column; gap: 8px; }
+.perf-sector-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.perf-sector-name { width: 70px; flex-shrink: 0; color: var(--text-2); }
+.perf-sector-track { flex: 1; height: 8px; background: var(--bg-2); border-radius: 4px; overflow: hidden; }
+.perf-sector-fill { height: 100%; border-radius: 4px; }
+.perf-sector-pct { width: 42px; text-align: right; font-family: var(--font-mono); flex-shrink: 0; }
+.perf-trade-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+.perf-trade-item:last-child { border-bottom: none; }
 .dashboard-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 2px 8px; flex-shrink: 0; }
 .dashboard-summary { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
 .dashboard-summary .sum-chip { display: flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--border); font-weight: 600; }
