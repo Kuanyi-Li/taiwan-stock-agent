@@ -2600,8 +2600,6 @@ const APP = {
     }
     setSignedText('total-roi', roi, v => v.toFixed(2)+'%', true);
     setText('stock-count', this.portfolio.length+' 檔持股', '');
-    GOALS.renderNetWorthChart();
-    GOALS.renderConcentrationWarning();
   },
 
   renderStockList() {
