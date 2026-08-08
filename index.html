@@ -29,6 +29,7 @@
     <button class="dashboard-toggle-btn" id="dashboard-toggle-btn" onclick="Dashboard.toggle()" title="總覽所有持股">🏠 總覽</button>
     <button class="dashboard-toggle-btn" onclick="Dashboard.openReorderModal()" title="調整總覽卡片排序">↕ 排序</button>
     <button class="dashboard-toggle-btn" id="perf-toggle-btn" onclick="Performance.toggle()" title="績效分析">📈 績效</button>
+    <button class="dashboard-toggle-btn" id="cal-toggle-btn" onclick="TradeCalendar.toggle()" title="交易與除權息日曆">📅 日曆</button>
     <div class="topbar-market" id="tw-market-bar">
       <span class="badge closed" id="mkt-status">休市</span>
       <span class="index-chip" id="taiex-badge">加權 —</span>
@@ -139,6 +140,28 @@
     <!-- ── 績效分析（Performance）── -->
     <div class="performance-content" id="performance-content" style="display:none">
       <div id="perf-body"><div class="empty-state">載入中...</div></div>
+    </div>
+
+    <!-- ── 交易與除權息日曆（TradeCalendar）── -->
+    <div class="calendar-page-content" id="calendar-page-content" style="display:none">
+      <div class="cal-page-header">
+        <div class="cal-page-nav">
+          <button class="cal-nav-btn" onclick="TradeCalendar.prevMonth()">◀</button>
+          <span class="cal-page-title" id="cal-page-title">2026年8月</span>
+          <button class="cal-nav-btn" onclick="TradeCalendar.nextMonth()">▶</button>
+          <button class="cal-nav-btn" onclick="TradeCalendar.goToday()">今天</button>
+        </div>
+        <div class="cal-page-legend">
+          <span class="cal-legend-item"><span class="cal-dot buy"></span>買進</span>
+          <span class="cal-legend-item"><span class="cal-dot sell"></span>賣出</span>
+          <span class="cal-legend-item"><span class="cal-dot div"></span>除權息</span>
+          <button class="dashboard-toggle-btn" onclick="openAddTradeModal()">＋ 新增交易</button>
+        </div>
+      </div>
+      <div class="cal-weekday-row">
+        <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+      </div>
+      <div id="cal-grid" class="cal-grid"></div>
     </div>
 
     <!-- ── 個股詳細 ── -->
