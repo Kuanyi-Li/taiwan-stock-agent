@@ -173,8 +173,8 @@ const GOALS = {
   },
 
   // ── 跟加權指數比較同期報酬率 ─────────────────────────
-  async _renderBenchmarkCompare(history) {
-    const el = document.getElementById('benchmark-compare');
+  async _renderBenchmarkCompare(history, targetId) {
+    const el = document.getElementById(targetId || 'benchmark-compare');
     if (!el || history.length < 2) return;
     try {
       const startDate = history[0].date;
@@ -471,7 +471,43 @@ const TRADES = {
       </div>`;
   },
 
+  // ── 回填舊交易的已實現損益（功能上線前的賣出紀錄沒有 realizedPnl，這裡補算）──
+  // 按時間正序重播買賣，算出每次賣出當下的均價，藉此推算損益與持有天數
+  backfillRealizedPnl() {
+    const trades = this.get();
+    const needsBackfill = trades.some(t => t.action === 'sell' && t.realizedPnl == null);
+    if (!needsBackfill) return;
+
+    const bySymbol = {}; // code -> { shares, totalCost, firstDate }
+    const sorted = [...trades].sort((a, b) => {
+      const d = (a.date || '').localeCompare(b.date || '');
+      return d !== 0 ? d : (a.id || 0) - (b.id || 0);
+    });
+
+    sorted.forEach(t => {
+      const key = `${t.market || 'TW'}_${t.code}`;
+      if (!bySymbol[key]) bySymbol[key] = { shares: 0, totalCost: 0, firstDate: t.date };
+      const h = bySymbol[key];
+      if (t.action === 'buy') {
+        h.totalCost += t.price * t.shares;
+        h.shares += t.shares;
+        if (!h.firstDate || t.date < h.firstDate) h.firstDate = t.date;
+      } else if (t.action === 'sell') {
+        const avgCost = h.shares > 0 ? h.totalCost / h.shares : t.price;
+        if (t.realizedPnl == null) {
+          t.realizedPnl = +((t.price - avgCost) * t.shares).toFixed(2);
+          t.holdDays = h.firstDate ? Math.floor((new Date(t.date) - new Date(h.firstDate)) / 86400000) : null;
+        }
+        h.totalCost -= avgCost * t.shares;
+        h.shares -= t.shares;
+      }
+    });
+
+    this.save(trades);
+  },
+
   render() {
+    this.backfillRealizedPnl();
     this.renderStats();
     const list = document.getElementById('trade-list');
     if (!list) return;
@@ -594,28 +630,244 @@ const SIGNAL = {
 };
 
 // ── DASHBOARD module（總覽：所有持股K線+成交量+訊號卡片）──
+// 三個主畫面（總覽/個股詳細/績效）互斥切換的共用函式
+function showMainView(view) {
+  const dv = document.getElementById('dashboard-content');
+  const detail = document.getElementById('detail-content');
+  const perf = document.getElementById('performance-content');
+  if (dv) dv.style.display = view === 'dashboard' ? '' : 'none';
+  if (detail) detail.style.display = view === 'detail' ? '' : 'none';
+  if (perf) perf.style.display = view === 'performance' ? '' : 'none';
+  const dashBtn = document.getElementById('dashboard-toggle-btn');
+  if (dashBtn) dashBtn.textContent = view === 'dashboard' ? '📈 個股' : '🏠 總覽';
+}
+
+// ── Performance module（績效分析獨立頁面）──────────────
+const Performance = {
+  _period: 'all', // 1m/3m/6m/1y/all
+
+  toggle() {
+    const perf = document.getElementById('performance-content');
+    const isShowing = perf.style.display !== 'none';
+    if (isShowing) {
+      showMainView('detail');
+      if (!APP.activeSymbol && APP.portfolio.length) APP.selectStock(APP.portfolio[0].code, 0, 'portfolio');
+      else if (CHART.currentData.length) setTimeout(() => CHART.draw(), 50);
+    } else {
+      showMainView('performance');
+      this.render();
+    }
+  },
+
+  _filterHistory(history) {
+    if (this._period === 'all') return history;
+    const days = { '1m':30, '3m':90, '6m':180, '1y':365 }[this._period];
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0,10);
+    return history.filter(h => h.date >= cutoff);
+  },
+
+  setPeriod(p) {
+    this._period = p;
+    document.querySelectorAll('.perf-period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === p));
+    this._drawNetWorthChart();
+  },
+
+  async render() {
+    const body = document.getElementById('perf-body');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="perf-card" style="margin-bottom:14px">
+        <div class="perf-card-title">💰 淨值走勢</div>
+        <div class="perf-period-tabs">
+          ${['1m','3m','6m','1y','all'].map(p => `<button class="perf-period-btn ${p===this._period?'active':''}" data-period="${p}" onclick="Performance.setPeriod('${p}')">${ {'1m':'1個月','3m':'3個月','6m':'6個月','1y':'1年','all':'全部'}[p] }</button>`).join('')}
+        </div>
+        <div class="perf-big-canvas-wrap"><canvas id="perf-networth-canvas"></canvas></div>
+        <div id="perf-benchmark" style="margin-top:8px;font-size:12px;color:var(--text-2)"></div>
+      </div>
+      <div class="perf-grid">
+        <div class="perf-card">
+          <div class="perf-card-title">📊 交易統計</div>
+          <div id="perf-trade-stats"></div>
+        </div>
+        <div class="perf-card">
+          <div class="perf-card-title">🏭 產業集中度</div>
+          <div id="perf-sector-breakdown" class="perf-sector-bar-wrap"></div>
+        </div>
+        <div class="perf-card">
+          <div class="perf-card-title">🏆 最佳/最差交易</div>
+          <div id="perf-best-worst"></div>
+        </div>
+        <div class="perf-card">
+          <div class="perf-card-title">📅 本月/今年損益</div>
+          <div id="perf-period-pnl"></div>
+        </div>
+      </div>`;
+
+    this._drawNetWorthChart();
+    this._renderTradeStats();
+    this._renderSectorBreakdown();
+    this._renderBestWorst();
+    this._renderPeriodPnl();
+  },
+
+  _drawNetWorthChart() {
+    const history = this._filterHistory(JSON.parse(localStorage.getItem('twsa-value-history') || '[]'));
+    const canvas = document.getElementById('perf-networth-canvas');
+    if (!canvas) return;
+    const wrap = canvas.parentElement;
+    const W = wrap.clientWidth || 600, H = 220;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const benchEl = document.getElementById('perf-benchmark');
+    if (history.length < 2) {
+      ctx.fillStyle = 'var(--text-3)'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('資料累積中，明天再回來看趨勢', W/2, H/2);
+      if (benchEl) benchEl.textContent = '';
+      return;
+    }
+
+    const PAD = { l:50, r:10, t:10, b:24 };
+    const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
+    const values = history.map(h => h.value);
+    const minV = Math.min(...values), maxV = Math.max(...values);
+    const range = (maxV - minV) || 1;
+    const n = values.length;
+    const xOf = i => PAD.l + (i / (n-1)) * chartW;
+    const yOf = v => PAD.t + chartH - ((v - minV) / range) * chartH;
+
+    // 格線 + Y軸標籤
+    const isDark = !document.body.classList.contains('light-mode');
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+    ctx.fillStyle = 'var(--text-3)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    [0, 0.5, 1].forEach(f => {
+      const y = PAD.t + f * chartH;
+      ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
+      const val = maxV - f * range;
+      ctx.fillText(val >= 10000 ? (val/10000).toFixed(0)+'萬' : val.toFixed(0), PAD.l - 6, y + 3);
+    });
+
+    const isUp = values[n-1] >= values[0];
+    const color = isUp ? '#E24B4A' : '#1D9E75';
+    ctx.beginPath();
+    ctx.moveTo(xOf(0), PAD.t + chartH);
+    values.forEach((v,i) => ctx.lineTo(xOf(i), yOf(v)));
+    ctx.lineTo(xOf(n-1), PAD.t + chartH);
+    ctx.closePath();
+    ctx.fillStyle = isUp ? 'rgba(226,75,74,0.12)' : 'rgba(29,158,117,0.12)';
+    ctx.fill();
+
+    ctx.beginPath();
+    values.forEach((v,i) => { const x=xOf(i), y=yOf(v); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // X軸日期標籤（頭尾）
+    ctx.fillStyle = 'var(--text-3)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(history[0].date, PAD.l, H - 6);
+    ctx.textAlign = 'right';
+    ctx.fillText(history[n-1].date, W - PAD.r, H - 6);
+
+    GOALS._renderBenchmarkCompare(history, 'perf-benchmark');
+  },
+
+  _renderTradeStats() {
+    const el = document.getElementById('perf-trade-stats');
+    if (!el) return;
+    const trades = TRADES.get();
+    const sells = trades.filter(t => t.action === 'sell' && t.realizedPnl != null);
+    if (!sells.length) { el.innerHTML = '<div class="empty-state" style="padding:10px 0">尚無已實現交易</div>'; return; }
+    const wins = sells.filter(t => t.realizedPnl > 0);
+    const losses = sells.filter(t => t.realizedPnl <= 0);
+    const winRate = wins.length / sells.length * 100;
+    const avgWin = wins.length ? wins.reduce((s,t)=>s+t.realizedPnl,0)/wins.length : 0;
+    const avgLoss = losses.length ? Math.abs(losses.reduce((s,t)=>s+t.realizedPnl,0)/losses.length) : 0;
+    const ratio = avgLoss > 0 ? (avgWin/avgLoss).toFixed(2) : (avgWin>0?'∞':'—');
+    const totalRealized = sells.reduce((s,t)=>s+t.realizedPnl,0);
+    const avgHold = sells.filter(t=>t.holdDays!=null).length
+      ? Math.round(sells.reduce((s,t)=>s+(t.holdDays||0),0)/sells.filter(t=>t.holdDays!=null).length) : null;
+    el.innerHTML = `
+      <div class="perf-stat-row"><span class="perf-stat-name">勝率</span><span class="perf-stat-num" style="color:${winRate>=50?'#E24B4A':'#1D9E75'}">${winRate.toFixed(0)}%（${wins.length}/${sells.length}）</span></div>
+      <div class="perf-stat-row"><span class="perf-stat-name">累計已實現損益</span><span class="perf-stat-num" style="color:${totalRealized>=0?'#E24B4A':'#1D9E75'}">${totalRealized>=0?'+':''}${totalRealized.toFixed(0)}元</span></div>
+      <div class="perf-stat-row"><span class="perf-stat-name">平均賺賠比</span><span class="perf-stat-num">${ratio}</span></div>
+      <div class="perf-stat-row"><span class="perf-stat-name">平均持有天數</span><span class="perf-stat-num">${avgHold!=null?avgHold+'天':'—'}</span></div>`;
+  },
+
+  _renderSectorBreakdown() {
+    const el = document.getElementById('perf-sector-breakdown');
+    if (!el) return;
+    const portfolio = APP.portfolio;
+    if (!portfolio.length) { el.innerHTML = '<div class="empty-state" style="padding:10px 0">尚無持股</div>'; return; }
+    const sectorMap = {};
+    (typeof RECOMMEND !== 'undefined' ? RECOMMEND.CANDIDATES : []).forEach(c => { sectorMap[c.code] = c.sector; });
+    const totalVal = portfolio.reduce((s,x)=>s+(x.price??x.cost)*x.shares,0) || 1;
+    const bySector = {};
+    portfolio.forEach(s => {
+      const sector = sectorMap[s.code] || '其他';
+      bySector[sector] = (bySector[sector]||0) + (s.price??s.cost)*s.shares;
+    });
+    const sorted = Object.entries(bySector).map(([sector,val])=>({sector,pct:val/totalVal*100})).sort((a,b)=>b.pct-a.pct);
+    const colors = ['#E24B4A','#eab308','#37adf0','#1D9E75','#a78bfa','#f97316'];
+    el.innerHTML = sorted.map((s,i) => `
+      <div class="perf-sector-row">
+        <span class="perf-sector-name">${s.sector}</span>
+        <div class="perf-sector-track"><div class="perf-sector-fill" style="width:${s.pct}%;background:${colors[i%colors.length]}"></div></div>
+        <span class="perf-sector-pct">${s.pct.toFixed(0)}%</span>
+      </div>`).join('');
+  },
+
+  _renderBestWorst() {
+    const el = document.getElementById('perf-best-worst');
+    if (!el) return;
+    const sells = TRADES.get().filter(t => t.action === 'sell' && t.realizedPnl != null);
+    if (!sells.length) { el.innerHTML = '<div class="empty-state" style="padding:10px 0">尚無已實現交易</div>'; return; }
+    const sorted = [...sells].sort((a,b) => b.realizedPnl - a.realizedPnl);
+    const best = sorted.slice(0, 3);
+    const worst = sorted.slice(-3).reverse().filter(t => !best.includes(t));
+    const row = (t, isBest) => `<div class="perf-trade-item"><span>${t.code} ${t.name}</span><span style="color:${isBest?'#E24B4A':'#1D9E75'};font-weight:700">${t.realizedPnl>=0?'+':''}${t.realizedPnl.toFixed(0)}元</span></div>`;
+    el.innerHTML = `
+      <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">🥇 最佳</div>
+      ${best.map(t => row(t, true)).join('') || '<div class="empty-state" style="padding:4px 0">—</div>'}
+      <div style="font-size:11px;color:var(--text-3);margin:10px 0 4px">📉 最差</div>
+      ${worst.map(t => row(t, false)).join('') || '<div class="empty-state" style="padding:4px 0">—</div>'}`;
+  },
+
+  _renderPeriodPnl() {
+    const el = document.getElementById('perf-period-pnl');
+    if (!el) return;
+    const sells = TRADES.get().filter(t => t.action === 'sell' && t.realizedPnl != null);
+    const now = new Date();
+    const thisMonth = now.toISOString().slice(0,7);
+    const thisYear = now.toISOString().slice(0,4);
+    const monthPnl = sells.filter(t => t.date?.startsWith(thisMonth)).reduce((s,t)=>s+t.realizedPnl,0);
+    const yearPnl = sells.filter(t => t.date?.startsWith(thisYear)).reduce((s,t)=>s+t.realizedPnl,0);
+    const monthCount = sells.filter(t => t.date?.startsWith(thisMonth)).length;
+    const yearCount = sells.filter(t => t.date?.startsWith(thisYear)).length;
+    el.innerHTML = `
+      <div class="perf-stat-row"><span class="perf-stat-name">本月已實現損益（${monthCount}筆）</span><span class="perf-stat-num" style="color:${monthPnl>=0?'#E24B4A':'#1D9E75'}">${monthPnl>=0?'+':''}${monthPnl.toFixed(0)}元</span></div>
+      <div class="perf-stat-row"><span class="perf-stat-name">今年已實現損益（${yearCount}筆）</span><span class="perf-stat-num" style="color:${yearPnl>=0?'#E24B4A':'#1D9E75'}">${yearPnl>=0?'+':''}${yearPnl.toFixed(0)}元</span></div>`;
+  },
+};
+
 const Dashboard = {
   _rendering: false,
 
   toggle() {
     const dv = document.getElementById('dashboard-content');
-    const detail = document.getElementById('detail-content');
     const isShowingDash = dv.style.display !== 'none';
-    const btn = document.getElementById('dashboard-toggle-btn');
     if (isShowingDash) {
-      // 切到個股詳細（若尚無選中股票，選第一支）
-      dv.style.display = 'none';
-      detail.style.display = '';
-      if (btn) btn.textContent = '🏠 總覽';
+      showMainView('detail');
       if (!APP.activeSymbol && APP.portfolio.length) {
         APP.selectStock(APP.portfolio[0].code, 0, 'portfolio');
       } else if (CHART.currentData.length) {
         setTimeout(() => CHART.draw(), 50); // 修正剛顯示時canvas寬度計算
       }
     } else {
-      detail.style.display = 'none';
-      dv.style.display = '';
-      if (btn) btn.textContent = '📈 個股';
+      showMainView('dashboard');
       this.render();
     }
   },
@@ -991,12 +1243,7 @@ const Dashboard = {
   },
 
   _onCardClick(code, source) {
-    const detail = document.getElementById('detail-content');
-    const dv = document.getElementById('dashboard-content');
-    dv.style.display = 'none';
-    detail.style.display = '';
-    const btn = document.getElementById('dashboard-toggle-btn');
-    if (btn) btn.textContent = '🏠 總覽';
+    showMainView('detail');
     const list = source === 'watch' ? APP.watchlist : APP.portfolio;
     const idx = list.findIndex(s => s.code === code);
     APP.selectStock(code, idx >= 0 ? idx : 0, source);
@@ -2904,15 +3151,11 @@ function saveEditCost() {
   showToast(`${code} 均價已更新為 ${market==='US'?'US$':'$'}${newCost}`);
 }
 
-// 側邊欄點擊股票：若目前在總覽頁，先切換到個股詳細畫面再選股
+// 側邊欄點擊股票：若目前不在個股詳細畫面，先切過去再選股
 function goToStock(code, idx, source) {
-  const dashEl = document.getElementById('dashboard-content');
   const detailEl = document.getElementById('detail-content');
-  if (dashEl && detailEl && dashEl.style.display !== 'none') {
-    dashEl.style.display = 'none';
-    detailEl.style.display = '';
-    const btn = document.getElementById('dashboard-toggle-btn');
-    if (btn) btn.textContent = '🏠 總覽';
+  if (detailEl && detailEl.style.display === 'none') {
+    showMainView('detail');
   }
   APP.selectStock(code, idx, source);
   setTimeout(() => CHART.draw(), 80);
