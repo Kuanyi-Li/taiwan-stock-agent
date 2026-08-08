@@ -177,9 +177,12 @@ const GOALS = {
     const el = document.getElementById(targetId || 'benchmark-compare');
     if (!el || history.length < 2) return;
     try {
-      const startDate = history[0].date;
-      const startVal = history[0].value;
-      const endVal = history[history.length - 1].value;
+      // ★ 修正 Infinity% bug：用第一筆「非零」的快照當基準，避免除以0
+      const validHistory = history.filter(h => h.value > 0);
+      if (validHistory.length < 2) { el.textContent = ''; return; }
+      const startDate = validHistory[0].date;
+      const startVal = validHistory[0].value;
+      const endVal = validHistory[validHistory.length - 1].value;
       const portfolioPct = (endVal - startVal) / startVal * 100;
 
       // 抓加權指數同期資料
@@ -635,14 +638,116 @@ function showMainView(view) {
   const dv = document.getElementById('dashboard-content');
   const detail = document.getElementById('detail-content');
   const perf = document.getElementById('performance-content');
+  const cal = document.getElementById('calendar-page-content');
+  const sidebar = document.querySelector('.sidebar');
+  const layout = document.querySelector('.app-layout');
   if (dv) dv.style.display = view === 'dashboard' ? '' : 'none';
   if (detail) detail.style.display = view === 'detail' ? '' : 'none';
   if (perf) perf.style.display = view === 'performance' ? '' : 'none';
+  if (cal) cal.style.display = view === 'calendar' ? '' : 'none';
+  // 績效和日曆頁面內容較豐富，隱藏側邊欄讓版面更寬敞
+  const hideSidebar = view === 'performance' || view === 'calendar';
+  if (sidebar) sidebar.style.display = hideSidebar ? 'none' : '';
+  if (layout) layout.classList.toggle('sidebar-hidden', hideSidebar);
   const dashBtn = document.getElementById('dashboard-toggle-btn');
   if (dashBtn) dashBtn.textContent = view === 'dashboard' ? '📈 個股' : '🏠 總覽';
 }
 
 // ── Performance module（績效分析獨立頁面）──────────────
+// ── TradeCalendar module（交易與除權息日曆，月檢視）──────
+const TradeCalendar = {
+  _year: new Date().getFullYear(),
+  _month: new Date().getMonth(), // 0-indexed
+  _divCache: null, // 該月除權息事件快取
+
+  toggle() {
+    const cal = document.getElementById('calendar-page-content');
+    const isShowing = cal.style.display !== 'none';
+    if (isShowing) {
+      showMainView('detail');
+      if (!APP.activeSymbol && APP.portfolio.length) APP.selectStock(APP.portfolio[0].code, 0, 'portfolio');
+      else if (CHART.currentData.length) setTimeout(() => CHART.draw(), 50);
+    } else {
+      showMainView('calendar');
+      this.render();
+    }
+  },
+
+  prevMonth() { this._month--; if (this._month < 0) { this._month = 11; this._year--; } this.render(); },
+  nextMonth() { this._month++; if (this._month > 11) { this._month = 0; this._year++; } this.render(); },
+  goToday() { this._year = new Date().getFullYear(); this._month = new Date().getMonth(); this.render(); },
+
+  async render() {
+    const title = document.getElementById('cal-page-title');
+    if (title) title.textContent = `${this._year}年${this._month + 1}月`;
+
+    // 抓該月的除權息事件（僅台股，用 TWSE 公開資料裡符合該月份的部分；美股用估算）
+    await this._loadDivEventsForMonth();
+
+    const grid = document.getElementById('cal-grid');
+    if (!grid) return;
+
+    const firstDay = new Date(this._year, this._month, 1);
+    const startWeekday = firstDay.getDay(); // 0=Sun
+    const daysInMonth = new Date(this._year, this._month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(this._year, this._month, 0).getDate();
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const trades = TRADES.get();
+    const cells = [];
+    // 上個月補齊
+    for (let i = startWeekday - 1; i >= 0; i--) {
+      const d = daysInPrevMonth - i;
+      const m = this._month === 0 ? 12 : this._month;
+      const y = this._month === 0 ? this._year - 1 : this._year;
+      cells.push({ day: d, dateStr: `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, otherMonth: true });
+    }
+    // 本月
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${this._year}-${String(this._month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      cells.push({ day: d, dateStr, otherMonth: false });
+    }
+    // 下個月補齊到湊滿整週
+    let nextDay = 1;
+    while (cells.length % 7 !== 0) {
+      const m = this._month === 11 ? 1 : this._month + 2;
+      const y = this._month === 11 ? this._year + 1 : this._year;
+      cells.push({ day: nextDay, dateStr: `${y}-${String(m).padStart(2,'0')}-${String(nextDay).padStart(2,'0')}`, otherMonth: true });
+      nextDay++;
+    }
+
+    grid.innerHTML = cells.map(c => {
+      const dayTrades = trades.filter(t => t.date === c.dateStr);
+      const dayDivs = (this._divCache || []).filter(e => e.date === c.dateStr);
+      const events = [
+        ...dayTrades.map(t => `<div class="cal-event ${t.action}">${t.action==='buy'?'買':'賣'} ${t.code} ${t.shares}股</div>`),
+        ...dayDivs.map(e => `<div class="cal-event div">💰 ${e.code}${e.estimated?'(估)':''}</div>`),
+      ];
+      const isToday = c.dateStr === todayStr;
+      return `
+        <div class="cal-day-cell ${c.otherMonth?'other-month':''} ${isToday?'today':''}" onclick="TradeCalendar.onDayClick('${c.dateStr}')">
+          <div class="cal-day-num">${c.day}</div>
+          <div class="cal-day-events">${events.join('')}</div>
+        </div>`;
+    }).join('');
+  },
+
+  async _loadDivEventsForMonth() {
+    // 用既有的 ExDividend 快取（近期資料），篩選出屬於目前檢視月份的部分
+    try {
+      const twEvents = await ExDividend.getTWUpcoming(APP._twPortfolio.map(s=>s.code));
+      const usEvents = (await Promise.all(APP._usPortfolio.map(s => ExDividend.getUSEstimate(s.code)))).filter(Boolean);
+      const monthPrefix = `${this._year}-${String(this._month+1).padStart(2,'0')}`;
+      this._divCache = [...twEvents, ...usEvents].filter(e => e.date.startsWith(monthPrefix));
+    } catch(e) { this._divCache = []; }
+  },
+
+  onDayClick(dateStr) {
+    openAddTradeModal();
+    setTimeout(() => { document.getElementById('at-date').value = dateStr; }, 0);
+  },
+};
+
 const Performance = {
   _period: 'all', // 1m/3m/6m/1y/all
 
@@ -737,25 +842,21 @@ const Performance = {
     const axisColor = isDark ? '#8b949e' : '#57606a';
 
     const sells = TRADES.get().filter(t => t.action === 'sell' && t.realizedPnl != null);
-    const months = [];
-    const now = new Date();
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push(d.toISOString().slice(0, 7));
-    }
-    const byMonth = {};
-    months.forEach(m => byMonth[m] = 0);
-    sells.forEach(t => {
-      const m = t.date?.slice(0, 7);
-      if (m && byMonth[m] != null) byMonth[m] += t.realizedPnl;
-    });
-    const values = months.map(m => byMonth[m]);
-
     if (!sells.length) {
       ctx.fillStyle = axisColor; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
       ctx.fillText('尚無已實現交易資料', W/2, H/2);
       return;
     }
+
+    // ★ 只列出「實際有交易」的月份，沒交易的月份不顯示
+    const byMonth = {};
+    sells.forEach(t => {
+      const m = t.date?.slice(0, 7);
+      if (!m) return;
+      byMonth[m] = (byMonth[m] || 0) + t.realizedPnl;
+    });
+    const months = Object.keys(byMonth).sort();
+    const values = months.map(m => byMonth[m]);
 
     const PAD = { l:50, r:10, t:10, b:24 };
     const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
@@ -776,10 +877,11 @@ const Performance = {
       ctx.fillStyle = v >= 0 ? '#E24B4A' : (v < 0 ? '#1D9E75' : 'rgba(255,255,255,0.1)');
       ctx.fillRect(x, y, barW, Math.max(1, bh));
 
-      if (i % 2 === 0 || months.length <= 6) {
-        ctx.fillStyle = axisColor; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText(m.slice(5), x + barW/2, H - 8);
-      }
+      // 資料跨年時顯示 YY/MM，否則只顯示 MM
+      const spansYears = months[0].slice(0,4) !== months[months.length-1].slice(0,4);
+      const label = spansYears ? m.slice(2).replace('-','/') : m.slice(5) + '月';
+      ctx.fillStyle = axisColor; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(label, x + barW/2, H - 8);
     });
   },
 
@@ -877,17 +979,27 @@ const Performance = {
     ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t + chartH); ctx.lineTo(W - PAD.r, PAD.t + chartH); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + chartH); ctx.stroke();
 
-    // X軸日期刻度（頭、中、尾，含垂直輔助虛線）
+    // X軸日期刻度（依可視寬度與資料時間跨度自適應決定刻度數與格式）
     ctx.font = '11px sans-serif';
     ctx.setLineDash([2,3]);
-    const tickIdxs = n >= 3 ? [0, Math.floor((n-1)/2), n-1] : [0, n-1];
+    // 寬度每 130px 大約能容納一個刻度，且不超過資料點數
+    const maxTicks = Math.max(2, Math.min(n, Math.floor(chartW / 130) + 1));
+    const tickCount = Math.min(maxTicks, 6);
+    const tickIdxs = [];
+    for (let k = 0; k < tickCount; k++) {
+      const idx = Math.round((k / (tickCount - 1)) * (n - 1));
+      if (!tickIdxs.includes(idx)) tickIdxs.push(idx);
+    }
+    // 資料跨越不同年份時，日期格式要帶年份；同一年只顯示月-日
+    const spansMultipleYears = history[0].date.slice(0,4) !== history[n-1].date.slice(0,4);
     tickIdxs.forEach((idx, k) => {
       const x = xOf(idx);
       ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, PAD.t + chartH); ctx.stroke();
       ctx.fillStyle = axisColor;
       ctx.textAlign = k === 0 ? 'left' : (k === tickIdxs.length - 1 ? 'right' : 'center');
-      ctx.fillText(history[idx].date.slice(5), x, H - 8); // 只顯示 MM-DD
+      const dateStr = history[idx].date;
+      ctx.fillText(spansMultipleYears ? dateStr : dateStr.slice(5), x, H - 8);
     });
     ctx.setLineDash([]);
 
