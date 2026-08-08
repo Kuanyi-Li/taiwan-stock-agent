@@ -124,6 +124,107 @@ const GOALS = {
     return twVal + usValTWD + cashTWD + CURRENCY.toTWD(cashUSD);
   },
 
+  // ── 淨值走勢圖（用 recordSnapshot 累積的歷史資料）─────
+  async renderNetWorthChart() {
+    const history = JSON.parse(localStorage.getItem('twsa-value-history') || '[]');
+    const section = document.getElementById('networth-section');
+    if (!section) return;
+    if (history.length < 2) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+
+    const canvas = document.getElementById('networthChart');
+    if (!canvas) return;
+    const wrap = canvas.parentElement;
+    const W = wrap.clientWidth || 260, H = 60;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const values = history.map(h => h.value);
+    const minV = Math.min(...values), maxV = Math.max(...values);
+    const range = (maxV - minV) || 1;
+    const n = values.length;
+    const xOf = i => (i / (n - 1)) * W;
+    const yOf = v => H - 4 - ((v - minV) / range) * (H - 8);
+
+    const isUp = values[values.length - 1] >= values[0];
+    const color = isUp ? '#E24B4A' : '#1D9E75';
+
+    // 填色區域
+    ctx.beginPath();
+    ctx.moveTo(xOf(0), H);
+    values.forEach((v, i) => ctx.lineTo(xOf(i), yOf(v)));
+    ctx.lineTo(xOf(n-1), H);
+    ctx.closePath();
+    ctx.fillStyle = isUp ? 'rgba(226,75,74,0.1)' : 'rgba(29,158,117,0.1)';
+    ctx.fill();
+
+    // 折線
+    ctx.beginPath();
+    values.forEach((v, i) => { const x = xOf(i), y = yOf(v); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 大盤比較
+    this._renderBenchmarkCompare(history);
+  },
+
+  // ── 跟加權指數比較同期報酬率 ─────────────────────────
+  async _renderBenchmarkCompare(history) {
+    const el = document.getElementById('benchmark-compare');
+    if (!el || history.length < 2) return;
+    try {
+      const startDate = history[0].date;
+      const startVal = history[0].value;
+      const endVal = history[history.length - 1].value;
+      const portfolioPct = (endVal - startVal) / startVal * 100;
+
+      // 抓加權指數同期資料
+      const data = await DATA.fetchHistory('^TWII', '1d');
+      const startCandle = data.find(d => new Date(d.t).toISOString().slice(0,10) >= startDate) || data[0];
+      const endCandle = data[data.length - 1];
+      const benchPct = (endCandle.c - startCandle.c) / startCandle.c * 100;
+
+      const diff = portfolioPct - benchPct;
+      const beatMarket = diff >= 0;
+      el.innerHTML = `你 <strong style="color:${portfolioPct>=0?'#E24B4A':'#1D9E75'}">${portfolioPct>=0?'+':''}${portfolioPct.toFixed(1)}%</strong> vs 加權 <strong>${benchPct>=0?'+':''}${benchPct.toFixed(1)}%</strong> <span style="color:${beatMarket?'#E24B4A':'#1D9E75'}">(${beatMarket?'贏':'輸'}${Math.abs(diff).toFixed(1)}%)</span>`;
+    } catch(e) { el.textContent = ''; }
+  },
+
+  // ── 產業集中度風險提示 ────────────────────────────────
+  renderConcentrationWarning() {
+    const el = document.getElementById('concentration-warning');
+    if (!el) return;
+    const portfolio = APP.portfolio;
+    if (portfolio.length < 2) { el.style.display = 'none'; return; }
+
+    // 從 RECOMMEND.CANDIDATES 找產業別，找不到歸類「其他」
+    const sectorMap = {};
+    (typeof RECOMMEND !== 'undefined' ? RECOMMEND.CANDIDATES : []).forEach(c => { sectorMap[c.code] = c.sector; });
+
+    const totalVal = portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
+    if (!totalVal) { el.style.display = 'none'; return; }
+
+    const bySector = {};
+    portfolio.forEach(s => {
+      const sector = sectorMap[s.code] || '其他';
+      const val = (s.price ?? s.cost) * s.shares;
+      bySector[sector] = (bySector[sector] || 0) + val;
+    });
+
+    const sorted = Object.entries(bySector).map(([sector, val]) => ({ sector, pct: val / totalVal * 100 })).sort((a,b) => b.pct - a.pct);
+    const top = sorted[0];
+    if (!top || top.pct < 35) { el.style.display = 'none'; return; }
+
+    el.style.display = 'block';
+    const level = top.pct >= 55 ? 'high' : 'mid';
+    el.className = `concentration-warn ${level}`;
+    el.textContent = `⚠️ ${top.sector}佔投資組合 ${top.pct.toFixed(0)}%，集中度偏高，建議留意產業系統性風險`;
+  },
+
   updateDashboard() {
     const g = this.get();
     // ★ 台股+美股合計
@@ -331,7 +432,47 @@ const TRADES = {
     APP.save();
   },
 
+  // ── 交易統計分析：勝率、平均持有天數、平均賺賠比 ──────
+  // 用「賣出時的損益」逐筆配對計算（賣出價 vs 當時均價），只統計已實現損益
+  renderStats() {
+    const el = document.getElementById('trade-stats');
+    if (!el) return;
+    const trades = this.get();
+    const sells = trades.filter(t => t.action === 'sell' && t.realizedPnl != null);
+    if (sells.length < 1) { el.innerHTML = ''; return; }
+
+    const wins = sells.filter(t => t.realizedPnl > 0);
+    const losses = sells.filter(t => t.realizedPnl <= 0);
+    const winRate = wins.length / sells.length * 100;
+    const avgWin = wins.length ? wins.reduce((s,t) => s + t.realizedPnl, 0) / wins.length : 0;
+    const avgLoss = losses.length ? Math.abs(losses.reduce((s,t) => s + t.realizedPnl, 0) / losses.length) : 0;
+    const winLossRatio = avgLoss > 0 ? avgWin / avgLoss : (avgWin > 0 ? Infinity : 0);
+    const avgHoldDays = sells.filter(t => t.holdDays != null).length
+      ? sells.reduce((s,t) => s + (t.holdDays || 0), 0) / sells.filter(t => t.holdDays != null).length
+      : null;
+
+    const fmtRatio = r => r === Infinity ? '∞' : r.toFixed(2);
+    el.innerHTML = `
+      <div class="trade-stat-card">
+        <div class="trade-stat-label">勝率</div>
+        <div class="trade-stat-value" style="color:${winRate>=50?'#E24B4A':'#1D9E75'}">${winRate.toFixed(0)}%</div>
+      </div>
+      <div class="trade-stat-card">
+        <div class="trade-stat-label">已實現交易數</div>
+        <div class="trade-stat-value">${sells.length}</div>
+      </div>
+      <div class="trade-stat-card">
+        <div class="trade-stat-label">平均賺賠比</div>
+        <div class="trade-stat-value">${fmtRatio(winLossRatio)}</div>
+      </div>
+      <div class="trade-stat-card">
+        <div class="trade-stat-label">平均持有天數</div>
+        <div class="trade-stat-value">${avgHoldDays != null ? Math.round(avgHoldDays) + '天' : '—'}</div>
+      </div>`;
+  },
+
   render() {
+    this.renderStats();
     const list = document.getElementById('trade-list');
     if (!list) return;
     const trades = this.get();
@@ -1677,6 +1818,144 @@ const RECOMMEND = {
 
 // ── APP module ────────────────────────────────────────
 // ── Calendar module（財經行事曆：FOMC會議、台股法定財報截止日、美股個股財報日）──
+// ── PriceAlert module（到價提醒：瀏覽器通知）──────────
+const PriceAlert = {
+  _key() { return 'stock-agent-alerts'; },
+  getAll() {
+    try { return JSON.parse(localStorage.getItem(this._key()) || '{}'); }
+    catch(e) { return {}; }
+  },
+  save(alerts) { localStorage.setItem(this._key(), JSON.stringify(alerts)); },
+  has(code) { const a = this.getAll(); return !!a[code]; },
+  get(code) { return this.getAll()[code] || null; },
+
+  set(code, { above, below }) {
+    const alerts = this.getAll();
+    if (above == null && below == null) { delete alerts[code]; }
+    else { alerts[code] = { above: above ?? null, below: below ?? null, triggered: {} }; }
+    this.save(alerts);
+  },
+
+  async requestPermission() {
+    if (!('Notification' in window)) { showToast('此瀏覽器不支援通知功能'); return false; }
+    if (Notification.permission === 'granted') return true;
+    if (Notification.permission === 'denied') { showToast('通知權限已被封鎖，請至瀏覽器設定開啟'); return false; }
+    const perm = await Notification.requestPermission();
+    return perm === 'granted';
+  },
+
+  openModal(code, market) {
+    const list = market === 'US' ? APP._usPortfolio : APP._twPortfolio;
+    const s = list.find(x => x.code === code);
+    if (!s) return;
+    const modal = document.getElementById('alert-modal');
+    modal._code = code; modal._market = market;
+    document.getElementById('alert-stock-label').textContent = `${code} ${s.name}（現價 ${(market==='US'?'US$':'$')}${(s.price??s.cost).toFixed(2)}）`;
+    const existing = this.get(code);
+    document.getElementById('alert-above').value = existing?.above ?? '';
+    document.getElementById('alert-below').value = existing?.below ?? '';
+    modal.classList.add('show');
+  },
+
+  async saveFromModal() {
+    const modal = document.getElementById('alert-modal');
+    const code = modal._code;
+    const above = parseFloat(document.getElementById('alert-above').value) || null;
+    const below = parseFloat(document.getElementById('alert-below').value) || null;
+    if ((above || below) && !(await this.requestPermission())) return;
+    this.set(code, { above, below });
+    closeModal('alert-modal');
+    APP.renderStockList();
+    showToast(above || below ? `${code} 到價提醒已設定` : `${code} 到價提醒已取消`);
+  },
+
+  // 每次報價更新後檢查是否觸價（在 APP.refreshPrices 完成後呼叫）
+  checkAll() {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const alerts = this.getAll();
+    let changed = false;
+    Object.keys(alerts).forEach(code => {
+      const alert = alerts[code];
+      const q = DATA.priceStore[code];
+      if (!q?.price) return;
+      const today = new Date().toISOString().slice(0, 10);
+      if (alert.above != null && q.price >= alert.above && alert.triggered.above !== today) {
+        new Notification(`📈 ${code} 已達到價提醒`, { body: `現價 ${q.price} 已突破 ${alert.above}` });
+        alert.triggered.above = today; changed = true;
+      }
+      if (alert.below != null && q.price <= alert.below && alert.triggered.below !== today) {
+        new Notification(`📉 ${code} 已達到價提醒`, { body: `現價 ${q.price} 已跌破 ${alert.below}` });
+        alert.triggered.below = today; changed = true;
+      }
+    });
+    if (changed) this.save(alerts);
+  },
+};
+
+// ── ExDividend module（除權息日期：台股用TWSE官方公開資料，美股用Yahoo歷史股利估算下次）──
+const ExDividend = {
+  _cacheKey() { return 'twsa-exdiv-cache'; },
+
+  // ROC(民國)日期字串轉西元 Date（例："1150814" → 2026-08-14）
+  _rocToDate(rocStr) {
+    if (!rocStr || rocStr.length < 6) return null;
+    const roc = parseInt(rocStr.slice(0, -4));
+    const md = rocStr.slice(-4);
+    return `${roc + 1911}-${md.slice(0,2)}-${md.slice(2,4)}`;
+  },
+
+  async getTWUpcoming(codes) {
+    if (!codes.length) return [];
+    const cacheRaw = localStorage.getItem(this._cacheKey());
+    if (cacheRaw) {
+      try {
+        const cache = JSON.parse(cacheRaw);
+        if (Date.now() - cache.ts < 86400000) return cache.events.filter(e => codes.includes(e.code)); // 1天快取
+      } catch(e) {}
+    }
+    try {
+      const url = 'https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL';
+      const res = await DATA._fetch(url);
+      const json = await res.json();
+      const today = new Date().toISOString().slice(0, 10);
+      const events = (Array.isArray(json) ? json : [])
+        .map(r => ({ code: r.Code, name: r.Name, date: this._rocToDate(r.Date), cashDividend: r.CashDividend }))
+        .filter(e => e.date && e.date >= today);
+      localStorage.setItem(this._cacheKey(), JSON.stringify({ ts: Date.now(), events }));
+      return events.filter(e => codes.includes(e.code));
+    } catch(e) { return []; }
+  },
+
+  // 美股：用過去一年配息紀錄，估算下次除息日（僅供參考，非官方確認日期）
+  async getUSEstimate(code) {
+    try {
+      const url = `https://query2.finance.yahoo.com/v8/finance/chart/${code}?interval=1d&range=1y&events=div`;
+      const res = await DATA._fetch(url);
+      const json = await res.json();
+      const divs = json?.chart?.result?.[0]?.events?.dividends;
+      if (!divs) return null;
+      const dates = Object.values(divs).map(d => d.date * 1000).sort((a,b) => a - b);
+      if (dates.length < 2) return null;
+      // 用最近兩次間隔估算配息週期
+      const interval = dates[dates.length-1] - dates[dates.length-2];
+      const nextEst = new Date(dates[dates.length-1] + interval);
+      if (nextEst < new Date()) return null;
+      return { code, date: nextEst.toISOString().slice(0,10), estimated: true };
+    } catch(e) { return null; }
+  },
+
+  async getUpcomingForPortfolio() {
+    const twCodes = APP._twPortfolio.map(s => s.code);
+    const usCodes = APP._usPortfolio.map(s => s.code);
+    const [twEvents, ...usResults] = await Promise.all([
+      this.getTWUpcoming(twCodes),
+      ...usCodes.map(c => this.getUSEstimate(c)),
+    ]);
+    const usEvents = usResults.filter(Boolean);
+    return [...twEvents, ...usEvents].sort((a,b) => a.date.localeCompare(b.date));
+  },
+};
+
 const APP = {
   // 台股資料
   _twPortfolio: JSON.parse(localStorage.getItem('twsa-portfolio') || '[]'),
@@ -1736,6 +2015,8 @@ const APP = {
     // ★ 事後驗證過去的預測準確度（背景執行，不卡畫面），之後每小時再檢查一次
     setTimeout(() => PredictTrack.evaluate(), 3000);
     setInterval(() => PredictTrack.evaluate(), 3600000);
+    // 除權息行事曆（背景載入，有1天快取）
+    setTimeout(() => this._renderExDiv(), 2000);
 
     // ★ 核心修正：init 完成後 12 秒才解鎖自動上傳
     // 確保 refreshPrices、renderAll 等所有初始化動作都不會觸發上傳
@@ -1947,6 +2228,7 @@ const APP = {
     this._renderSignalOverview();
     // 總覽頁若正在顯示，只更新價格文字（不重抓K線，避免頻繁重繪）
     Dashboard.updateLivePrices();
+    PriceAlert.checkAll();
     // ★ 問題3: 移除「報價已更新」toast
   },
 
@@ -1959,6 +2241,22 @@ const APP = {
     if (miniSection) miniSection.style.display = APP.portfolio.length > 1 ? 'block' : 'none';
     GOALS.updateDashboard();
     this._renderSignalOverview();
+  },
+
+  async _renderExDiv() {
+    const section = document.getElementById('exdiv-section');
+    const list = document.getElementById('exdiv-list');
+    if (!section || !list) return;
+    const events = await ExDividend.getUpcomingForPortfolio();
+    if (!events.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    list.innerHTML = events.slice(0, 5).map(e => {
+      const daysLeft = Math.ceil((new Date(e.date) - new Date()) / 86400000);
+      return `<div class="exdiv-item">
+        <span class="exdiv-code">${e.code}${e.estimated ? ' (估)' : ''}</span>
+        <span class="exdiv-date">${e.date} · ${daysLeft<=0?'今天':daysLeft+'天後'}</span>
+      </div>`;
+    }).join('');
   },
 
   // ── 買賣訊號總覽（持股清單旁邊直觀顯示）─────────
@@ -2055,6 +2353,8 @@ const APP = {
     }
     setSignedText('total-roi', roi, v => v.toFixed(2)+'%', true);
     setText('stock-count', this.portfolio.length+' 檔持股', '');
+    GOALS.renderNetWorthChart();
+    GOALS.renderConcentrationWarning();
   },
 
   renderStockList() {
@@ -2162,6 +2462,7 @@ const APP = {
           <button class="si-btn buy" onclick="openBuyModal('${s.code}', ${i})" title="加碼">＋</button>
           <button class="si-btn sell" onclick="openSellStockModal('${s.code}', ${i})" title="賣出">－</button>
           <button class="si-btn edit" onclick="editStockName('${s.code}', ${i})" title="編輯名稱">✎</button>
+          <button class="si-btn ${PriceAlert.has(s.code)?'alert-active':''}" onclick="PriceAlert.openModal('${s.code}','${s.market||APP.activeMarket}')" title="到價提醒">🔔</button>
           <button class="si-btn del" onclick="APP.removeStock(${i})" title="移除">✕</button>
         </div>`;
       div.querySelector('.si-main').addEventListener('click', () => goToStock(s.code, i, 'portfolio'));
@@ -2742,7 +3043,9 @@ function confirmSell() {
   const pnlDisplay = isUS
     ? `$${Math.abs(pnl).toFixed(2)} USD`
     : Math.abs(pnl) >= 10000 ? `${(Math.abs(pnl)/10000).toFixed(2)}萬` : `${Math.abs(pnl).toFixed(0)}元`;
-  TRADES.add({ date, code:s.code, name:s.name, action:'sell', shares, price, fee:totalFee, note:`損益${pnl>=0?'+':''}${pnlDisplay}`, market: isUS ? 'US' : 'TW' });
+  // 持有天數：用該股最早的買進紀錄日期估算（若有）
+  const holdDays = s.date ? Math.floor((new Date(date) - new Date(s.date)) / 86400000) : null;
+  TRADES.add({ date, code:s.code, name:s.name, action:'sell', shares, price, fee:totalFee, note:`損益${pnl>=0?'+':''}${pnlDisplay}`, market: isUS ? 'US' : 'TW', realizedPnl: pnl, holdDays });
   s.shares = +(s.shares - shares).toFixed(0);
   if (s.shares <= 0) { APP.portfolio.splice(idx, 1); if (APP.activeSymbol === s.code) APP.activeSymbol = ''; }
   APP.save(); APP.renderAll(); PIE.render(); closeModal('sell-modal'); TRADES.render();
