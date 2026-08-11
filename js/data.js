@@ -470,6 +470,8 @@ const DATA = {
           : `${name[sym]} ${priceStr}`;
         const el = document.getElementById(map[sym]);
         if (el) { el.textContent = disp; el.className = isUSOpen ? `index-chip ${chg >= 0 ? 'up' : 'dn'}` : 'index-chip'; }
+        // ★ 同步寫回 priceStore，讓總覽頁的指數卡片也能拿到最新報價
+        this._setPrice(sym, { price: p, prevClose: pc, chg, chgPct: pct, source: 'yahoo-spark', market: 'US' });
       });
     } catch(e) { console.warn('[DATA] fetchUSIndexes failed:', e.message); }
   },
@@ -498,9 +500,12 @@ const DATA = {
         if (item.ex === 'tse') {
           const el = document.getElementById('taiex-badge');
           if (el) { el.textContent = `加權 ${disp}`; el.className = cls; }
+          // ★ 同步寫回 priceStore（用 ^TWII 當 key，跟總覽頁指數卡片一致）
+          this._setPrice('^TWII', { price, prevClose: prev, chg, chgPct: pct, source: 'twse', market: 'TW' });
         } else if (item.ex === 'otc') {
           const el = document.getElementById('tpex-badge');
           if (el) { el.textContent = `櫃買 ${disp}`; el.className = cls; }
+          this._setPrice('^TWOII', { price, prevClose: prev, chg, chgPct: pct, source: 'twse', market: 'TW' });
         }
       });
     } catch(e) { /* silent */ }

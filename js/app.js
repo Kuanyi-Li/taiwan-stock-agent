@@ -1485,7 +1485,11 @@ const Dashboard = {
   updateLivePrices() {
     const dv = document.getElementById('dashboard-content');
     if (!dv || dv.style.display === 'none') return;
+    const isUS = APP.activeMarket === 'US';
+    // ★ 大盤指數卡片也要一起更新，之前漏掉導致指數卡片價格凍結不動
+    const indexCodes = isUS ? ['^GSPC','^IXIC','^DJI','^SOX'] : ['^TWII'];
     const stockCards = [
+      ...indexCodes.map(code => ({ code, isIndex: true })),
       ...APP.portfolio.map(s => ({ code:s.code, isWatch:false })),
       ...APP.watchlist.filter(w => !APP.portfolio.some(s => s.code === w.code)).map(w => ({ code:w.code, isWatch:true })),
     ];
@@ -1495,7 +1499,7 @@ const Dashboard = {
       if (!q?.price) return;
       const priceEl = document.getElementById(`dash-price-${id}`);
       const chgEl = document.getElementById(`dash-chg-${id}`);
-      const isUSStock = DATA.isUSCode(c.code);
+      const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
       if (priceEl) priceEl.textContent = (isUSStock ? 'US$' : '') + q.price.toFixed(2);
       if (chgEl && q.prevClose) {
         const chg = q.price - q.prevClose;
