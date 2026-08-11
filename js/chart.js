@@ -844,7 +844,12 @@ const PredictTrack = {
     const bySymbol = {};
     pending.forEach(e => { (bySymbol[e.symbol] ||= []).push(e); });
 
-    for (const symbol of Object.keys(bySymbol)) {
+    // ★ 限制每次最多處理幾檔股票，避免累積大量待驗證紀錄時一次塞爆共用請求佇列
+    // （曾發生跟總覽頁同時搶佇列，導致總覽頁載入變超慢的問題）
+    const MAX_SYMBOLS_PER_RUN = 4;
+    const symbols = Object.keys(bySymbol).slice(0, MAX_SYMBOLS_PER_RUN);
+
+    for (const symbol of symbols) {
       try {
         const data = await DATA.fetchHistory(symbol, '1d');
         const dayKey = ts => new Date(ts).toDateString();
@@ -861,7 +866,7 @@ const PredictTrack = {
           e.hit = actual >= e.predLower && actual <= e.predUpper;
           e.evaluated = true;
         });
-        await new Promise(r => setTimeout(r, 150)); // 節流，避免同時大量請求
+        await new Promise(r => setTimeout(r, 300)); // 節流，避免同時大量請求
       } catch(err) { /* 靜默跳過失敗的股票 */ }
     }
     this.save(list);

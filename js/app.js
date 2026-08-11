@@ -2495,7 +2495,7 @@ const APP = {
     // 背景分析所有持股
     setTimeout(() => this._backgroundAnalyzeAll(), 500);
     // ★ 事後驗證過去的預測準確度（背景執行，不卡畫面），之後每小時再檢查一次
-    setTimeout(() => PredictTrack.evaluate(), 3000);
+    setTimeout(() => PredictTrack.evaluate(), 15000);
     setInterval(() => PredictTrack.evaluate(), 3600000);
     // 除權息行事曆（背景載入，有1天快取）
     setTimeout(() => this._renderExDiv(), 2000);
