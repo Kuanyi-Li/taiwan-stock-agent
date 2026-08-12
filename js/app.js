@@ -1222,8 +1222,8 @@ const Dashboard = {
     return `
       <div class="dash-card ${c.isIndex ? 'dash-card-index' : ''} ${compact ? 'compact' : ''}" id="dash-card-${id}" onclick="Dashboard._onCardClick('${c.code}', ${c.isWatch ? "'watch'" : "'portfolio'"})">
         <div class="dash-card-head">
-          <span class="dash-card-code">${c.code}</span>
-          <span class="dash-card-name">${c.name}</span>
+          <span class="dash-card-code" id="dash-code-${id}">${c.code}</span>
+          <span class="dash-card-name" id="dash-name-${id}">${c.name}</span>
         </div>
         <div class="dash-card-price-row">
           <span class="dash-card-price" id="dash-price-${id}">—</span>
@@ -1259,8 +1259,13 @@ const Dashboard = {
 
       const priceEl = document.getElementById(`dash-price-${id}`);
       const chgEl = document.getElementById(`dash-chg-${id}`);
+      const codeEl = document.getElementById(`dash-code-${id}`);
+      const nameEl = document.getElementById(`dash-name-${id}`);
       const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
       if (priceEl) priceEl.textContent = (isUSStock ? 'US$' : '') + price.toFixed(2);
+      const colorClass = chgColorClass(chg);
+      if (codeEl) codeEl.className = 'dash-card-code ' + colorClass;
+      if (nameEl) nameEl.className = 'dash-card-name ' + colorClass;
       if (chgEl) {
         const isUp = chg >= 0;
         chgEl.className = 'dash-card-chg ' + (isUp ? 'up-color' : 'dn-color');
@@ -1499,14 +1504,21 @@ const Dashboard = {
       if (!q?.price) return;
       const priceEl = document.getElementById(`dash-price-${id}`);
       const chgEl = document.getElementById(`dash-chg-${id}`);
+      const codeEl = document.getElementById(`dash-code-${id}`);
+      const nameEl = document.getElementById(`dash-name-${id}`);
       const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
       if (priceEl) priceEl.textContent = (isUSStock ? 'US$' : '') + q.price.toFixed(2);
-      if (chgEl && q.prevClose) {
+      if (q.prevClose != null) {
         const chg = q.price - q.prevClose;
         const chgPct = chg / q.prevClose * 100;
         const isUp = chg >= 0;
-        chgEl.className = 'dash-card-chg ' + (isUp ? 'up-color' : 'dn-color');
-        chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
+        const colorClass = chgColorClass(chg);
+        if (codeEl) codeEl.className = 'dash-card-code ' + colorClass;
+        if (nameEl) nameEl.className = 'dash-card-name ' + colorClass;
+        if (chgEl) {
+          chgEl.className = 'dash-card-chg ' + (isUp ? 'up-color' : 'dn-color');
+          chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
+        }
       }
     });
   },
@@ -2719,6 +2731,9 @@ const APP = {
       if (q?.price) {
         const priceEl = document.getElementById('chart-price');
         if (priceEl) priceEl.textContent = q.price.toFixed(2);
+        const chgForName = q.price - (q.prevClose ?? q.price);
+        const nameElLive = document.getElementById('chart-name');
+        if (nameElLive) nameElLive.className = 'chart-stock-name ' + chgColorClass(chgForName);
         const changeEl = document.getElementById('chart-change');
         if (changeEl) {
           const chg = q.price - (q.prevClose ?? q.price);
@@ -2939,17 +2954,18 @@ const APP = {
 
       const div = document.createElement('div');
       div.className = 'stock-item' + (isActive ? ' active' : '');
+      const nameColorClass = chgColorClass(chg);
       div.innerHTML = `
         <div class="si-main" data-code="${s.code}" data-idx="${i}">
           <div class="si-row1">
-            <span class="si-code">${s.code}</span>
+            <span class="si-code ${nameColorClass}">${s.code}</span>
             <span class="si-price ${isUp?'up-color':'dn-color'}">
               ${price.toFixed(2)}
               ${Math.abs(price - s.cost) < 0.01 ? '<small style="font-size:9px;color:var(--text-3);font-weight:400"> 暫</small>' : ''}
             </span>
           </div>
           <div class="si-row2">
-            <span class="si-name">${s.name}</span>
+            <span class="si-name ${nameColorClass}">${s.name}</span>
             <span class="si-shares">${sharesDisplay}</span>
           </div>
           <div class="si-row3">
@@ -3004,8 +3020,8 @@ const APP = {
       div.className = 'watch-item';
       div.innerHTML = `
         <div class="wi-left" onclick="goToStock('${s.code}',${i},'watch')">
-          <div class="wi-code">${s.code}</div>
-          <div class="wi-name">${s.name}</div>
+          <div class="wi-code ${chgColorClass(chg)}">${s.code}</div>
+          <div class="wi-name ${chgColorClass(chg)}">${s.name}</div>
           ${sig ? `<div class="wi-signal ${sig.cls}">${sig.short} ${sig.label}</div>` : ''}
         </div>
         <div class="wi-right" onclick="goToStock('${s.code}',${i},'watch')">
@@ -3035,11 +3051,12 @@ const APP = {
 
     const s = source === 'portfolio' ? this.portfolio[idx] : this.watchlist[idx];
     if (s) {
-      document.getElementById('chart-name').textContent = `${s.name} ${s.code}`;
       const price = s.price ?? 0;
       const prev  = s.prevClose ?? price;
       const chg = price - prev;
       const chgPct = prev ? chg/prev*100 : 0;
+      const nameEl0 = document.getElementById('chart-name');
+      if (nameEl0) { nameEl0.textContent = `${s.name} ${s.code}`; nameEl0.className = 'chart-stock-name ' + chgColorClass(chg); }
       document.getElementById('chart-price').textContent = price > 0 ? price.toFixed(2) : '—';
       const changeEl = document.getElementById('chart-change');
       const isMarketOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
@@ -3118,6 +3135,8 @@ const APP = {
       if (priceEl) priceEl.textContent = freshQuote.price.toFixed(2);
       const chg = freshQuote.price - (freshQuote.prevClose ?? freshQuote.price);
       const chgPct = freshQuote.prevClose ? chg / freshQuote.prevClose * 100 : 0;
+      const nameElFresh = document.getElementById('chart-name');
+      if (nameElFresh) nameElFresh.className = 'chart-stock-name ' + chgColorClass(chg);
       const changeEl = document.getElementById('chart-change');
       if (changeEl) {
         if (Math.abs(chg) < 0.01) {
@@ -3457,6 +3476,12 @@ function saveEditCost() {
 }
 
 // 側邊欄點擊股票：若目前不在個股詳細畫面，先切過去再選股
+// 依漲跌方向回傳顏色class：漲=紅、跌=綠、平盤=不上色（維持預設白色）
+function chgColorClass(chg) {
+  if (chg == null || Math.abs(chg) < 0.001) return '';
+  return chg > 0 ? 'up-color' : 'dn-color';
+}
+
 function goToStock(code, idx, source) {
   const detailEl = document.getElementById('detail-content');
   if (detailEl && detailEl.style.display === 'none') {
