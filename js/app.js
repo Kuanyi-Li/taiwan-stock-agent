@@ -1511,6 +1511,41 @@ const Dashboard = {
     });
   },
 
+  // ── 定期重繪迷你K線（用已快取的歷史資料+最新報價，不額外發request）──
+  // 跟 updateLivePrices() 分開頻率：文字每次刷新都更新，K線圖較耗運算，較低頻重繪即可
+  refreshMiniCharts() {
+    const dv = document.getElementById('dashboard-content');
+    if (!dv || dv.style.display === 'none') return;
+    if (this.isCompact()) return; // 精簡模式沒有K線圖，不用處理
+    const isUS = APP.activeMarket === 'US';
+    const indexCodes = isUS ? ['^GSPC','^IXIC','^DJI','^SOX'] : ['^TWII'];
+    const stockCards = [
+      ...indexCodes,
+      ...APP.portfolio.map(s => s.code),
+      ...APP.watchlist.filter(w => !APP.portfolio.some(s => s.code === w.code)).map(w => w.code),
+    ];
+    stockCards.forEach(code => {
+      const cached = DATA.histCache[`${code}_1d`]?.data;
+      if (!cached || cached.length < 3) return; // 還沒有快取資料，跳過（下次render時會補）
+      const canvas = document.getElementById(`dash-canvas-${this._idOf(code)}`);
+      if (!canvas) return;
+      // 複製一份避免修改到共用快取，patch最後一根K線成最新報價後重繪
+      const dataCopy = cached.map(d => ({ ...d }));
+      CHART._patchCandleData(dataCopy, code);
+      const prediction = this._drawMiniChart(canvas, dataCopy, code);
+      // 趨勢徽章也一併更新（避免文字停留在舊的預測結果）
+      const badgeEl = document.getElementById(`dash-badge-${this._idOf(code)}`);
+      if (badgeEl && prediction) {
+        const trendBadgeEl = badgeEl.querySelector('.dash-trend-badge');
+        if (trendBadgeEl) {
+          const tc = CHART._trendColor(prediction.trend);
+          trendBadgeEl.style.color = tc;
+          trendBadgeEl.textContent = `${prediction.trend.short} ${prediction.pctChange>=0?'+':''}${prediction.pctChange.toFixed(1)}%`;
+        }
+      }
+    });
+  },
+
   // ── 卡片排序（依市場分開儲存）──────────────────────
   _orderKey() { return APP.activeMarket === 'US' ? 'ussa-dash-order' : 'twsa-dash-order'; },
   getOrder() {
@@ -2499,6 +2534,8 @@ const APP = {
     setInterval(() => PredictTrack.evaluate(), 3600000);
     // 除權息行事曆（背景載入，有1天快取）
     setTimeout(() => this._renderExDiv(), 2000);
+    // 總覽頁迷你K線定期重繪（跟報價文字分開頻率，避免每8秒都重算預測線耗效能）
+    setInterval(() => Dashboard.refreshMiniCharts(), 60000);
 
     // ★ 核心修正：init 完成後 12 秒才解鎖自動上傳
     // 確保 refreshPrices、renderAll 等所有初始化動作都不會觸發上傳
