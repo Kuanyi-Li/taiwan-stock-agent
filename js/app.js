@@ -1183,12 +1183,10 @@ const Dashboard = {
       grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
     }
 
-    // 逐一非同步抓資料並繪製（避免同時大量請求打爆 proxy）
+    // ★ 並行觸發所有卡片載入：價格立即顯示（同步），K線/預測線背景抓取
+    // 實際的網路請求節流交給共用佇列（DATA._enqueue）處理，不再額外死等
     this._sigTiers = {}; // 收集訊號分級供摘要列統計
-    for (let i = 0; i < cards.length; i++) {
-      await this._loadCard(cards[i], i, compact);
-      await new Promise(r => setTimeout(r, compact ? 40 : 120)); // 精簡模式資料量小，節流可縮短
-    }
+    await Promise.all(cards.map((c, i) => this._loadCard(c, i, compact)));
     this._renderSummary(cards);
     // 卡片自己算好的指標已寫回全域快取，順便刷新側邊欄讓訊號同步更新
     APP.renderStockList();
@@ -1238,30 +1236,16 @@ const Dashboard = {
 
   async _loadCard(c, i, compact) {
     const id = this._idOf(c.code);
-    try {
-      // ★ 精簡模式：優先用已有的即時報價，不強制等完整歷史（更快），沒有才輕量抓一次
-      let price, prevClose, data = null;
-      const live = DATA.priceStore[c.code];
-      if (compact && live?.price) {
-        price = live.price;
-        prevClose = live.prevClose ?? price;
-      } else {
-        // 抓完整1年日線（跟個股詳細頁的長線資料一樣），確保預測線100%一致
-        data = await DATA.fetchHistory(c.code, '1d');
-        if (!data || data.length < 3) throw new Error('no data');
-        const last = data[data.length - 1];
-        const prev = data.length >= 2 ? data[data.length - 2].c : last.c;
-        price = live?.price && live.source !== 'twse-prev' ? live.price : last.c;
-        prevClose = live?.prevClose ?? prev;
-      }
+    const priceEl = document.getElementById(`dash-price-${id}`);
+    const chgEl = document.getElementById(`dash-chg-${id}`);
+    const codeEl = document.getElementById(`dash-code-${id}`);
+    const nameEl = document.getElementById(`dash-name-${id}`);
+    const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
+
+    // ★ 第一階段（同步、立即）：用已經批次抓好的報價先顯示價格，不等K線資料
+    const renderPrice = (price, prevClose) => {
       const chg = price - prevClose;
       const chgPct = prevClose ? chg / prevClose * 100 : 0;
-
-      const priceEl = document.getElementById(`dash-price-${id}`);
-      const chgEl = document.getElementById(`dash-chg-${id}`);
-      const codeEl = document.getElementById(`dash-code-${id}`);
-      const nameEl = document.getElementById(`dash-name-${id}`);
-      const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
       const colorClass = chgColorClass(chg);
       if (priceEl) { priceEl.textContent = (isUSStock ? 'US$' : '') + price.toFixed(2); priceEl.className = 'dash-card-price ' + colorClass; }
       if (codeEl) codeEl.className = 'dash-card-code ' + colorClass;
@@ -1271,6 +1255,29 @@ const Dashboard = {
         chgEl.className = 'dash-card-chg ' + (isUp ? 'up-color' : 'dn-color');
         chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
       }
+      return { chg, chgPct };
+    };
+
+    const live0 = DATA.priceStore[c.code];
+    if (live0?.price) renderPrice(live0.price, live0.prevClose ?? live0.price);
+
+    try {
+      // ★ 第二階段（非同步）：抓完整1年日線（跟個股詳細頁的長線資料一樣），確保預測線100%一致
+      // 精簡模式優先用已有報價，避免不必要的歷史資料抓取
+      let price, prevClose, data = null;
+      const live = DATA.priceStore[c.code];
+      if (compact && live?.price) {
+        price = live.price;
+        prevClose = live.prevClose ?? price;
+      } else {
+        data = await DATA.fetchHistory(c.code, '1d');
+        if (!data || data.length < 3) throw new Error('no data');
+        const last = data[data.length - 1];
+        const prev = data.length >= 2 ? data[data.length - 2].c : last.c;
+        price = live?.price && live.source !== 'twse-prev' ? live.price : last.c;
+        prevClose = live?.prevClose ?? prev;
+      }
+      const { chg } = renderPrice(price, prevClose);
 
       // ★ 關鍵修正：卡片自己算完的指標直接寫回全域快取，
       // 這樣訊號徽章第一次渲染就有正確結果，不用等背景分析、也不會卡在「分析中」

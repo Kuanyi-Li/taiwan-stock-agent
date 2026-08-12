@@ -359,7 +359,7 @@ const DATA = {
   // ── K 線歷史資料 ──────────────────────────────────────
   histCache: {},
   _twSuffixCache: {}, // symbol -> '.TW' or '.TWO'（記住上市/上櫃判斷結果）
-  HIST_TTL: 120000,
+  HIST_TTL: 1200000, // 20分鐘（日線資料歷史部分很少變動，最新一根另有機制單獨即時更新）
 
   async fetchHistory(symbol, period = '3mo') {
     const { interval, range } = this._periodToParams(period);
