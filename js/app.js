@@ -1262,8 +1262,8 @@ const Dashboard = {
       const codeEl = document.getElementById(`dash-code-${id}`);
       const nameEl = document.getElementById(`dash-name-${id}`);
       const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
-      if (priceEl) priceEl.textContent = (isUSStock ? 'US$' : '') + price.toFixed(2);
       const colorClass = chgColorClass(chg);
+      if (priceEl) { priceEl.textContent = (isUSStock ? 'US$' : '') + price.toFixed(2); priceEl.className = 'dash-card-price ' + colorClass; }
       if (codeEl) codeEl.className = 'dash-card-code ' + colorClass;
       if (nameEl) nameEl.className = 'dash-card-name ' + colorClass;
       if (chgEl) {
@@ -1513,6 +1513,7 @@ const Dashboard = {
         const chgPct = chg / q.prevClose * 100;
         const isUp = chg >= 0;
         const colorClass = chgColorClass(chg);
+        if (priceEl) priceEl.className = 'dash-card-price ' + colorClass;
         if (codeEl) codeEl.className = 'dash-card-code ' + colorClass;
         if (nameEl) nameEl.className = 'dash-card-name ' + colorClass;
         if (chgEl) {
@@ -2660,7 +2661,7 @@ const APP = {
     const nameEl = document.getElementById('chart-name');
     if (nameEl) nameEl.textContent = '請選擇股票';
     const priceEl = document.getElementById('chart-price');
-    if (priceEl) priceEl.textContent = '—';
+    if (priceEl) { priceEl.textContent = '—'; priceEl.className = 'chart-price'; }
     const changeEl = document.getElementById('chart-change');
     if (changeEl) { changeEl.textContent = ''; changeEl.className = 'chart-change'; }
     const indRow = document.getElementById('ind-row');
@@ -2730,8 +2731,8 @@ const APP = {
       const q = DATA.priceStore[this.activeSymbol];
       if (q?.price) {
         const priceEl = document.getElementById('chart-price');
-        if (priceEl) priceEl.textContent = q.price.toFixed(2);
         const chgForName = q.price - (q.prevClose ?? q.price);
+        if (priceEl) { priceEl.textContent = q.price.toFixed(2); priceEl.className = 'chart-price ' + chgColorClass(chgForName); }
         const nameElLive = document.getElementById('chart-name');
         if (nameElLive) nameElLive.className = 'chart-stock-name ' + chgColorClass(chgForName);
         const changeEl = document.getElementById('chart-change');
@@ -2959,7 +2960,7 @@ const APP = {
         <div class="si-main" data-code="${s.code}" data-idx="${i}">
           <div class="si-row1">
             <span class="si-code ${nameColorClass}">${s.code}</span>
-            <span class="si-price ${isUp?'up-color':'dn-color'}">
+            <span class="si-price ${nameColorClass}">
               ${price.toFixed(2)}
               ${Math.abs(price - s.cost) < 0.01 ? '<small style="font-size:9px;color:var(--text-3);font-weight:400"> 暫</small>' : ''}
             </span>
@@ -3025,7 +3026,7 @@ const APP = {
           ${sig ? `<div class="wi-signal ${sig.cls}">${sig.short} ${sig.label}</div>` : ''}
         </div>
         <div class="wi-right" onclick="goToStock('${s.code}',${i},'watch')">
-          <div class="wi-price ${isUp?'up-color':'dn-color'}">${price>0?price.toFixed(2):'—'}</div>
+          <div class="wi-price ${chgColorClass(chg)}">${price>0?price.toFixed(2):'—'}</div>
           <div class="wi-change">${(() => {
             const isOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
             const todayWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
@@ -3057,7 +3058,8 @@ const APP = {
       const chgPct = prev ? chg/prev*100 : 0;
       const nameEl0 = document.getElementById('chart-name');
       if (nameEl0) { nameEl0.textContent = `${s.name} ${s.code}`; nameEl0.className = 'chart-stock-name ' + chgColorClass(chg); }
-      document.getElementById('chart-price').textContent = price > 0 ? price.toFixed(2) : '—';
+      const priceEl0 = document.getElementById('chart-price');
+      if (priceEl0) { priceEl0.textContent = price > 0 ? price.toFixed(2) : '—'; priceEl0.className = 'chart-price ' + (price > 0 ? chgColorClass(chg) : ''); }
       const changeEl = document.getElementById('chart-change');
       const isMarketOpen = s.market === 'US' ? APP.isUSMarketOpen() : APP.isTWMarketOpen();
       const todayWeekday = new Date().getDay() >= 1 && new Date().getDay() <= 5;
@@ -3132,9 +3134,9 @@ const APP = {
       }
       // 更新頂部大價格顯示
       const priceEl = document.getElementById('chart-price');
-      if (priceEl) priceEl.textContent = freshQuote.price.toFixed(2);
       const chg = freshQuote.price - (freshQuote.prevClose ?? freshQuote.price);
       const chgPct = freshQuote.prevClose ? chg / freshQuote.prevClose * 100 : 0;
+      if (priceEl) { priceEl.textContent = freshQuote.price.toFixed(2); priceEl.className = 'chart-price ' + chgColorClass(chg); }
       const nameElFresh = document.getElementById('chart-name');
       if (nameElFresh) nameElFresh.className = 'chart-stock-name ' + chgColorClass(chg);
       const changeEl = document.getElementById('chart-change');
