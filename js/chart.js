@@ -121,21 +121,9 @@ const CHART = {
     });
   },
 
-  // 用即時報價修正資料陣列的最後一根K線
+  // 用即時報價修正資料陣列的最後一根K線（實際邏輯統一在 DATA._patchToday，這裡只是轉呼叫）
   _patchCandleData(data, symbol) {
-    if (!data.length) return;
-    const q = DATA.priceStore[symbol];
-    if (!q?.price || q.source === 'twse-prev') return;
-    const last = data[data.length - 1];
-    const d = new Date(last.t);
-    const now = new Date();
-    const isToday = d.getFullYear() === now.getFullYear() &&
-                    d.getMonth() === now.getMonth() &&
-                    d.getDate() === now.getDate();
-    if (!isToday) return;
-    last.c = q.price;
-    if (q.high && q.high > last.h) last.h = q.high;
-    if (q.low  && q.low  < last.l) last.l = q.low;
+    DATA._patchToday(data, symbol);
   },
 
   _resetZoom() {
@@ -226,6 +214,7 @@ const CHART = {
     if (symbol && semiSet.has(symbol)) {
       const soxData = DATA.histCache?.['^SOX_1d']?.data;
       if (soxData && soxData.length >= 12) {
+        DATA._patchToday(soxData, '^SOX'); // 確保費半資料也跟即時報價同步，不然連動修正會用到舊資料
         const soxRecent = soxData.slice(-10);
         const soxChgPct = (soxRecent[soxRecent.length-1].c - soxRecent[0].c) / soxRecent[0].c * 100;
         // SOX 10日變動% 轉換成類似量級的斜率修正，加權15%混入

@@ -361,13 +361,54 @@ const DATA = {
   _twSuffixCache: {}, // symbol -> '.TW' or '.TWO'（記住上市/上櫃判斷結果）
   HIST_TTL: 1200000, // 20分鐘（日線資料歷史部分很少變動，最新一根另有機制單獨即時更新）
 
+  // ★ 統一的「今天K線」補丁邏輯（唯一真實來源，所有地方都透過這裡取得一致的結果）
+  // Yahoo 的日線歷史資料常常還沒把「今天」這一列加進去（尤其盤中查詢），
+  // 若放著不管，最後一根K線會停在前一個交易日，連帶影響預測線等所有依賴K線的判斷。
+  // 這裡用即時報價自己補上/更新今天這一根，確保任何呼叫 fetchHistory 的地方拿到的都是同步的資料。
+  _patchToday(candles, symbol) {
+    if (!candles?.length) return candles;
+    const q = this.priceStore[symbol];
+    if (!q?.price || q.source === 'twse-prev') return candles;
+    const last = candles[candles.length - 1];
+    const d = new Date(last.t);
+    const now = new Date();
+    const isToday = d.getFullYear() === now.getFullYear() &&
+                    d.getMonth() === now.getMonth() &&
+                    d.getDate() === now.getDate();
+    if (isToday) {
+      last.c = q.price;
+      if (q.high && q.high > last.h) last.h = q.high;
+      if (q.low  && q.low  < last.l) last.l = q.low;
+      return candles;
+    }
+    // 只在平日補（週一到週五），避免週末/假日誤加一根空K線
+    const weekday = now.getDay();
+    if (weekday === 0 || weekday === 6) return candles;
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    if (todayMidnight <= d.getTime()) return candles; // 最後一根已經是今天以後，理論上不會發生
+    const openPrice = q.open ?? last.c;
+    candles.push({
+      t: todayMidnight,
+      o: openPrice,
+      h: Math.max(q.high ?? q.price, q.price, openPrice),
+      l: Math.min(q.low ?? q.price, q.price, openPrice),
+      c: q.price,
+      v: q.volume ?? 0,
+    });
+    return candles;
+  },
+
   async fetchHistory(symbol, period = '3mo') {
     const { interval, range } = this._periodToParams(period);
     const key = `${symbol}_${period}`;
     const now = Date.now();
     const cached = this.histCache[key];
     const ttl = ['5m','15m','60m'].includes(period) ? 15000 : this.HIST_TTL;
-    if (cached && now - cached.ts < ttl) return cached.data;
+    if (cached && now - cached.ts < ttl) {
+      // ★ 就算走快取，也要重新同步一次「今天」這根，確保任何呼叫端拿到的都是最新的
+      if (interval === '1d') this._patchToday(cached.data, symbol);
+      return cached.data;
+    }
 
     return this._enqueue(async () => {
       // 台股：上市用 .TW，上櫃用 .TWO；美股/指數(^開頭)直接用代碼
@@ -424,7 +465,6 @@ const DATA = {
         return this._mockCandles(symbol, period);
       }
 
-      this.histCache[key] = { data: candles, ts: now };
       // K線載入後同步補報價（避免覆蓋即時資料）
       const last = candles[candles.length - 1];
       const prev = candles.length >= 2 ? candles[candles.length - 2].c : last.c;
@@ -439,6 +479,9 @@ const DATA = {
           market: isUS ? 'US' : 'TW',
         });
       }
+      // ★ 用（可能更即時的）priceStore 資料同步/補上「今天」這根K線，確保跟即時報價一致
+      if (interval === '1d') this._patchToday(candles, symbol);
+      this.histCache[key] = { data: candles, ts: now };
       console.log(`[DATA] ${symbol}/${period}: ${candles.length} candles`);
       return candles;
     });
