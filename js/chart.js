@@ -76,7 +76,21 @@ const CHART = {
 
   // 用即時報價更新顯示K線的最後一根
   _patchLastCandle(symbol) {
+    const lenBefore = this.currentData.length;
     this._patchCandleData(this.currentData, symbol);
+    const grew = this.currentData.length - lenBefore;
+    if (grew > 0) {
+      // ★ 修正：補上「今天」這根會讓陣列變長，如果縮放範圍（zoomEnd）沒有跟著調整，
+      // 新增的這根會落在可視範圍外，造成K線圖視覺上斷層、不連續。
+      // 只有當原本的可視範圍已經包含「最後一根」時才跟著往後延伸，
+      // 如果使用者手動往回拉看歷史資料，不要打斷他正在看的位置。
+      const wasShowingLatest = this.zoomEnd >= lenBefore - 1;
+      this.zoomEnd += grew;
+      if (wasShowingLatest) {
+        // 維持原本可視根數，一起往後移動，讓新的一根出現在最右邊
+        this.zoomStart += grew;
+      }
+    }
   },
 
   // 用指定模式的資料分析（外部呼叫）

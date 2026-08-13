@@ -58,6 +58,56 @@ const DATA = {
       if (oldRank > newRank && (newTs - oldTs) < 30000) return;
     }
     this.priceStore[code] = { ...(existing ?? {}), ...fields, ts: Date.now() };
+    // ★ 每次收到「真正即時」的報價（不是K線補的、也不是收盤延續），
+    // 順便自己在背景記錄今天的開高低收，當作 Yahoo 歷史K線 close=null 時的保底來源，
+    // 也可以互相對照，因為這是我們自己整天實際觀察到的資料，不是事後用別的欄位去猜的。
+    if (fields.price && fields.source !== 'candle' && fields.source !== 'twse-prev') {
+      this._trackOwnDayCandle(code, fields.price, fields.open, fields.high, fields.low);
+    }
+  },
+
+  // 用「本地時區」日期字串（YYYY-MM-DD），不要用 toISOString()（那是UTC，
+  // 台灣是UTC+8，半夜0:00~8:00這段時間toISOString會誤判成前一天）
+  _localDateStr(d) {
+    const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  },
+
+  // ── 自己追蹤的當日開高低收（獨立於 Yahoo 歷史K線之外的第二來源）──
+  _ownDayKey() { return 'stock-agent-owntrack'; },
+  _ownDayCache: null,
+  _loadOwnDayCache() {
+    if (this._ownDayCache) return this._ownDayCache;
+    try { this._ownDayCache = JSON.parse(localStorage.getItem(this._ownDayKey()) || '{}'); }
+    catch(e) { this._ownDayCache = {}; }
+    return this._ownDayCache;
+  },
+  _saveOwnDayCache() {
+    try { localStorage.setItem(this._ownDayKey(), JSON.stringify(this._ownDayCache)); } catch(e) {}
+  },
+  _trackOwnDayCandle(code, price, open, high, low) {
+    const cache = this._loadOwnDayCache();
+    const today = this._localDateStr(new Date());
+    if (!cache[code]) cache[code] = {};
+    const byDate = cache[code];
+    if (!byDate[today]) {
+      byDate[today] = { open: open ?? price, high: high ?? price, low: low ?? price, close: price };
+    } else {
+      const rec = byDate[today];
+      rec.close = price;
+      rec.high = high != null ? Math.max(rec.high, high) : Math.max(rec.high, price);
+      rec.low  = low  != null ? Math.min(rec.low,  low)  : Math.min(rec.low,  price);
+    }
+    // 只保留最近7天，避免localStorage無限長大
+    const dates = Object.keys(byDate).sort();
+    if (dates.length > 7) dates.slice(0, dates.length - 7).forEach(d => delete byDate[d]);
+    this._saveOwnDayCache();
+  },
+  // 取得某symbol「我們自己觀察到」指定日期（預設今天）的開高低收（如果有的話）
+  getOwnDayCandle(code, dateStr) {
+    const cache = this._loadOwnDayCache();
+    const date = dateStr || this._localDateStr(new Date());
+    return cache[code]?.[date] || null;
   },
 
   // ── 判斷台股 / 美股 ───────────────────────────────────
@@ -364,36 +414,72 @@ const DATA = {
   // ★ 統一的「今天K線」補丁邏輯（唯一真實來源，所有地方都透過這裡取得一致的結果）
   // Yahoo 的日線歷史資料常常還沒把「今天」這一列加進去（尤其盤中查詢），
   // 若放著不管，最後一根K線會停在前一個交易日，連帶影響預測線等所有依賴K線的判斷。
-  // 這裡用即時報價自己補上/更新今天這一根，確保任何呼叫 fetchHistory 的地方拿到的都是同步的資料。
+  // 這裡用即時報價自己更新/補上今天這一根，確保任何呼叫 fetchHistory 的地方拿到的都是同步的資料。
+  //
+  // ★ 新架構（比之前更可靠）：
+  // Yahoo 的歷史K線常常「今天」還沒補上，就算補上也可能欄位缺漏（例如close是null）。
+  // 與其被動修補一份不可靠的資料，不如反過來：
+  // 1. 「今天」這根，主要用我們自己整天追蹤到的完整開高低收（_trackOwnDayCandle）直接建構，
+  //    這份資料保證跟畫面上顯示的即時報價同步（因為本來就是同一份報價累積來的）。
+  // 2. 一旦 Yahoo 收盤後補上「今天」這天、而且是有效資料（close不是null），
+  //    改用 Yahoo 的官方數字（更準確，因為是交易所正式數據，不只是我們抽樣觀察到的）。
+  // 3. 只有台股會主動「補一根全新的」，且要先確認已經開盤過；
+  //    美股/指數因為Yahoo K線用美東時間標記、跟台灣日曆比對容易時區誤判，維持保守不補。
   _patchToday(candles, symbol) {
     if (!candles?.length) return candles;
-    const q = this.priceStore[symbol];
-    if (!q?.price || q.source === 'twse-prev') return candles;
-    const last = candles[candles.length - 1];
-    const d = new Date(last.t);
     const now = new Date();
-    const isToday = d.getFullYear() === now.getFullYear() &&
-                    d.getMonth() === now.getMonth() &&
-                    d.getDate() === now.getDate();
-    if (isToday) {
-      last.c = q.price;
-      if (q.high && q.high > last.h) last.h = q.high;
-      if (q.low  && q.low  < last.l) last.l = q.low;
+    const todayStr = this._localDateStr(now);
+    const last = candles[candles.length - 1];
+    const lastDateStr = this._localDateStr(new Date(last.t));
+
+    if (lastDateStr === todayStr) {
+      if (last._own) {
+        // 這根是我們自己補的（不是Yahoo官方資料），要繼續用最新追蹤資料更新，不能放著不動
+        const own = this.getOwnDayCandle(symbol, todayStr);
+        const q = this.priceStore[symbol];
+        if (own) {
+          last.o = +own.open.toFixed(2);
+          last.h = +Math.max(own.high, last.h).toFixed(2);
+          last.l = +Math.min(own.low,  last.l).toFixed(2);
+          last.c = +(own.close ?? q?.price ?? last.c).toFixed(2);
+        } else if (q?.price) {
+          last.c = q.price;
+          if (q.high && q.high > last.h) last.h = q.high;
+          if (q.low  && q.low  < last.l) last.l = q.low;
+        }
+      }
+      // 若不是我們補的（是Yahoo官方資料），代表已經正式收盤入帳，直接信任它，不覆蓋
       return candles;
     }
-    // 只在平日補（週一到週五），避免週末/假日誤加一根空K線
+
+    // Yahoo 還沒有「今天」這筆 —— 用我們自己追蹤的資料補一根上去
+    const isIndex = symbol.startsWith('^');
+    const isUS = isIndex || this.isUSCode(symbol);
+    if (isUS) return candles; // 美股/指數：時區判斷太容易出錯，維持舊資料，不冒險補
     const weekday = now.getDay();
-    if (weekday === 0 || weekday === 6) return candles;
+    if (weekday === 0 || weekday === 6) return candles; // 週末不補
+    const h = now.getHours(), m = now.getMinutes();
+    const twMarketOpenedToday = h > 9 || (h === 9 && m >= 0); // 台股 9:00 開盤，開盤前不算「今天已經有資料」
+    if (!twMarketOpenedToday) return candles;
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    if (todayMidnight <= d.getTime()) return candles; // 最後一根已經是今天以後，理論上不會發生
-    const openPrice = q.open ?? last.c;
+    if (todayMidnight <= last.t) return candles; // 理論上不會發生
+
+    const own = this.getOwnDayCandle(symbol, todayStr);
+    const q = this.priceStore[symbol];
+    if (!own && (!q?.price || q.source === 'twse-prev')) return candles; // 完全沒有任何資料可用，放棄
+    // 優先用自己整天追蹤的完整開高低收；如果因為剛好第一次載入還沒累積到追蹤資料，才退回用單一時間點的報價
+    const o = own?.open ?? q?.open ?? q?.price;
+    const h2 = own?.high ?? q?.high ?? q?.price;
+    const l2 = own?.low  ?? q?.low  ?? q?.price;
+    const c = own?.close ?? q?.price;
     candles.push({
       t: todayMidnight,
-      o: openPrice,
-      h: Math.max(q.high ?? q.price, q.price, openPrice),
-      l: Math.min(q.low ?? q.price, q.price, openPrice),
-      c: q.price,
-      v: q.volume ?? 0,
+      o: +o.toFixed(2),
+      h: +Math.max(h2, o, c).toFixed(2),
+      l: +Math.min(l2, o, c).toFixed(2),
+      c: +c.toFixed(2),
+      v: q?.volume ?? 0,
+      _own: true, // ★ 標記這根是我們自己補的，不是Yahoo官方資料，讓後續呼叫知道要繼續更新它
     });
     return candles;
   },
@@ -433,13 +519,24 @@ const DATA = {
           if (!result || !result.timestamp?.length) throw new Error('No chart data');
           const ts    = result.timestamp;
           const ohlcv = result.indicators?.quote?.[0] ?? {};
+          const adjcloseArr = result.indicators?.adjclose?.[0]?.adjclose ?? [];
           const arr = [];
           // ★ 資料破損防護：Yahoo 偶爾對 open/high/low 回傳 0（而非 null），
           // ?? 運算子不會攔到 0，需另外判斷，否則會出現 o=h=l=0 的異常K線
           const validOrClose = (v, closeVal) => (v == null || v === 0) ? closeVal : v;
           for (let i = 0; i < ts.length; i++) {
-            const closeVal = ohlcv.close?.[i];
-            if (closeVal == null || closeVal === 0) continue; // close本身無效就整根丟棄
+            let closeVal = ohlcv.close?.[i];
+            // ★ 修正：Yahoo偶爾只有close是null，但open/high/low/volume都有效資料
+            // （實測發現過這種情況），之前整根丟棄會導致該交易日完全消失、
+            // K線出現「跳過一天」的斷層，連帶影響預測線判斷。
+            // 保底優先序：我們自己整天觀察到的實際報價（最可靠，是真正觀察值不是代用欄位）
+            // → adjclose → high → open，全部都無效才真的丟棄。
+            if (closeVal == null || closeVal === 0) {
+              const dateStr = this._localDateStr(new Date(ts[i] * 1000));
+              const own = this.getOwnDayCandle(symbol, dateStr);
+              closeVal = own?.close || adjcloseArr[i] || ohlcv.high?.[i] || ohlcv.open?.[i] || null;
+            }
+            if (closeVal == null || closeVal === 0) continue; // 真的完全沒資料才丟棄
             const o = validOrClose(ohlcv.open?.[i], closeVal);
             const h = validOrClose(ohlcv.high?.[i], closeVal);
             const l = validOrClose(ohlcv.low?.[i],  closeVal);
@@ -454,6 +551,16 @@ const DATA = {
           }
           if (!arr.length) throw new Error('Empty candles');
           candles = arr;
+          // ★ 交叉確認：就算Yahoo資料看起來正常，也跟我們自己觀察到的今日收盤價對一下，
+          // 差距明顯的話在console留個警告，方便日後排查類似的資料異常
+          const lastCandle = candles[candles.length - 1];
+          const ownToday = this.getOwnDayCandle(symbol);
+          if (ownToday?.close && lastCandle) {
+            const diffPct = Math.abs(lastCandle.c - ownToday.close) / ownToday.close * 100;
+            if (diffPct > 3) {
+              console.warn(`[DATA] ${symbol} 歷史K線最後一根(${lastCandle.c}) 跟自我追蹤收盤價(${ownToday.close}) 差距 ${diffPct.toFixed(1)}%，可能有資料異常`);
+            }
+          }
           if (!isUS) this._twSuffixCache[symbol] = suffix; // 記住成功的後綴
           break;
         } catch(e) { lastErr = e; }
