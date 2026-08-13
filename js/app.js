@@ -748,6 +748,103 @@ const TradeCalendar = {
   },
 };
 
+// ── AICycle module（AI循環階段：基建 vs 應用端相對強度輪動指標）──
+// ⚠️ 這是用股價動能推論的代理指標，不是真正的產業基本面分析，僅供留意訊號參考
+const AICycle = {
+  INFRA: ['2330', 'NVDA', 'ASML', 'AMD', '^SOX'],  // 賣鏟子：晶圓代工/設備/GPU/半導體指數
+  APP:   ['GOOGL', 'AAPL', 'MSFT', 'META'],        // 用鏟子：已變現的應用端龍頭
+
+  _cacheKey() { return 'twsa-aicycle-cache'; },
+
+  async compute() {
+    const cacheRaw = localStorage.getItem(this._cacheKey());
+    if (cacheRaw) {
+      try {
+        const cache = JSON.parse(cacheRaw);
+        if (Date.now() - cache.ts < 6 * 3600000) return cache.result; // 6小時快取
+      } catch(e) {}
+    }
+
+    const allSymbols = [...this.INFRA, ...this.APP];
+    const histories = {};
+    for (const sym of allSymbols) {
+      try {
+        histories[sym] = await DATA.fetchHistory(sym, '1d');
+        await new Promise(r => setTimeout(r, 200)); // 節流
+      } catch(e) { histories[sym] = null; }
+    }
+
+    const calcReturn = (data, days) => {
+      if (!data || data.length < days + 1) return null;
+      const now = data[data.length - 1].c;
+      const past = data[data.length - 1 - days].c;
+      return (now - past) / past * 100;
+    };
+
+    const basketReturn = (symbols, days) => {
+      const rets = symbols.map(s => calcReturn(histories[s], days)).filter(r => r != null);
+      return rets.length ? rets.reduce((a,b)=>a+b,0) / rets.length : null;
+    };
+
+    const infraRet20 = basketReturn(this.INFRA, 20);
+    const infraRet60 = basketReturn(this.INFRA, 60);
+    const appRet20 = basketReturn(this.APP, 20);
+    const appRet60 = basketReturn(this.APP, 60);
+
+    // 相對強度價差：正值=基建領先，負值=應用領先
+    const spread20 = (infraRet20 != null && appRet20 != null) ? infraRet20 - appRet20 : null;
+    const spread60 = (infraRet60 != null && appRet60 != null) ? infraRet60 - appRet60 : null;
+
+    const phase = this._classifyPhase(spread20, spread60);
+
+    // 兩籃子近90天累計報酬走勢（重基期=100），供畫圖
+    const rebase = (symbols, n) => {
+      const series = symbols.map(sym => {
+        const data = histories[sym];
+        if (!data || data.length < n) return null;
+        const slice = data.slice(-n);
+        const base = slice[0].c;
+        return slice.map(d => d.c / base * 100);
+      }).filter(Boolean);
+      if (!series.length) return [];
+      const len = Math.min(...series.map(s => s.length));
+      const avg = [];
+      for (let i = 0; i < len; i++) {
+        avg.push(series.reduce((sum, s) => sum + s[i], 0) / series.length);
+      }
+      return avg;
+    };
+    const N = 90;
+    const infraSeries = rebase(this.INFRA, N);
+    const appSeries = rebase(this.APP, N);
+
+    const result = { infraRet20, infraRet60, appRet20, appRet60, spread20, spread60, phase, infraSeries, appSeries, computedAt: new Date().toISOString() };
+    localStorage.setItem(this._cacheKey(), JSON.stringify({ ts: Date.now(), result }));
+    return result;
+  },
+
+  // 分級邏輯（見設計說明，用相對強度價差的近期vs中期趨勢判斷階段）
+  _classifyPhase(spread20, spread60) {
+    if (spread20 == null || spread60 == null) {
+      return { level: 0, label: '資料不足', color: '#8b949e', desc: '尚無足夠歷史資料計算' };
+    }
+    const expectedPace = spread60 * (20/60); // 60天價差若均勻分布，20天「應該」佔的比例
+    if (spread20 <= -5) {
+      if (spread60 <= 0) {
+        return { level: 4, label: '應用端主導', color: '#37adf0', desc: '應用端近期與中期都領先，資金可能已轉移到變現端' };
+      }
+      return { level: 3, label: '輪動訊號', color: '#f97316', desc: '應用端近期明顯超前，中期仍是基建領先，可能是轉折初期' };
+    }
+    if (spread20 > 5 && spread20 >= expectedPace * 0.8) {
+      return { level: 1, label: '基建早期擴張', color: '#E24B4A', desc: '基建端持續領先且動能未減，資金仍在湧入硬體端' };
+    }
+    if (spread60 > 0 && spread20 < expectedPace * 0.5) {
+      return { level: 2, label: '基建晚期／過熱', color: '#eab308', desc: '中期仍是基建領先，但近期動能明顯鈍化，留意轉折風險' };
+    }
+    return { level: 0, label: '盤整／不明確', color: '#8b949e', desc: '兩籃子相對強度不明顯，暫無清楚訊號' };
+  },
+};
+
 const Performance = {
   _period: 'all', // 1m/3m/6m/1y/all
 
@@ -814,6 +911,11 @@ const Performance = {
       <div class="perf-card">
         <div class="perf-card-title">🏅 個股累計損益排行</div>
         <div id="perf-stock-ranking"></div>
+      </div>
+      <div class="perf-card" style="margin-top:14px">
+        <div class="perf-card-title">🤖 AI循環階段（基建 vs 應用端輪動）</div>
+        <div class="form-note" style="margin-bottom:10px">⚠️ 用股價相對強度動能推論的代理指標，非產業基本面分析，僅供留意訊號參考，不構成投資建議。</div>
+        <div id="ai-cycle-body"><div class="empty-state">計算中...</div></div>
       </div>`;
 
     this._drawNetWorthChart();
@@ -823,6 +925,84 @@ const Performance = {
     this._renderPeriodPnl();
     this._drawMonthlyPnlChart();
     this._renderStockRanking();
+    this._renderAICycle();
+  },
+
+  async _renderAICycle() {
+    const body = document.getElementById('ai-cycle-body');
+    if (!body) return;
+    try {
+      const r = await AICycle.compute();
+      const p = r.phase;
+      const fmtPct = v => v == null ? '—' : `${v>=0?'+':''}${v.toFixed(1)}%`;
+      body.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="font-size:22px;font-weight:700;color:${p.color}">${p.label}</span>
+        </div>
+        <div style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.6">${p.desc}</div>
+        <div class="perf-grid" style="margin-bottom:14px">
+          <div>
+            <div class="perf-stat-row"><span class="perf-stat-name">🔧 基建籃子 20日</span><span class="perf-stat-num" style="color:${(r.infraRet20??0)>=0?'#E24B4A':'#1D9E75'}">${fmtPct(r.infraRet20)}</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">🔧 基建籃子 60日</span><span class="perf-stat-num" style="color:${(r.infraRet60??0)>=0?'#E24B4A':'#1D9E75'}">${fmtPct(r.infraRet60)}</span></div>
+          </div>
+          <div>
+            <div class="perf-stat-row"><span class="perf-stat-name">💰 應用籃子 20日</span><span class="perf-stat-num" style="color:${(r.appRet20??0)>=0?'#E24B4A':'#1D9E75'}">${fmtPct(r.appRet20)}</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">💰 應用籃子 60日</span><span class="perf-stat-num" style="color:${(r.appRet60??0)>=0?'#E24B4A':'#1D9E75'}">${fmtPct(r.appRet60)}</span></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;margin-bottom:8px;font-size:12px">
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:50%;background:#f97316;display:inline-block"></span>基建籃子（台積電/NVDA/ASML/AMD/費半）</span>
+          <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:50%;background:#37adf0;display:inline-block"></span>應用籃子（GOOGL/AAPL/MSFT/META）</span>
+        </div>
+        <div class="perf-big-canvas-wrap" style="height:180px"><canvas id="ai-cycle-canvas"></canvas></div>`;
+      this._drawAICycleChart(r.infraSeries, r.appSeries);
+    } catch(e) {
+      body.innerHTML = `<div class="empty-state">計算失敗，稍後重試</div>`;
+    }
+  },
+
+  _drawAICycleChart(infraSeries, appSeries) {
+    const canvas = document.getElementById('ai-cycle-canvas');
+    if (!canvas || !infraSeries.length || !appSeries.length) return;
+    const wrap = canvas.parentElement;
+    const W = wrap.clientWidth || 600, H = 180;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+
+    const isDark = !document.body.classList.contains('light-mode');
+    const axisColor = isDark ? '#8b949e' : '#57606a';
+    const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
+
+    const PAD = { l:44, r:12, t:10, b:10 };
+    const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
+    const n = Math.min(infraSeries.length, appSeries.length);
+    const all = [...infraSeries.slice(-n), ...appSeries.slice(-n)];
+    const minV = Math.min(...all), maxV = Math.max(...all);
+    const range = (maxV - minV) || 1;
+    const xOf = i => PAD.l + (i / (n-1)) * chartW;
+    const yOf = v => PAD.t + chartH - ((v - minV) / range) * chartH;
+
+    ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+    [0, 0.5, 1].forEach(f => {
+      const y = PAD.t + f * chartH;
+      ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
+      ctx.fillStyle = axisColor;
+      ctx.fillText((maxV - f * range).toFixed(0), PAD.l - 6, y + 4);
+    });
+
+    const drawLine = (series, color) => {
+      ctx.beginPath();
+      series.slice(-n).forEach((v, i) => { const x=xOf(i), y=yOf(v); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.stroke();
+    };
+    drawLine(infraSeries, '#f97316');
+    drawLine(appSeries, '#37adf0');
   },
 
   // ── 月度已實現損益長條圖（近12個月）─────────────────
