@@ -48,20 +48,27 @@ const DATA = {
   _setPrice(code, fields) {
     const existing = this.priceStore[code];
     if (existing) {
-      // 來源優先序：twse/tpex > yahoo-spark/yahoo-us > yahoo-tw-fallback > twse-prev
-      const rank = s => s==='twse'||s==='tpex' ? 4 : s==='yahoo-spark'||s==='yahoo-us' ? 3 : s==='yahoo-tw-fallback' ? 2 : s==='twse-prev' ? 0 : 1;
-      const newRank = rank(fields.source);
-      const oldRank = rank(existing.source);
-      const newTs   = Date.now();
-      const oldTs   = existing.ts || 0;
-      // 舊資料來源優先序更高，且不超過 30 秒前 → 不覆蓋
-      if (oldRank > newRank && (newTs - oldTs) < 30000) return;
+      // ★ 修正：舊資料如果只是「無成交」的佔位符（noTrade:true，例如上櫃股票TWSE給的延續昨收），
+      // 不該擁有比新資料更高的優先度去擋掉真正的即時報價，不然像3357這種情況，
+      // Yahoo已經抓到真實變動的價格，卻會被這個佔位符擋下來，價格永遠更新不了。
+      if (!existing.noTrade || fields.noTrade) {
+        // 來源優先序：twse/tpex > yahoo-spark/yahoo-us > yahoo-tw-fallback > twse-prev
+        const rank = s => s==='twse'||s==='tpex' ? 4 : s==='yahoo-spark'||s==='yahoo-us' ? 3 : s==='yahoo-tw-fallback' ? 2 : s==='twse-prev' ? 0 : 1;
+        const newRank = rank(fields.source);
+        const oldRank = rank(existing.source);
+        const newTs   = Date.now();
+        const oldTs   = existing.ts || 0;
+        // 舊資料來源優先序更高，且不超過 30 秒前 → 不覆蓋
+        if (oldRank > newRank && (newTs - oldTs) < 30000) return;
+      }
+      // 若舊資料是 noTrade 佔位符、新資料是真正的資料，一律允許覆蓋（不受優先序限制）
     }
     this.priceStore[code] = { ...(existing ?? {}), ...fields, ts: Date.now() };
-    // ★ 每次收到「真正即時」的報價（不是K線補的、也不是收盤延續），
-    // 順便自己在背景記錄今天的開高低收，當作 Yahoo 歷史K線 close=null 時的保底來源，
-    // 也可以互相對照，因為這是我們自己整天實際觀察到的資料，不是事後用別的欄位去猜的。
-    if (fields.price && fields.source !== 'candle' && fields.source !== 'twse-prev') {
+    // ★ 每次收到「真正即時、而且今天真的有成交」的報價，才記錄今天的開高低收。
+    // 不能用K線補的、收盤延續的、或 noTrade（今天還沒真正成交，只是延續昨收當佔位符）的資料，
+    // 不然像冷門股常常整天沒成交，會把昨天的收盤價誤記成「今天」的資料，
+    // 導致今天這根K線變成昨天的複製品。
+    if (fields.price && fields.source !== 'candle' && fields.source !== 'twse-prev' && !fields.noTrade) {
       this._trackOwnDayCandle(code, fields.price, fields.open, fields.high, fields.low);
     }
   },
@@ -85,18 +92,23 @@ const DATA = {
   _saveOwnDayCache() {
     try { localStorage.setItem(this._ownDayKey(), JSON.stringify(this._ownDayCache)); } catch(e) {}
   },
+  // ★ 資料版本標記：每次追蹤邏輯有重大修正（例如這次修正noTrade污染問題），
+  // 就把這個數字加1，讓舊版本寫入的追蹤資料自動失效、強制重新開始追蹤，
+  // 避免用到修正之前可能已經被污染的舊資料。
+  _OWN_TRACK_VERSION: 2,
   _trackOwnDayCandle(code, price, open, high, low) {
     const cache = this._loadOwnDayCache();
     const today = this._localDateStr(new Date());
     if (!cache[code]) cache[code] = {};
     const byDate = cache[code];
-    if (!byDate[today]) {
-      byDate[today] = { open: open ?? price, high: high ?? price, low: low ?? price, close: price };
+    const existing = byDate[today];
+    if (!existing || existing._v !== this._OWN_TRACK_VERSION) {
+      // 沒有資料，或是舊版本寫的（可能被污染）→ 直接重新開始，不要跟舊資料合併
+      byDate[today] = { open: open ?? price, high: high ?? price, low: low ?? price, close: price, _v: this._OWN_TRACK_VERSION };
     } else {
-      const rec = byDate[today];
-      rec.close = price;
-      rec.high = high != null ? Math.max(rec.high, high) : Math.max(rec.high, price);
-      rec.low  = low  != null ? Math.min(rec.low,  low)  : Math.min(rec.low,  price);
+      existing.close = price;
+      existing.high = high != null ? Math.max(existing.high, high) : Math.max(existing.high, price);
+      existing.low  = low  != null ? Math.min(existing.low,  low)  : Math.min(existing.low,  price);
     }
     // 只保留最近7天，避免localStorage無限長大
     const dates = Object.keys(byDate).sort();
@@ -107,7 +119,10 @@ const DATA = {
   getOwnDayCandle(code, dateStr) {
     const cache = this._loadOwnDayCache();
     const date = dateStr || this._localDateStr(new Date());
-    return cache[code]?.[date] || null;
+    const rec = cache[code]?.[date];
+    // 舊版本寫入、還沒被新資料覆蓋掉的紀錄，視為不存在（避免用到可能污染的資料）
+    if (rec && rec._v !== this._OWN_TRACK_VERSION) return null;
+    return rec || null;
   },
 
   // ── 判斷台股 / 美股 ───────────────────────────────────
@@ -217,7 +232,12 @@ const DATA = {
   // ── Yahoo spark 補台股即時價（TWSE z='-' 時使用）────
   async _yahooTWFallback(codes) {
     if (!codes.length) return;
-    const symbols = codes.map(c => c + '.TW').join(',');
+    // ★ 修正：之前寫死全部用 .TW（上市），上櫃股票（.TWO）查不到會被靜默跳過，
+    // 導致上櫃股票的報價一直卡在TWSE給的舊佔位符。
+    // 優先用已知的後綴快取（fetchHistory時建立的），沒有快取的先試 .TW。
+    const suffixOf = c => this._twSuffixCache[c] || '.TW';
+    const symbols = codes.map(c => c + suffixOf(c)).join(',');
+    const gotCodes = new Set();
     try {
       const res = await this._fetch(
         `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${symbols}&range=1d&interval=1d&_=${Date.now()}`
@@ -225,8 +245,10 @@ const DATA = {
       const results = (await res.json())?.spark?.result ?? [];
       results.forEach(item => {
         const meta = item?.response?.[0]?.meta;
-        if (!meta?.regularMarketPrice) return;
-        const code = item.symbol.replace('.TW', '');
+        const code = item.symbol.replace('.TWO', '').replace('.TW', '');
+        if (!meta?.regularMarketPrice) return; // 這個後綴查不到，留給下面重試 .TWO
+        gotCodes.add(code);
+        this._twSuffixCache[code] = suffixOf(code); // 記住這個後綴是對的
         const price = +meta.regularMarketPrice.toFixed(2);
         const prev  = +(meta.chartPreviousClose ?? price).toFixed(2);
         const chg   = +(price - prev).toFixed(2);
@@ -241,7 +263,41 @@ const DATA = {
           source: 'yahoo-tw-fallback', market: 'TW',
         });
       });
-      console.log(`[DATA] Yahoo TW fallback: ${results.length}/${codes.length} updated`);
+      console.log(`[DATA] Yahoo TW fallback: ${gotCodes.size}/${codes.length} updated`);
+
+      // ★ 沒查到的（可能是後綴猜錯），用另一個後綴重試一次
+      const missed = codes.filter(c => !gotCodes.has(c));
+      if (missed.length) {
+        const retrySymbols = missed.map(c => c + (suffixOf(c) === '.TW' ? '.TWO' : '.TW')).join(',');
+        try {
+          const res2 = await this._fetch(
+            `https://query2.finance.yahoo.com/v7/finance/spark?symbols=${retrySymbols}&range=1d&interval=1d&_=${Date.now()}`
+          );
+          const results2 = (await res2.json())?.spark?.result ?? [];
+          results2.forEach(item => {
+            const meta = item?.response?.[0]?.meta;
+            if (!meta?.regularMarketPrice) return;
+            const code = item.symbol.replace('.TWO', '').replace('.TW', '');
+            const usedSuffix = item.symbol.includes('.TWO') ? '.TWO' : '.TW';
+            this._twSuffixCache[code] = usedSuffix; // 記住正確的後綴，下次不用再猜
+            gotCodes.add(code);
+            const price = +meta.regularMarketPrice.toFixed(2);
+            const prev  = +(meta.chartPreviousClose ?? price).toFixed(2);
+            const chg   = +(price - prev).toFixed(2);
+            const chgPct= +(prev > 0 ? chg/prev*100 : 0).toFixed(2);
+            this._setPrice(code, {
+              price, prevClose: prev,
+              high: +(meta.regularMarketDayHigh ?? price).toFixed(2),
+              low:  +(meta.regularMarketDayLow  ?? price).toFixed(2),
+              volume: meta.regularMarketVolume ?? 0,
+              name: meta.shortName ?? code,
+              chg, chgPct, noTrade: false,
+              source: 'yahoo-tw-fallback', market: 'TW',
+            });
+          });
+          if (results2.length) console.log(`[DATA] Yahoo TW fallback retry(另一後綴): ${results2.length}/${missed.length} updated`);
+        } catch(e) { /* 重試失敗就算了，保留原本的佔位資料 */ }
+      }
 
       // ★ 同步回 APP portfolio 並重新渲染
       if (typeof APP !== 'undefined') {
