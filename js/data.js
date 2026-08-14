@@ -341,6 +341,7 @@ const DATA = {
         `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${exCh}&json=1&delay=0&_=${Date.now()}`
       );
       const json = await res.json();
+      const noTradeCodes = []; // ★ z='-' 的上櫃股票，一樣需要 Yahoo 補價（之前這裡完全沒補，是3357一直卡住的真正原因）
       (json?.msgArray ?? []).forEach(item => {
         const code = item.c;
         if (!code) return;
@@ -348,6 +349,7 @@ const DATA = {
         const prevClose = parseFloat(item.y) || 0;
         const price     = priceRaw ?? prevClose;
         if (!price) return;
+        if (priceRaw === null) noTradeCodes.push(code);
         const chg    = +(price - prevClose).toFixed(2);
         const chgPct = +(prevClose > 0 ? chg / prevClose * 100 : 0).toFixed(2);
         this._setPrice(code, {
@@ -361,6 +363,10 @@ const DATA = {
           source: 'tpex', market: 'TW',
         });
       });
+      // ★ 補上：上市股(_twseBatch)本來就有這段，上櫃股(_tpexBatch)之前漏掉了
+      if (noTradeCodes.length > 0) {
+        this._yahooTWFallback(noTradeCodes);
+      }
     } catch(e) { /* silent */ }
   },
 
