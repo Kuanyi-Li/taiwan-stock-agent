@@ -130,6 +130,7 @@
     <div class="dashboard-content" id="dashboard-content">
       <div class="dashboard-header">
         <div class="dashboard-summary" id="dashboard-summary"></div>
+        <div class="ma-legend ma-legend-compact" id="dash-ma-legend"></div>
         <button class="dash-mode-toggle" id="dash-mode-toggle" onclick="Dashboard.toggleCompact()">📋 精簡模式</button>
       </div>
       <div class="dashboard-grid" id="dashboard-grid">
@@ -176,7 +177,6 @@
             <span class="chart-price" id="chart-price">—</span>
             <span class="chart-change" id="chart-change"></span>
           </div>
-          <div class="chart-today-stats" id="chart-today-stats"></div>
         </div>
         <div class="chart-controls">
           <div class="period-tabs" id="period-tabs">
@@ -189,6 +189,7 @@
             <button class="period-btn" data-period="6mo">6月</button>
             <button class="period-btn" data-period="1y">1年</button>
           </div>
+          <div class="ma-legend" id="ma-legend"></div>
           <div class="chart-type-toggle">
             <button class="type-btn active" data-type="candle">蠟燭</button>
             <button class="type-btn" data-type="line">折線</button>
@@ -201,6 +202,7 @@
         <button class="tab-btn active" data-tab="chart">K 線</button>
         <button class="tab-btn" data-tab="tech">技術指標</button>
         <button class="tab-btn" data-tab="info">個股資訊</button>
+        <div class="chart-today-stats" id="chart-today-stats"></div>
       </div>
 
       <!-- K-Line -->
@@ -217,7 +219,6 @@
         </div>
         <div class="predict-accuracy" id="predict-accuracy" style="display:none"></div>
         <div class="vol-wrap"><canvas id="volChart"></canvas></div>
-        <div class="ma-legend" id="ma-legend"></div>
         <div class="ma-legend-hint">滾輪移動日期 / 拖曳平移</div>
       </div>
 
