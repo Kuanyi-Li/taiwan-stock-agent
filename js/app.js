@@ -1590,7 +1590,8 @@ const Dashboard = {
     ctx.setLineDash([]);
 
     data.forEach((d, i) => {
-      const isUp = d.c >= d.o;
+      const prevClose = i > 0 ? data[i-1].c : d.o;
+      const isUp = d.c >= prevClose;
       const color = isUp ? '#E24B4A' : '#1D9E75';
       const x = xOf(i);
       ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1;
@@ -1656,7 +1657,8 @@ const Dashboard = {
     const maxV = Math.max(...data.map(d => d.v)) || 1;
     const volTop = priceH + gapY;
     data.forEach((d, i) => {
-      const isUp = d.c >= d.o;
+      const prevClose = i > 0 ? data[i-1].c : d.o;
+      const isUp = d.c >= prevClose;
       ctx.fillStyle = isUp ? 'rgba(226,75,74,0.5)' : 'rgba(29,158,117,0.5)';
       const bh = Math.max(1, (d.v / maxV) * volH);
       ctx.fillRect(xOf(i), volTop + volH - bh, barW, bh);

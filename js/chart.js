@@ -407,7 +407,9 @@ const CHART = {
     } else {
       data.forEach((d, i) => {
         const x = xOf(i);
-        const isUp = d.c >= d.o;
+        // ★ 改用「跟前一天收盤比」判斷紅綠（台股慣例：漲跌是跟昨收比，不是當天開盤vs收盤）
+        const prevClose = i > 0 ? data[i-1].c : d.o;
+        const isUp = d.c >= prevClose;
         const col = isUp ? clr.up : clr.dn;
         const oy = yOf(d.o), cy = yOf(d.c), hy = yOf(d.h), ly = yOf(d.l);
         ctx.strokeStyle = col; ctx.lineWidth = 1;
@@ -615,7 +617,8 @@ const CHART = {
 
     data.forEach((d, i) => {
       const x = PAD.l + i * (barW + gap);
-      const isUp = d.c >= d.o;
+      const prevClose = i > 0 ? data[i-1].c : d.o;
+      const isUp = d.c >= prevClose;
       ctx.fillStyle = isUp ? 'rgba(226,75,74,0.55)' : 'rgba(29,158,117,0.55)';
       const bh = Math.max(1, (d.v / maxV) * (H - PAD.t - PAD.b));
       ctx.fillRect(x, H - PAD.b - bh, barW, bh);

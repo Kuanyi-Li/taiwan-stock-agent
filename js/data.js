@@ -48,10 +48,16 @@ const DATA = {
   _setPrice(code, fields) {
     const existing = this.priceStore[code];
     if (existing) {
-      // ★ 修正：舊資料如果只是「無成交」的佔位符（noTrade:true，例如上櫃股票TWSE給的延續昨收），
-      // 不該擁有比新資料更高的優先度去擋掉真正的即時報價，不然像3357這種情況，
-      // Yahoo已經抓到真實變動的價格，卻會被這個佔位符擋下來，價格永遠更新不了。
-      if (!existing.noTrade || fields.noTrade) {
+      const newIsPlaceholder = !!fields.noTrade;
+      const oldIsPlaceholder = !!existing.noTrade;
+      // ★ 修正閃爍bug：新資料如果只是「無成交」佔位符、但舊資料是真正的資料，
+      // 不該讓佔位符蓋掉真資料——之前的判斷方向反了，導致每次自動刷新
+      // 都會先被佔位符蓋掉、Yahoo補價才追上來蓋回正確值，一直重複閃爍。
+      if (newIsPlaceholder && !oldIsPlaceholder) {
+        return; // 拒絕：舊的是真資料，新的只是佔位符，不要覆蓋
+      }
+      if (!newIsPlaceholder || oldIsPlaceholder) {
+        // 新資料是真的（不管舊的是什麼），或兩邊都只是佔位符 → 正常比較優先序
         // 來源優先序：twse/tpex > yahoo-spark/yahoo-us > yahoo-tw-fallback > twse-prev
         const rank = s => s==='twse'||s==='tpex' ? 4 : s==='yahoo-spark'||s==='yahoo-us' ? 3 : s==='yahoo-tw-fallback' ? 2 : s==='twse-prev' ? 0 : 1;
         const newRank = rank(fields.source);
@@ -61,7 +67,6 @@ const DATA = {
         // 舊資料來源優先序更高，且不超過 30 秒前 → 不覆蓋
         if (oldRank > newRank && (newTs - oldTs) < 30000) return;
       }
-      // 若舊資料是 noTrade 佔位符、新資料是真正的資料，一律允許覆蓋（不受優先序限制）
     }
     this.priceStore[code] = { ...(existing ?? {}), ...fields, ts: Date.now() };
     // ★ 每次收到「真正即時、而且今天真的有成交」的報價，才記錄今天的開高低收。
