@@ -1408,6 +1408,7 @@ const Dashboard = {
           <span class="dash-card-chg" id="dash-chg-${id}"></span>
         </div>
         ${canvasHtml}
+        ${compact ? '' : `<div class="dash-card-stats" id="dash-stats-${id}"></div>`}
         <div class="dash-card-badge-row" id="dash-badge-${id}">
           <span class="dash-badge-loading">載入中...</span>
         </div>
@@ -1466,6 +1467,11 @@ const Dashboard = {
           const ind = ANALYSIS._calcIndicators(data);
           ANALYSIS._cache[c.code] = { ind, candles: data };
         } catch(e) { /* 靜默失敗，quickEstimate 會fallback */ }
+      }
+
+      // ★ 今日統計小字：成交量、最高、最低、勾選的均線
+      if (!compact && data) {
+        this._renderCardStats(id, data, isUSStock);
       }
 
       let prediction = null;
@@ -1746,6 +1752,29 @@ const Dashboard = {
         }
       }
     });
+  },
+
+  // ── 今日統計小字（成交量、最高、最低、勾選的均線）──────
+  _renderCardStats(id, data, isUSStock) {
+    const el = document.getElementById(`dash-stats-${id}`);
+    if (!el || !data?.length) return;
+    const last = data[data.length - 1];
+    const closes = data.map(d => d.c);
+    const selectedMAs = (typeof CHART !== 'undefined' ? CHART.selectedMAs : null) || [5, 20, 60];
+    const maParts = selectedMAs.map(period => {
+      if (closes.length < period) return null;
+      const slice = closes.slice(-period);
+      const avg = slice.reduce((a,b) => a+b, 0) / period;
+      return `MA${period} ${avg.toFixed(isUSStock?2:1)}`;
+    }).filter(Boolean);
+    const volDisplay = last.v >= 10000 ? (last.v/10000).toFixed(1)+'萬' : last.v.toLocaleString();
+    const parts = [
+      `量 ${volDisplay}`,
+      `高 ${last.h.toFixed(isUSStock?2:1)}`,
+      `低 ${last.l.toFixed(isUSStock?2:1)}`,
+      ...maParts,
+    ];
+    el.innerHTML = parts.map(p => `<span class="dash-stat-item">${p}</span>`).join('');
   },
 
   // ── 卡片排序（依市場分開儲存）──────────────────────
@@ -3508,7 +3537,37 @@ const APP = {
 };
 
 // ── Global functions ──────────────────────────────────
-function refreshAll() { APP.refreshPrices(true); }
+async function refreshAll() {
+  const btn = document.querySelector('.icon-btn[onclick="refreshAll()"]');
+  if (btn) btn.classList.add('spinning');
+  try {
+    // ★ 修正：之前只更新價格文字，K線快取（20分鐘）不會被強制清掉，
+    // 總覽/績效/日曆頁面也完全沒被處理到，點了跟沒點一樣。
+    // 現在強制清空相關K線快取，並依目前所在的頁面做對應的完整刷新。
+    const allCodes = [...new Set([...APP.portfolio.map(s=>s.code), ...APP.watchlist.map(s=>s.code)])];
+    allCodes.forEach(code => { delete DATA.histCache[`${code}_1d`]; delete DATA.histCache[`${code}_mini`]; });
+
+    await APP.refreshPrices(true);
+
+    const dashVisible = document.getElementById('dashboard-content')?.style.display !== 'none';
+    const perfVisible  = document.getElementById('performance-content')?.style.display !== 'none';
+    const calVisible   = document.getElementById('calendar-page-content')?.style.display !== 'none';
+
+    if (dashVisible) {
+      await Dashboard.render();
+    } else if (perfVisible) {
+      await Performance.render();
+    } else if (calVisible) {
+      await TradeCalendar.render();
+    } else if (APP.activeSymbol) {
+      delete DATA.histCache[`${APP.activeSymbol}_${CHART.currentPeriod}`];
+      await CHART.load(APP.activeSymbol, CHART.currentPeriod);
+    }
+    showToast('已重新整理');
+  } finally {
+    if (btn) btn.classList.remove('spinning');
+  }
+}
 function openSettings() { document.getElementById('settings-modal')?.classList.add('show'); }
 function runAnalysis() {
   const code = APP.activeSymbol;

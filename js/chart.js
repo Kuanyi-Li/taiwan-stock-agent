@@ -7,6 +7,52 @@ const CHART = {
   currentType: 'candle',
   showPredict: true,
   predictDays: 15,
+  // ★ 使用者可勾選要顯示的均線週期，記住在 localStorage
+  MA_OPTIONS: [5, 10, 20, 60, 120, 240],
+  get selectedMAs() {
+    try { return JSON.parse(localStorage.getItem('chart-selected-mas') || '[5,20,60]'); }
+    catch(e) { return [5, 20, 60]; }
+  },
+  set selectedMAs(arr) {
+    localStorage.setItem('chart-selected-mas', JSON.stringify(arr));
+  },
+  toggleMA(period) {
+    const cur = this.selectedMAs;
+    const next = cur.includes(period) ? cur.filter(p => p !== period) : [...cur, period].sort((a,b)=>a-b);
+    this.selectedMAs = next;
+    this.draw();
+    this._renderMALegend();
+    if (typeof APP !== 'undefined' && APP.activeSymbol) this._renderTodayStats(APP.activeSymbol);
+  },
+  _renderMALegend() {
+    const el = document.getElementById('ma-legend');
+    if (!el) return;
+    const maColors = { 5:'#EF9F27', 10:'#a78bfa', 20:'#378ADD', 60:'#D4537E', 120:'#2ee88f', 240:'#f97316' };
+    const selected = this.selectedMAs;
+    el.innerHTML = this.MA_OPTIONS.map(p => `
+      <label class="ma-checkbox ${selected.includes(p)?'active':''}" style="--ma-color:${maColors[p]}">
+        <input type="checkbox" ${selected.includes(p)?'checked':''} onchange="CHART.toggleMA(${p})">
+        <span class="ma-dot"></span>MA${p}
+      </label>`).join('');
+  },
+
+  // ── 今日統計小字：成交量、最高、最低、勾選的均線（跟總覽卡片同一套邏輯）──
+  _renderTodayStats(symbol) {
+    const el = document.getElementById('chart-today-stats');
+    if (!el || !this.currentData?.length) return;
+    const last = this.currentData[this.currentData.length - 1];
+    const closes = this.currentData.map(d => d.c);
+    const isUSStock = typeof DATA !== 'undefined' && DATA.isUSCode(symbol);
+    const maParts = this.selectedMAs.map(period => {
+      if (closes.length < period) return null;
+      const slice = closes.slice(-period);
+      const avg = slice.reduce((a,b) => a+b, 0) / period;
+      return `MA${period} ${avg.toFixed(isUSStock?2:1)}`;
+    }).filter(Boolean);
+    const volDisplay = last.v >= 10000 ? (last.v/10000).toFixed(1)+'萬' : last.v.toLocaleString();
+    const parts = [`量 ${volDisplay}`, `高 ${last.h.toFixed(isUSStock?2:1)}`, `低 ${last.l.toFixed(isUSStock?2:1)}`, ...maParts];
+    el.innerHTML = parts.map(p => `<span class="stat-item">${p}</span>`).join('');
+  },
   // Zoom/pan state
   zoomStart: 0,    // 顯示起始 index（0 = 最舊）
   zoomEnd: 0,      // 顯示結束 index
@@ -65,6 +111,8 @@ const CHART = {
 
     this._resetZoom();
     this.draw();
+    this._renderMALegend();
+    this._renderTodayStats(symbol);
 
     // ★ 技術分析完全不跟 K 線顯示週期走
     // 只有在「此股票還沒有快取」時才自動拉資料分析
@@ -328,14 +376,14 @@ const CHART = {
     if (!data.length) return;
     const n = data.length;
     const allCloses = this.currentData.map(d => d.c);
-    const ma5  = this._ma(allCloses, 5);
-    const ma20 = this._ma(allCloses, 20);
-    const ma60 = this._ma(allCloses, 60);
-    // Map to visible slice
     const visStart = this.zoomStart;
-    const ma5v  = ma5.slice(visStart, visStart + n);
-    const ma20v = ma20.slice(visStart, visStart + n);
-    const ma60v = ma60.slice(visStart, visStart + n);
+    // ★ 可勾選的均線週期（在下方圖例勾選要顯示哪些）
+    const maColors = { 5:'#EF9F27', 10:'#a78bfa', 20:'#378ADD', 60:'#D4537E', 120:'#2ee88f', 240:'#f97316' };
+    const selectedMAs = (typeof CHART !== 'undefined' ? CHART.selectedMAs : null) || [5, 20, 60];
+    const maLines = selectedMAs.map(period => {
+      const full = this._ma(allCloses, period);
+      return { period, color: maColors[period] || '#888', values: full.slice(visStart, visStart + n) };
+    });
 
     // 只有在檢視最新資料（未拉到過去）時才顯示預測延伸
     const showingLatest = (visStart + n) >= this.currentData.length;
@@ -431,7 +479,7 @@ const CHART = {
       });
       ctx.stroke();
     };
-    drawMA(ma5v, clr.ma5); drawMA(ma20v, clr.ma20); drawMA(ma60v, clr.ma60);
+    maLines.forEach(m => drawMA(m.values, m.color));
 
     // ── 均價水平線（若持有此股票）──────────────────────
     const activeSym = (typeof APP !== 'undefined') ? APP.activeSymbol : null;
