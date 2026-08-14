@@ -23,17 +23,25 @@ const CHART = {
     this.draw();
     this._renderMALegend();
     if (typeof APP !== 'undefined' && APP.activeSymbol) this._renderTodayStats(APP.activeSymbol);
+    // ★ 總覽頁若正在顯示，均線選擇改變後也要重新畫（卡片統計小字要跟著換）
+    if (typeof Dashboard !== 'undefined') {
+      const dv = document.getElementById('dashboard-content');
+      if (dv && dv.style.display !== 'none') Dashboard.render();
+    }
   },
   _renderMALegend() {
-    const el = document.getElementById('ma-legend');
-    if (!el) return;
     const maColors = { 5:'#EF9F27', 10:'#a78bfa', 20:'#378ADD', 60:'#D4537E', 120:'#2ee88f', 240:'#f97316' };
     const selected = this.selectedMAs;
-    el.innerHTML = this.MA_OPTIONS.map(p => `
+    const html = this.MA_OPTIONS.map(p => `
       <label class="ma-checkbox ${selected.includes(p)?'active':''}" style="--ma-color:${maColors[p]}">
         <input type="checkbox" ${selected.includes(p)?'checked':''} onchange="CHART.toggleMA(${p})">
         <span class="ma-dot"></span>MA${p}
       </label>`).join('');
+    // ★ 個股詳細頁和總覽頁各有自己的容器，兩邊都要同步更新，保持勾選狀態一致
+    ['ma-legend', 'dash-ma-legend'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = html;
+    });
   },
 
   // ── 今日統計小字：成交量、最高、最低、勾選的均線（跟總覽卡片同一套邏輯）──
@@ -49,7 +57,8 @@ const CHART = {
       const avg = slice.reduce((a,b) => a+b, 0) / period;
       return `MA${period} ${avg.toFixed(isUSStock?2:1)}`;
     }).filter(Boolean);
-    const volDisplay = last.v >= 10000 ? (last.v/10000).toFixed(1)+'萬' : last.v.toLocaleString();
+    // ★ 同樣修正：今天可能還沒彙總完成，不代表這檔完全沒有成交量資料
+    const volDisplay = !last.v ? '彙總中' : (last.v >= 10000 ? (last.v/10000).toFixed(1)+'萬' : last.v.toLocaleString());
     const parts = [`量 ${volDisplay}`, `高 ${last.h.toFixed(isUSStock?2:1)}`, `低 ${last.l.toFixed(isUSStock?2:1)}`, ...maParts];
     el.innerHTML = parts.map(p => `<span class="stat-item">${p}</span>`).join('');
   },
@@ -668,7 +677,8 @@ const CHART = {
       const prevClose = i > 0 ? data[i-1].c : d.o;
       const isUp = d.c >= prevClose;
       ctx.fillStyle = isUp ? 'rgba(226,75,74,0.55)' : 'rgba(29,158,117,0.55)';
-      const bh = Math.max(1, (d.v / maxV) * (H - PAD.t - PAD.b));
+      // ★ 修正：v=0（例如今天還沒彙總完成）不該被防呆邏輯強制拉出一根假的最低高度長條
+      const bh = d.v > 0 ? Math.max(1, (d.v / maxV) * (H - PAD.t - PAD.b)) : 0;
       ctx.fillRect(x, H - PAD.b - bh, barW, bh);
     });
   },
@@ -712,7 +722,8 @@ const CHART = {
           ? dt.toLocaleDateString('zh-TW') + ' ' + dt.toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', hour12:false })
           : dt.toLocaleDateString('zh-TW');
         const chg = d.c - d.o;
-        tt.innerHTML = `<span>${dateStr}</span> 開${d.o} 高${d.h} 低${d.l} <b>收${d.c}</b> <span style="color:${chg>=0?'#E24B4A':'#1D9E75'}">${chg>=0?'▲':'▼'}${Math.abs(chg).toFixed(2)}</span>`;
+        const volStr = d.v > 0 ? (d.v >= 10000 ? (d.v/10000).toFixed(1)+'萬' : d.v.toLocaleString()) : '彙總中';
+        tt.innerHTML = `<span>${dateStr}</span> 開${d.o} 高${d.h} 低${d.l} <b>收${d.c}</b> <span style="color:${chg>=0?'#E24B4A':'#1D9E75'}">${chg>=0?'▲':'▼'}${Math.abs(chg).toFixed(2)}</span> 量${volStr}`;
         tt.style.opacity = '1';
       }
     };

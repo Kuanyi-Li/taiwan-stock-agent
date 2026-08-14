@@ -1301,6 +1301,7 @@ const Dashboard = {
     grid.classList.toggle('compact-grid', compact);
     const btn = document.getElementById('dash-mode-toggle');
     if (btn) btn.textContent = compact ? '🖼️ 完整模式' : '📋 精簡模式';
+    if (typeof CHART !== 'undefined') CHART._renderMALegend();
 
     // 卡片清單：大盤指數（多個）+ 持股 + 自選（依目前市場）
     const isUS = APP.activeMarket === 'US';
@@ -1404,11 +1405,13 @@ const Dashboard = {
           <span class="dash-card-name" id="dash-name-${id}">${c.name}</span>
         </div>
         <div class="dash-card-price-row">
-          <span class="dash-card-price" id="dash-price-${id}">—</span>
-          <span class="dash-card-chg" id="dash-chg-${id}"></span>
+          <div class="dash-price-left">
+            <span class="dash-card-price" id="dash-price-${id}">—</span>
+            <span class="dash-card-chg" id="dash-chg-${id}"></span>
+          </div>
+          ${compact ? '' : `<div class="dash-card-stats" id="dash-stats-${id}"></div>`}
         </div>
         ${canvasHtml}
-        ${compact ? '' : `<div class="dash-card-stats" id="dash-stats-${id}"></div>`}
         <div class="dash-card-badge-row" id="dash-badge-${id}">
           <span class="dash-badge-loading">載入中...</span>
         </div>
@@ -1666,7 +1669,7 @@ const Dashboard = {
       const prevClose = i > 0 ? data[i-1].c : d.o;
       const isUp = d.c >= prevClose;
       ctx.fillStyle = isUp ? 'rgba(226,75,74,0.5)' : 'rgba(29,158,117,0.5)';
-      const bh = Math.max(1, (d.v / maxV) * volH);
+      const bh = d.v > 0 ? Math.max(1, (d.v / maxV) * volH) : 0;
       ctx.fillRect(xOf(i), volTop + volH - bh, barW, bh);
     });
 
@@ -1767,7 +1770,10 @@ const Dashboard = {
       const avg = slice.reduce((a,b) => a+b, 0) / period;
       return `MA${period} ${avg.toFixed(isUSStock?2:1)}`;
     }).filter(Boolean);
-    const volDisplay = last.v >= 10000 ? (last.v/10000).toFixed(1)+'萬' : last.v.toLocaleString();
+    // ★ 指數（例如加權指數）Yahoo 沒有提供成交量資料，顯示「—」而不是誤導性的「0」
+    // ★ 修正：只有「今天」這一根可能因為交易所還沒彙總完成而是0，不代表整體沒有成交量資料
+    // （之前誤判成「這檔完全沒有成交量資料」，但實際上過去的資料都是真的，只有當天可能還沒彙總好）
+    const volDisplay = !last.v ? '彙總中' : (last.v >= 10000 ? (last.v/10000).toFixed(1)+'萬' : last.v.toLocaleString());
     const parts = [
       `量 ${volDisplay}`,
       `高 ${last.h.toFixed(isUSStock?2:1)}`,
