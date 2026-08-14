@@ -176,6 +176,7 @@
             <span class="chart-price" id="chart-price">—</span>
             <span class="chart-change" id="chart-change"></span>
           </div>
+          <div class="chart-today-stats" id="chart-today-stats"></div>
         </div>
         <div class="chart-controls">
           <div class="period-tabs" id="period-tabs">
@@ -216,12 +217,8 @@
         </div>
         <div class="predict-accuracy" id="predict-accuracy" style="display:none"></div>
         <div class="vol-wrap"><canvas id="volChart"></canvas></div>
-        <div class="ma-legend">
-          <span style="color:#EF9F27">● MA5</span>
-          <span style="color:#378ADD">● MA20</span>
-          <span style="color:#D4537E">● MA60</span>
-          <span style="color:var(--text-3);font-size:10px">滾輪移動日期 / 拖曳平移</span>
-        </div>
+        <div class="ma-legend" id="ma-legend"></div>
+        <div class="ma-legend-hint">滾輪移動日期 / 拖曳平移</div>
       </div>
 
       <!-- Tech Indicators -->
