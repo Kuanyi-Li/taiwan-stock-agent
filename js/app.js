@@ -1572,11 +1572,25 @@ const Dashboard = {
     const gap = barW * gapRatio;
     const xOf = i => PAD.l + i * (barW + gap);
 
+    // ── 均線資料（先算好，才能把數值範圍一起納入Y軸計算，避免均線被裁切）──
+    const maColors = { 5:'#EF9F27', 10:'#a78bfa', 20:'#378ADD', 60:'#D4537E', 120:'#2ee88f', 240:'#f97316' };
+    const maLines = [];
+    if (typeof CHART !== 'undefined') {
+      const allCloses = fullData.map(d => d.c);
+      const offset = fullData.length - n; // data 是 fullData 最後 n 筆，算均線要對齊回原始索引
+      CHART.selectedMAs.forEach(period => {
+        const full = CHART._ma(allCloses, period);
+        const visible = full.slice(offset, offset + n);
+        maLines.push({ period, color: maColors[period] || '#888', values: visible });
+      });
+    }
+
     const highs = data.map(d => d.h), lows = data.map(d => d.l);
     let maxP = Math.max(...highs), minP = Math.min(...lows);
     if (prediction) {
       prediction.points.forEach(p => { maxP = Math.max(maxP, p.upper); minP = Math.min(minP, p.lower); });
     }
+    maLines.forEach(m => m.values.forEach(v => { if (v) { maxP = Math.max(maxP, v); minP = Math.min(minP, v); } }));
     const range = (maxP - minP) || 1;
     const yOf = p => (1 - (p - minP) / range) * priceH;
 
@@ -1613,6 +1627,20 @@ const Dashboard = {
       const yo = yOf(d.o), yc = yOf(d.c);
       const top = Math.min(yo, yc), bh = Math.max(1, Math.abs(yc - yo));
       ctx.fillRect(x, top, barW, bh);
+    });
+
+    // ── 均線（用勾選的週期，跟個股詳細頁同一套邏輯與資料）──────
+    maLines.forEach(m => {
+      ctx.beginPath();
+      ctx.strokeStyle = m.color;
+      ctx.lineWidth = 1;
+      let started = false;
+      m.values.forEach((v, i) => {
+        if (!v) return;
+        const x = xOf(i) + barW/2, y = yOf(v);
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
     });
 
     // ── 均價水平線（若持有此股票）──────────────────────
