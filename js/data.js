@@ -162,10 +162,13 @@ const DATA = {
   async _fetchWithFallback(url) { return this._fetch(url); },
 
   // ── 台股報價（TWSE 批次，即時）─────────────────────
+  // ★ 改成同時查「上市(tse_)+上櫃(otc_)」，不再是「先猜上市，查不到才回頭查上櫃」。
+  // 之前的做法對上櫃股票（例如3357）要多等一輪額外的網路請求+固定間隔延遲，
+  // 才能拿到正確報價，這是「休市/卡在昨收好一陣子」的根本原因。
   async _twseBatch(codes) {
     if (!codes.length) return [];
-    // ★ 用 %7C 直接串接，避免 encodeURIComponent 雙重編碼
-    const exCh = codes.map(c => `tse_${c}.tw`).join('%7C');
+    // ★ 用 %7C 直接串接，避免 encodeURIComponent 雙重編碼；每檔同時查 tse_ 和 otc_ 兩種前綴
+    const exCh = codes.map(c => `tse_${c}.tw%7Cotc_${c}.tw`).join('%7C');
     try {
       const res = await this._fetch(
         `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${exCh}&json=1&delay=0&_=${Date.now()}`
@@ -177,9 +180,10 @@ const DATA = {
 
       items.forEach(item => {
         const code = item.c;
-        if (!code) return;
+        if (!code) return; // 沒有真的匹配到（例如查tse_但其實是上櫃股，這個前綴不會有結果）
         const priceRaw  = item.z && item.z !== '-' ? parseFloat(item.z) : null;
         const prevClose = parseFloat(item.y) || 0;
+        const exSource = item.ex === 'otc' ? 'tpex' : 'twse'; // 記錄實際是從哪個市場查到的
 
         if (priceRaw === null) {
           // z='-'，加入待補清單
@@ -210,26 +214,26 @@ const DATA = {
           volume:    parseInt(item.v) || 0,
           name:      item.n || code,
           chg, chgPct, noTrade: false,
-          source: 'twse', market: 'TW',
+          source: exSource, market: 'TW',
         });
         found.add(code);
       });
 
-      // ★ 不管 TWSE 有沒有值，都用 Yahoo spark 補（確保即時）
+      // ★ 不管 TWSE/TPEX 有沒有值，都用 Yahoo spark 補（確保即時）
       // noTrade 的優先補，有值的非同步更新
       if (noTradeCodes.length > 0) {
         this._yahooTWFallback(noTradeCodes);
       }
-      // 有 TWSE 值的也補 Yahoo，避免 TWSE 有 session 問題時落後
+      // 有值的也補 Yahoo，避免 TWSE/TPEX 有 session 問題時落後
       const hasTradeCodes = [...found].filter(c => !noTradeCodes.includes(c));
       if (hasTradeCodes.length > 0) {
         this._yahooTWFallback(hasTradeCodes);
       }
 
-      console.log(`[DATA] TWSE: ${found.size - noTradeCodes.length} realtime, ${noTradeCodes.length} yahoo fallback, ${codes.length - found.size} missing`);
+      console.log(`[DATA] TWSE+TPEX: ${found.size - noTradeCodes.length} realtime, ${noTradeCodes.length} yahoo fallback, ${codes.length - found.size} missing`);
       return codes.filter(c => !found.has(c));
     } catch(e) {
-      console.warn('[DATA] TWSE failed:', e.message);
+      console.warn('[DATA] TWSE+TPEX failed:', e.message);
       return codes;
     }
   },
@@ -418,20 +422,18 @@ const DATA = {
     const usCodes = unique.filter(c => this.isUSCode(c));
 
     await this._enqueue(async () => {
-      // ── 台股：TWSE → TPEX（不走 Yahoo）──
+      // ── 台股：TWSE+TPEX 合併查詢（一次涵蓋上市+上櫃，不用先猜再重試）──
       if (twCodes.length > 0) {
         let missing = [];
         try {
           missing = await this._twseBatch(twCodes);
-          console.log(`[DATA] TWSE: ${twCodes.length - missing.length} ok, ${missing.length} missing`);
         } catch(e) {
-          console.warn('[DATA] TWSE failed:', e.message);
+          console.warn('[DATA] TWSE+TPEX failed:', e.message);
           missing = twCodes;
         }
+        // 真的完全查不到的（例如代碼打錯、已下市），直接用 Yahoo 補，不用再重查一次 TWSE/TPEX
         if (missing.length > 0) {
-          await new Promise(r => setTimeout(r, this.MIN_INTERVAL));
-          this._lastReqTime = Date.now();
-          try { await this._tpexBatch(missing); } catch(e) { /* silent */ }
+          this._yahooTWFallback(missing);
         }
       }
 
