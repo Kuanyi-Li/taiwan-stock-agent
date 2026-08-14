@@ -263,7 +263,7 @@ body {
 .si-code { font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
 .si-price { font-family: var(--font-mono); font-size: 14px; font-weight: 600; }
 .si-name { font-size: 11px; color: var(--text-2); }
-.si-shares { font-size: 11px; color: var(--text-3); }
+.si-shares { font-size: 11px; color: var(--text-1); }
 .si-cost { font-size: 11px; color: var(--text-1); font-family: var(--font-mono); }
 .si-days { font-size: 10px; color: var(--text-3); }
 .si-signal-badge {
