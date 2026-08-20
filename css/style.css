@@ -120,7 +120,7 @@ body {
 .perf-sector-track { flex: 1; height: 10px; background: var(--bg-2); border-radius: 5px; overflow: hidden; }
 .perf-sector-fill { height: 100%; border-radius: 4px; }
 .perf-sector-pct { width: 50px; text-align: right; font-family: var(--font-mono); font-weight: 700; flex-shrink: 0; }
-.perf-trade-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 14px; border-bottom: 1px solid var(--border); }
+.perf-trade-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 4px; }
 .perf-trade-item:last-child { border-bottom: none; }
 .dashboard-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 2px 8px; flex-shrink: 0; }
 .dashboard-summary { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
