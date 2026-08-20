@@ -2798,15 +2798,22 @@ const Backtest = {
     if (!portfolio || !portfolio.length) return null;
 
     const perStock = {};
+    const skipped = []; // 記錄被排除的股票，之後要清楚告訴使用者
     for (const s of portfolio) {
       try {
         const data = await DATA.fetchHistory(s.code, '2y');
-        if (!data || data.length < 60) continue;
+        // ★ 修正關鍵bug：如果抓取失敗，DATA.fetchHistory 會回傳「假資料」（只有60根K線）當保底，
+        // 之前的判斷門檻(<60)沒有擋住這個，導致假資料混進來，把 minLen 拖到60，
+        // 害整個回測（其他10支股票資料都是好的）被誤判成「資料不足」而失敗。
+        // 改成要求至少200根K線（真實2年資料應該有~480+根，60根明顯是假資料的特徵），
+        // 不夠的話直接把這支股票排除在這次回測之外，不要讓它拖累其他股票。
+        if (!data || data.length < 200) { skipped.push(s.code); continue; }
         perStock[s.code] = { name: s.name, candles: data };
-      } catch(e) { /* 這支股票資料抓不到，跳過 */ }
+      } catch(e) { skipped.push(s.code); }
     }
     const codes = Object.keys(perStock);
     if (!codes.length) return null;
+    if (skipped.length) console.warn(`[Backtest] 資料不足被排除的股票: ${skipped.join(', ')}`);
 
     const minLen = Math.min(...codes.map(c => perStock[c].candles.length));
     const startIdx = Math.max(this.LOOKBACK_BUFFER, minLen - rangeDays);
@@ -2823,6 +2830,11 @@ const Backtest = {
     codes.forEach(c => { positions[c] = { shares: 0, avgCost: 0 }; });
 
     for (let i = startIdx; i < minLen; i++) {
+      // ★ 修正：整個模擬迴圈完全同步運算，1年份資料(250天×多支股票×2種模式)會
+      // 鎖住主執行緒好幾秒甚至更久，瀏覽器會沒有回應。每處理20天就讓出一次主執行緒，
+      // 讓畫面不會被鎖死、使用者還能看到「計算中」的提示持續在跳動。
+      if ((i - startIdx) % 20 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+
       const buySignalsToday = [];
       for (const code of codes) {
         const order = pendingOrders[code];
@@ -2928,7 +2940,7 @@ const Backtest = {
     return {
       mode, market, startDate: equityCurve[0]?.date, endDate: equityCurve[equityCurve.length-1]?.date,
       totalReturn, bhReturn, winRate, tradeCount: sellTrades.length,
-      maxDrawdown, equityCurve, buyHoldCurve, trades, totalCapital, finalValue,
+      maxDrawdown, equityCurve, buyHoldCurve, trades, totalCapital, finalValue, skipped,
     };
   },
 
@@ -2987,6 +2999,7 @@ const Backtest = {
       return `
         <div class="perf-card" style="margin-bottom:14px">
           <div class="perf-card-title">${label}（${r.startDate} ～ ${r.endDate}）</div>
+          ${r.skipped?.length ? `<div class="form-note" style="margin-bottom:8px;color:#eab308">⚠️ ${r.skipped.join('、')} 這次資料抓取失敗，已排除在這次回測外（沒有用假資料湊數）</div>` : ''}
           <div class="perf-grid" style="margin-bottom:10px">
             <div class="perf-stat-row"><span class="perf-stat-name">訊號策略總報酬</span><span class="perf-stat-num" style="color:${r.totalReturn>=0?'#E24B4A':'#1D9E75'}">${r.totalReturn>=0?'+':''}${r.totalReturn.toFixed(1)}%</span></div>
             <div class="perf-stat-row"><span class="perf-stat-name">單純買進持有（對照組）</span><span class="perf-stat-num" style="color:${r.bhReturn>=0?'#E24B4A':'#1D9E75'}">${r.bhReturn>=0?'+':''}${r.bhReturn.toFixed(1)}%</span></div>
