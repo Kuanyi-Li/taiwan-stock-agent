@@ -635,14 +635,16 @@ function showMainView(view) {
   const detail = document.getElementById('detail-content');
   const perf = document.getElementById('performance-content');
   const cal = document.getElementById('calendar-page-content');
+  const bt = document.getElementById('backtest-content');
   const sidebar = document.querySelector('.sidebar');
   const layout = document.querySelector('.app-layout');
   if (dv) dv.style.display = view === 'dashboard' ? '' : 'none';
   if (detail) detail.style.display = view === 'detail' ? '' : 'none';
   if (perf) perf.style.display = view === 'performance' ? '' : 'none';
   if (cal) cal.style.display = view === 'calendar' ? '' : 'none';
-  // 績效和日曆頁面內容較豐富，隱藏側邊欄讓版面更寬敞
-  const hideSidebar = view === 'performance' || view === 'calendar';
+  if (bt) bt.style.display = view === 'backtest' ? '' : 'none';
+  // 績效、日曆、回測頁面內容較豐富，隱藏側邊欄讓版面更寬敞
+  const hideSidebar = view === 'performance' || view === 'calendar' || view === 'backtest';
   if (sidebar) sidebar.style.display = hideSidebar ? 'none' : '';
   if (layout) layout.classList.toggle('sidebar-hidden', hideSidebar);
   const dashBtn = document.getElementById('dashboard-toggle-btn');
@@ -2759,6 +2761,290 @@ const Screener = {
       const codeInput = document.getElementById('w-code');
       if (codeInput) { codeInput.value = code; codeInput.dispatchEvent(new Event('input')); codeInput.focus(); }
     }, 50);
+  },
+};
+
+// ── Backtest module（投資組合回測沙盒，台美股都支援）────
+// ⚠️ 核心原則：完全重複使用 ANALYSIS._calcIndicators / _calcScore / SIGNAL.fromScore，
+// 不另外寫一套邏輯——回測的是「現有系統的訊號」，不是另一個模型。
+// ⚠️ 訊號在第N天收盤後才算得出來，成交一律用第N+1天開盤價，避免用到當天收盤那個
+// 「訊號出現當下不可能拿到」的價格（偷看未來）。
+// ⚠️ 樣本內測試限制：這是同一批用來調整訊號門檻的歷史資料，好看的回測結果不能
+// 完全排除「湊巧貼合這段歷史」的可能，不是保證對未來同樣有效。
+// ⚠️ VIX：無法取得逐日歷史VIX資料，回測中一律當作0（不調整），這跟即時系統會用
+// 當下VIX微調不同，是已知的簡化，不是誤差。
+const Backtest = {
+  RANGE_OPTIONS: [
+    { label: '近3個月', days: 63 },
+    { label: '近6個月', days: 126 },
+    { label: '近1年', days: 252 },
+  ],
+  LOOKBACK_BUFFER: 250, // 往前多抓的緩衝天數，讓MA240等長週期指標在回測起點就有效
+
+  // 台美股手續費/稅制差異：美股無交易手續費、無證交稅（實際上美股券商可能有其他費用，
+  // 但這裡先用最單純的假設，避免引入我們不確定的規則）；台股沿用現有的費率邏輯
+  _tradeCost(market, tradeValue, code) {
+    if (market === 'US') return { fee: 0, tax: 0 };
+    const isETF = /^00\d{2,4}$/.test(code);
+    const taxRate = isETF ? 0.001 : 0.003;
+    const fee = Math.max(20, Math.round(tradeValue * 0.001425));
+    const tax = Math.round(tradeValue * taxRate);
+    return { fee, tax };
+  },
+
+  async run(rangeDays, mode, market) {
+    // mode: 'long' | 'short'　market: 'TW' | 'US'
+    const portfolio = market === 'US' ? APP._usPortfolio : APP._twPortfolio;
+    if (!portfolio || !portfolio.length) return null;
+
+    const perStock = {};
+    for (const s of portfolio) {
+      try {
+        const data = await DATA.fetchHistory(s.code, '2y');
+        if (!data || data.length < 60) continue;
+        perStock[s.code] = { name: s.name, candles: data };
+      } catch(e) { /* 這支股票資料抓不到，跳過 */ }
+    }
+    const codes = Object.keys(perStock);
+    if (!codes.length) return null;
+
+    const minLen = Math.min(...codes.map(c => perStock[c].candles.length));
+    const startIdx = Math.max(this.LOOKBACK_BUFFER, minLen - rangeDays);
+    if (startIdx >= minLen - 1) return null;
+
+    const totalCapital = portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0) || (market === 'US' ? 100000 : 1000000);
+    const perStockBudget = totalCapital / codes.length;
+    let cash = totalCapital;
+    const positions = {};
+    const trades = [];
+    const equityCurve = [];
+    const pendingOrders = {};
+
+    codes.forEach(c => { positions[c] = { shares: 0, avgCost: 0 }; });
+
+    for (let i = startIdx; i < minLen; i++) {
+      const buySignalsToday = [];
+      for (const code of codes) {
+        const order = pendingOrders[code];
+        if (!order) continue;
+        const candles = perStock[code].candles;
+        if (i >= candles.length) continue;
+        const openPrice = candles[i].o;
+        if (order === 'buy') {
+          buySignalsToday.push({ code, openPrice, tier: pendingOrders[code + '_tier'] ?? 4 });
+        } else if (order === 'sell') {
+          const pos = positions[code];
+          if (pos.shares > 0) {
+            const proceeds = pos.shares * openPrice;
+            const { fee, tax } = this._tradeCost(market, proceeds, code);
+            const net = proceeds - fee - tax;
+            cash += net;
+            trades.push({ code, name: perStock[code].name, action: 'sell', date: this._fmtDate(candles[i].t), price: openPrice, shares: pos.shares, pnl: net - pos.shares * pos.avgCost });
+            positions[code] = { shares: 0, avgCost: 0 };
+          }
+        }
+        delete pendingOrders[code];
+        delete pendingOrders[code + '_tier'];
+      }
+      buySignalsToday.sort((a, b) => b.tier - a.tier);
+      for (const buy of buySignalsToday) {
+        const budget = Math.min(perStockBudget, cash);
+        if (budget < buy.openPrice * (market === 'US' ? 1 : 10)) continue; // 台股至少湊得起零股/1股才進場的粗略門檻
+        const { fee: feeEst } = this._tradeCost(market, budget, buy.code);
+        // ★ 台股整張(1000股)為單位、不足1000股用零股概估；美股可買到1股
+        let shares;
+        if (market === 'US') {
+          shares = Math.floor((budget - feeEst) / buy.openPrice);
+        } else {
+          const lot = Math.floor((budget - feeEst) / buy.openPrice / 1000) * 1000;
+          shares = lot > 0 ? lot : Math.floor((budget - feeEst) / buy.openPrice); // 資金不夠買整張就買零股概估
+        }
+        if (shares <= 0) continue;
+        const cost = shares * buy.openPrice;
+        const { fee } = this._tradeCost(market, cost, buy.code);
+        if (cost + fee > cash) continue;
+        cash -= (cost + fee);
+        positions[buy.code] = { shares, avgCost: buy.openPrice };
+        trades.push({ code: buy.code, name: perStock[buy.code].name, action: 'buy', date: this._fmtDate(perStock[buy.code].candles[i].t), price: buy.openPrice, shares, pnl: null });
+      }
+
+      for (const code of codes) {
+        const candles = perStock[code].candles;
+        if (i >= candles.length) continue;
+        const slice = candles.slice(0, i + 1);
+        if (slice.length < 30) continue;
+        let ind;
+        try { ind = ANALYSIS._calcIndicators(slice); } catch(e) { continue; }
+        const score = ANALYSIS._calcScore(ind);
+        const pos = positions[code];
+        const gainPct = pos.shares > 0 ? (ind.last.c - pos.avgCost) / pos.avgCost * 100 : 0;
+        const supportBreak = ind.last.c < (ind.support || 0) * 0.98;
+        const sig = SIGNAL.fromScore(score, gainPct, supportBreak, mode);
+
+        if (pos.shares === 0 && sig.tier >= 4) {
+          pendingOrders[code] = 'buy';
+          pendingOrders[code + '_tier'] = sig.tier;
+        } else if (pos.shares > 0 && sig.tier <= 2) {
+          pendingOrders[code] = 'sell';
+        }
+      }
+
+      let portValue = cash;
+      codes.forEach(code => {
+        const pos = positions[code];
+        if (pos.shares > 0 && i < perStock[code].candles.length) {
+          portValue += pos.shares * perStock[code].candles[i].c;
+        }
+      });
+      equityCurve.push({ date: this._fmtDate(perStock[codes[0]].candles[i].t), value: portValue });
+    }
+
+    const buyHoldCurve = [];
+    let bhCash = totalCapital;
+    const bhShares = {};
+    codes.forEach(code => {
+      const startPrice = perStock[code].candles[startIdx].o;
+      const budget = totalCapital / codes.length;
+      const shares = market === 'US' ? Math.floor(budget / startPrice) : Math.floor(budget / startPrice);
+      bhShares[code] = shares;
+      bhCash -= shares * startPrice;
+    });
+    for (let i = startIdx; i < minLen; i++) {
+      let v = bhCash;
+      codes.forEach(code => { if (i < perStock[code].candles.length) v += bhShares[code] * perStock[code].candles[i].c; });
+      buyHoldCurve.push({ date: this._fmtDate(perStock[codes[0]].candles[i].t), value: v });
+    }
+
+    const finalValue = equityCurve[equityCurve.length-1]?.value ?? totalCapital;
+    const totalReturn = (finalValue - totalCapital) / totalCapital * 100;
+    const bhFinal = buyHoldCurve[buyHoldCurve.length-1]?.value ?? totalCapital;
+    const bhReturn = (bhFinal - totalCapital) / totalCapital * 100;
+    const sellTrades = trades.filter(t => t.action === 'sell');
+    const winTrades = sellTrades.filter(t => t.pnl > 0);
+    const winRate = sellTrades.length ? (winTrades.length / sellTrades.length * 100) : null;
+    let peak = totalCapital, maxDrawdown = 0;
+    equityCurve.forEach(p => { peak = Math.max(peak, p.value); maxDrawdown = Math.max(maxDrawdown, (peak - p.value) / peak * 100); });
+
+    return {
+      mode, market, startDate: equityCurve[0]?.date, endDate: equityCurve[equityCurve.length-1]?.date,
+      totalReturn, bhReturn, winRate, tradeCount: sellTrades.length,
+      maxDrawdown, equityCurve, buyHoldCurve, trades, totalCapital, finalValue,
+    };
+  },
+
+  _fmtDate(ts) {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  },
+
+  toggle() {
+    const bt = document.getElementById('backtest-content');
+    const isShowing = bt.style.display !== 'none';
+    if (isShowing) {
+      showMainView('detail');
+      if (!APP.activeSymbol && APP.portfolio.length) APP.selectStock(APP.portfolio[0].code, 0, 'portfolio');
+    } else {
+      showMainView('backtest');
+      document.getElementById('bt-body').innerHTML = '<div class="empty-state">選擇市場、回測期間後按「開始回測」</div>';
+    }
+  },
+
+  _setRange(idx) {
+    document.querySelectorAll('.bt-range-btn').forEach(b => b.classList.toggle('active', b.dataset.idx === String(idx)));
+  },
+
+  _setMarket(m) {
+    document.querySelectorAll('.bt-market-btn').forEach(b => b.classList.toggle('active', b.dataset.market === m));
+  },
+
+  async runFromUI() {
+    const rangeIdx = parseInt(document.querySelector('.bt-range-btn.active')?.dataset.idx ?? '1');
+    const rangeDays = this.RANGE_OPTIONS[rangeIdx].days;
+    const market = document.querySelector('.bt-market-btn.active')?.dataset.market ?? 'TW';
+    const body = document.getElementById('bt-body');
+    body.innerHTML = '<div class="empty-state">回測計算中，需要抓取每支持股的完整歷史資料，請稍候...</div>';
+
+    const [longResult, shortResult] = await Promise.all([
+      this.run(rangeDays, 'long', market),
+      this.run(rangeDays, 'short', market),
+    ]);
+
+    if (!longResult && !shortResult) {
+      body.innerHTML = `<div class="empty-state">資料不足，無法回測（可能持股歷史資料不夠長，或目前沒有${market==='US'?'美股':'台股'}持股）</div>`;
+      return;
+    }
+    this._renderResults(longResult, shortResult, market);
+  },
+
+  _renderResults(longResult, shortResult, market) {
+    const body = document.getElementById('bt-body');
+    const isUS = market === 'US';
+    const cur = isUS ? '$' : 'NT$';
+    const renderOne = (r, label) => {
+      if (!r) return `<div class="empty-state">${label}：資料不足</div>`;
+      const outperform = r.totalReturn - r.bhReturn;
+      return `
+        <div class="perf-card" style="margin-bottom:14px">
+          <div class="perf-card-title">${label}（${r.startDate} ～ ${r.endDate}）</div>
+          <div class="perf-grid" style="margin-bottom:10px">
+            <div class="perf-stat-row"><span class="perf-stat-name">訊號策略總報酬</span><span class="perf-stat-num" style="color:${r.totalReturn>=0?'#E24B4A':'#1D9E75'}">${r.totalReturn>=0?'+':''}${r.totalReturn.toFixed(1)}%</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">單純買進持有（對照組）</span><span class="perf-stat-num" style="color:${r.bhReturn>=0?'#E24B4A':'#1D9E75'}">${r.bhReturn>=0?'+':''}${r.bhReturn.toFixed(1)}%</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">超額報酬</span><span class="perf-stat-num" style="color:${outperform>=0?'#E24B4A':'#1D9E75'}">${outperform>=0?'+':''}${outperform.toFixed(1)}%</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">交易次數（完整買賣一輪）</span><span class="perf-stat-num">${r.tradeCount}</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">勝率</span><span class="perf-stat-num">${r.winRate!=null ? r.winRate.toFixed(0)+'%' : '—（無已平倉交易）'}</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">最大回撤</span><span class="perf-stat-num" style="color:#1D9E75">-${r.maxDrawdown.toFixed(1)}%</span></div>
+          </div>
+          <div class="perf-big-canvas-wrap" style="height:180px"><canvas id="bt-canvas-${label}"></canvas></div>
+        </div>`;
+    };
+
+    body.innerHTML = `
+      <div class="form-note" style="margin-bottom:14px">⚠️ 這是用你目前${isUS?'美股':'台股'}持股的歷史資料回測「現有買賣訊號邏輯」，不是另外訓練的模型。訊號在收盤後才算得出來，成交一律用「隔天開盤價」，避免用到不可能拿到的價格。這份資料也是調整訊號門檻時參考過的同一批歷史資料，好看的結果不能排除「湊巧貼合過去」，不保證對未來同樣有效。${isUS ? '美股假設無交易手續費、無交易稅（實際費用依券商而定，這裡是簡化假設）。' : '手續費、證交稅已計入。'}</div>
+      ${renderOne(longResult, '長線模式')}
+      ${renderOne(shortResult, '短線模式')}
+    `;
+
+    if (longResult) this._drawEquityChart('bt-canvas-長線模式', longResult);
+    if (shortResult) this._drawEquityChart('bt-canvas-短線模式', shortResult);
+  },
+
+  _drawEquityChart(canvasId, r) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const wrap = canvas.parentElement;
+    const W = wrap.clientWidth || 600, H = 180;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W+'px'; canvas.style.height = H+'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0,0,W,H);
+
+    const PAD = { l:56, r:12, t:10, b:20 };
+    const chartW = W-PAD.l-PAD.r, chartH = H-PAD.t-PAD.b;
+    const allVals = [...r.equityCurve.map(p=>p.value), ...r.buyHoldCurve.map(p=>p.value)];
+    const minV = Math.min(...allVals), maxV = Math.max(...allVals);
+    const range = (maxV-minV) || 1;
+    const n = r.equityCurve.length;
+    const xOf = i => PAD.l + (i/(n-1)) * chartW;
+    const yOf = v => PAD.t + chartH - ((v-minV)/range) * chartH;
+
+    const isDark = !document.body.classList.contains('light-mode');
+    ctx.font = '11px sans-serif'; ctx.textAlign='right'; ctx.fillStyle = isDark?'#8b949e':'#57606a';
+    [0,0.5,1].forEach(f => {
+      const y = PAD.t + f*chartH;
+      ctx.strokeStyle = isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.1)';
+      ctx.beginPath(); ctx.moveTo(PAD.l,y); ctx.lineTo(W-PAD.r,y); ctx.stroke();
+      ctx.fillText(Math.round(maxV-f*range).toLocaleString(), PAD.l-6, y+4);
+    });
+
+    const drawLine = (curve, color) => {
+      ctx.beginPath();
+      curve.forEach((p,i) => { const x=xOf(i), y=yOf(p.value); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    };
+    drawLine(r.buyHoldCurve, '#8b949e');
+    drawLine(r.equityCurve, '#378ADD');
   },
 };
 
