@@ -2964,10 +2964,11 @@ const Backtest = {
     const body = document.getElementById('bt-body');
     body.innerHTML = '<div class="empty-state">回測計算中，需要抓取每支持股的完整歷史資料，請稍候...</div>';
 
-    const [longResult, shortResult] = await Promise.all([
-      this.run(rangeDays, 'long', market),
-      this.run(rangeDays, 'short', market),
-    ]);
+    // ★ 修正：兩個模式改成依序執行，不要用 Promise.all 並行——
+    // 實測發現並行時，兩邊同時對同一批股票抓歷史資料，會互相干擾導致其中一個意外失敗
+    // （共用的資料快取機制沒有處理好同時重複請求同一支股票的情況）
+    const longResult = await this.run(rangeDays, 'long', market);
+    const shortResult = await this.run(rangeDays, 'short', market);
 
     if (!longResult && !shortResult) {
       body.innerHTML = `<div class="empty-state">資料不足，無法回測（可能持股歷史資料不夠長，或目前沒有${market==='US'?'美股':'台股'}持股）</div>`;
