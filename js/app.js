@@ -2560,6 +2560,76 @@ function getStockSector(code) {
 const Screener = {
   _lastResults: [],
 
+  // ── 評分邏輯（不用使用者設條件，程式自己判斷）─────────
+  // 用三大法人買超強度、估值合理性、殖利率組成綜合分數，透明列出每項怎麼算的。
+  // ⚠️ 這是用批次快照資料算的簡化評分，不是嚴謹的量化模型，僅供參考起點，不是投資建議。
+  _scoreStock(code, s, pe, flow) {
+    // 流動性門檻：成交量太低（<100張/日）直接排除，不好買賣、風險高
+    if (s.volume < 100000) return null;
+
+    let score = 0;
+    const breakdown = [];
+
+    // 1. 三大法人買超強度（滿分40）：外資+投信合計買超股數，用當日成交量正規化
+    const netInst = (flow?.foreign ?? 0) + (flow?.trust ?? 0);
+    const instRatio = netInst / (s.volume || 1); // 買超占當日成交量的比例
+    // ★ 調整比例：原本 *100 太容易頂到滿分上限，很多股票並列同分沒有區分度，
+    // 改成 *60（法人淨買超要接近成交量的2/3才會頂滿），拉開差異
+    const instScore = Math.max(0, Math.min(40, instRatio * 60));
+    if (instScore > 0) breakdown.push(`法人買超 +${instScore.toFixed(0)}分`);
+    score += instScore;
+
+    // 2. 估值合理性（滿分30）：本益比落在5~20之間給滿分，越極端扣越多；虧損股(PE無效)給0分
+    let valScore = 0;
+    if (pe?.pe != null && pe.pe > 0) {
+      if (pe.pe >= 5 && pe.pe <= 20) valScore = 30;
+      else if (pe.pe < 5) valScore = 15; // 太低有可能有隱藏風險，給一半
+      else valScore = Math.max(0, 30 - (pe.pe - 20) * 1); // 超過20，每高1就扣1分
+    }
+    if (valScore > 0) breakdown.push(`估值合理 +${valScore.toFixed(0)}分`);
+    score += valScore;
+
+    // 3. 殖利率（滿分20）：殖利率越高分數越高，上限8%給滿分
+    const yieldScore = pe?.yield != null ? Math.min(20, pe.yield / 8 * 20) : 0;
+    if (yieldScore > 0) breakdown.push(`殖利率 +${yieldScore.toFixed(0)}分`);
+    score += yieldScore;
+
+    // 4. 今日不要漲太多（避免推薦已經噴出去、追高風險高的）：單日漲幅>7%扣分
+    let momentumPenalty = 0;
+    if (s.chgPct > 7) { momentumPenalty = Math.min(15, (s.chgPct - 7) * 2); score -= momentumPenalty; breakdown.push(`今日漲幅過大 -${momentumPenalty.toFixed(0)}分`); }
+
+    return { score: Math.round(score), breakdown, netInst };
+  },
+
+  async autoRecommend() {
+    const [snapshot, peData, inst] = await Promise.all([
+      DATA.fetchMarketSnapshot(),
+      DATA.fetchPERatios(),
+      DATA.fetchInstitutional(),
+    ]);
+    const heldCodes = new Set(APP._twPortfolio.map(s => s.code));
+
+    const results = [];
+    for (const code of Object.keys(snapshot)) {
+      if (heldCodes.has(code)) continue; // 已經持有的不用再推薦
+      const s = snapshot[code];
+      const pe = peData[code];
+      const flow = inst?.byCode?.[code];
+      const scored = this._scoreStock(code, s, pe, flow);
+      if (!scored || scored.score <= 0) continue;
+      results.push({
+        code, name: s.name, close: s.close, chgPct: s.chgPct,
+        pe: pe?.pe ?? null, yield: pe?.yield ?? null,
+        foreignFlow: flow?.foreign ?? null, trustFlow: flow?.trust ?? null,
+        sector: (typeof getStockSector === 'function') ? getStockSector(code) : '其他',
+        score: scored.score, breakdown: scored.breakdown, netInst: scored.netInst,
+      });
+    }
+    results.sort((a, b) => b.score - a.score || (b.netInst ?? 0) - (a.netInst ?? 0));
+    this._lastResults = results;
+    return results;
+  },
+
   async run(filters) {
     const [snapshot, peData, inst] = await Promise.all([
       DATA.fetchMarketSnapshot(),
@@ -2602,7 +2672,39 @@ const Screener = {
   async openModal() {
     const modal = document.getElementById('screener-modal');
     modal.classList.add('show');
-    document.getElementById('screener-results').innerHTML = '<div class="empty-state">設定條件後按「開始篩選」</div>';
+    document.getElementById('screener-results').innerHTML = '<div class="empty-state">按上方「🤖 自動推薦」讓系統評分，或展開下方進階選項自己設條件</div>';
+  },
+
+  async runAutoRecommend() {
+    const resultsEl = document.getElementById('screener-results');
+    resultsEl.innerHTML = '<div class="empty-state">計算全市場評分中...</div>';
+    const results = await this.autoRecommend();
+
+    if (!results.length) {
+      resultsEl.innerHTML = '<div class="empty-state">目前沒有評分>0的推薦標的</div>';
+      return;
+    }
+
+    const fmtShares = n => n == null ? '—' : `${n>=0?'+':''}${(n/1000).toFixed(0)}張`;
+    resultsEl.innerHTML = `
+      <div class="form-note" style="margin-bottom:8px">⚠️ 這是用批次快照資料算的簡化評分（法人買超+估值+殖利率+動能），不是嚴謹量化模型，僅供參考起點，請自行判斷。排除你已持有的股票，顯示前30檔。</div>
+      ${results.slice(0, 30).map(r => `
+        <div class="screener-row" onclick="Screener.viewStock('${r.code}')">
+          <div class="screener-row-main">
+            <span class="screener-score">${r.score}分</span>
+            <span class="screener-code">${r.code}</span>
+            <span class="screener-name">${r.name}</span>
+            <span class="screener-sector">${r.sector}</span>
+          </div>
+          <div class="screener-row-stats">
+            <span class="${r.chgPct>=0?'up-color':'dn-color'}">${r.close} (${r.chgPct>=0?'+':''}${r.chgPct}%)</span>
+            <span>PE ${r.pe ?? '—'}</span>
+            <span>殖利率 ${r.yield ?? '—'}%</span>
+            <span style="color:${(r.foreignFlow??0)>=0?'#E24B4A':'#1D9E75'}">外資${fmtShares(r.foreignFlow)}</span>
+          </div>
+          <div class="screener-breakdown">${r.breakdown.join('　')}</div>
+        </div>`).join('')}
+    `;
   },
 
   async runFromModal() {
