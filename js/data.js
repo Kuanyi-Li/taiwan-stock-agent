@@ -136,6 +136,35 @@ const DATA = {
     return /^[A-Za-z]{1,5}$/.test(code);
   },
 
+  // ── 全市場每日快照（篩選器用，一次請求涵蓋全部上市股票，不用逐支抓）──
+  marketSnapshotCache: null, // { date, byCode: {code: {name, close, chgPct, volume}} }
+  async fetchMarketSnapshot() {
+    const todayStr = this._localDateStr(new Date());
+    if (this.marketSnapshotCache?.date === todayStr) return this.marketSnapshotCache.byCode;
+    try {
+      const url = 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL';
+      const res = await this._fetch(url);
+      const json = await res.json();
+      const byCode = {};
+      (json || []).forEach(r => {
+        const close = parseFloat(r.ClosingPrice);
+        const open = parseFloat(r.OpeningPrice);
+        if (!close || !open) return;
+        const chg = parseFloat(r.Change) || 0;
+        const prevClose = close - chg;
+        byCode[r.Code] = {
+          name: r.Name, close, open,
+          high: parseFloat(r.HighestPrice) || close,
+          low: parseFloat(r.LowestPrice) || close,
+          volume: parseInt(r.TradeVolume) || 0,
+          chg, chgPct: prevClose ? +(chg / prevClose * 100).toFixed(2) : 0,
+        };
+      });
+      this.marketSnapshotCache = { date: todayStr, byCode };
+      return byCode;
+    } catch(e) { return this.marketSnapshotCache?.byCode || {}; }
+  },
+
   // ── 本益比/殖利率/股價淨值比（只有上市股票有，上櫃TPEX端點目前被擋）──
   peRatioCache: null, // { date, byCode: {code: {pe, yield, pb}} }
   async fetchPERatios() {

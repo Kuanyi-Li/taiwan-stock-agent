@@ -2551,6 +2551,115 @@ function getStockSector(code) {
   return fromCandidates || '其他';
 }
 
+// ── Screener module（全市場選股篩選器）─────────────────
+// 掃描全部上市股票（不侷限於RECOMMEND.CANDIDATES這份手寫清單），
+// 用當日快照資料（價格變動、本益比、殖利率、三大法人買賣超）做多條件篩選。
+// ⚠️ 限制：只能用「當日快照」數據篩選，抓不到每支股票的歷史K線技術指標
+// （1000+支股票逐一抓歷史資料量太大），所以RSI/均線交叉這類技術面條件做不到，
+// 只能篩「今天的價格變動、估值、法人動向」這幾種批次資料涵蓋的條件。
+const Screener = {
+  _lastResults: [],
+
+  async run(filters) {
+    const [snapshot, peData, inst] = await Promise.all([
+      DATA.fetchMarketSnapshot(),
+      DATA.fetchPERatios(),
+      DATA.fetchInstitutional(),
+    ]);
+
+    const codes = Object.keys(snapshot);
+    const results = [];
+    for (const code of codes) {
+      const s = snapshot[code];
+      const pe = peData[code];
+      const flow = inst?.byCode?.[code];
+
+      if (filters.minPrice != null && s.close < filters.minPrice) continue;
+      if (filters.maxPrice != null && s.close > filters.maxPrice) continue;
+      if (filters.minChgPct != null && s.chgPct < filters.minChgPct) continue;
+      if (filters.maxChgPct != null && s.chgPct > filters.maxChgPct) continue;
+      if (filters.maxPE != null && (!pe?.pe || pe.pe > filters.maxPE)) continue;
+      if (filters.minPE != null && (!pe?.pe || pe.pe < filters.minPE)) continue;
+      if (filters.minYield != null && (!pe?.yield || pe.yield < filters.minYield)) continue;
+      if (filters.foreignBuying && (!flow || flow.foreign <= 0)) continue;
+      if (filters.trustBuying && (!flow || flow.trust <= 0)) continue;
+      if (filters.minVolume != null && s.volume < filters.minVolume * 1000) continue; // 輸入單位是「張」
+
+      results.push({
+        code, name: s.name, close: s.close, chgPct: s.chgPct,
+        pe: pe?.pe ?? null, yield: pe?.yield ?? null,
+        foreignFlow: flow?.foreign ?? null, trustFlow: flow?.trust ?? null,
+        sector: (typeof getStockSector === 'function') ? getStockSector(code) : '其他',
+      });
+    }
+
+    // 排序：預設依三大法人合計買超由高到低
+    results.sort((a, b) => (b.foreignFlow ?? 0) + (b.trustFlow ?? 0) - ((a.foreignFlow ?? 0) + (a.trustFlow ?? 0)));
+    this._lastResults = results;
+    return results;
+  },
+
+  async openModal() {
+    const modal = document.getElementById('screener-modal');
+    modal.classList.add('show');
+    document.getElementById('screener-results').innerHTML = '<div class="empty-state">設定條件後按「開始篩選」</div>';
+  },
+
+  async runFromModal() {
+    const el = id => document.getElementById(id).value.trim();
+    const num = v => v === '' ? null : parseFloat(v);
+    const filters = {
+      minPrice: num(el('scr-min-price')),
+      maxPrice: num(el('scr-max-price')),
+      minChgPct: num(el('scr-min-chg')),
+      maxChgPct: num(el('scr-max-chg')),
+      minPE: num(el('scr-min-pe')),
+      maxPE: num(el('scr-max-pe')),
+      minYield: num(el('scr-min-yield')),
+      foreignBuying: document.getElementById('scr-foreign-buying').checked,
+      trustBuying: document.getElementById('scr-trust-buying').checked,
+      minVolume: num(el('scr-min-volume')),
+    };
+
+    const resultsEl = document.getElementById('screener-results');
+    resultsEl.innerHTML = '<div class="empty-state">掃描全市場中...</div>';
+    const results = await this.run(filters);
+
+    if (!results.length) {
+      resultsEl.innerHTML = '<div class="empty-state">沒有符合條件的股票，試著放寬篩選條件</div>';
+      return;
+    }
+
+    const fmtShares = n => n == null ? '—' : `${n>=0?'+':''}${(n/1000).toFixed(0)}張`;
+    resultsEl.innerHTML = `
+      <div class="form-note" style="margin-bottom:8px">找到 ${results.length} 檔符合條件，顯示前50檔（依三大法人買超排序）</div>
+      ${results.slice(0, 50).map(r => `
+        <div class="screener-row" onclick="Screener.viewStock('${r.code}')">
+          <div class="screener-row-main">
+            <span class="screener-code">${r.code}</span>
+            <span class="screener-name">${r.name}</span>
+            <span class="screener-sector">${r.sector}</span>
+          </div>
+          <div class="screener-row-stats">
+            <span class="${r.chgPct>=0?'up-color':'dn-color'}">${r.close} (${r.chgPct>=0?'+':''}${r.chgPct}%)</span>
+            <span>PE ${r.pe ?? '—'}</span>
+            <span>殖利率 ${r.yield ?? '—'}%</span>
+            <span style="color:${(r.foreignFlow??0)>=0?'#E24B4A':'#1D9E75'}">外資${fmtShares(r.foreignFlow)}</span>
+          </div>
+        </div>`).join('')}
+    `;
+  },
+
+  viewStock(code) {
+    closeModal('screener-modal');
+    openWatchlistModal();
+    setTimeout(() => {
+      const codeInput = document.getElementById('w-code');
+      if (codeInput) { codeInput.value = code; codeInput.dispatchEvent(new Event('input')); codeInput.focus(); }
+    }, 50);
+  },
+};
+
 const RECOMMEND = {
   CANDIDATES: [
     // ── 台股 ──
