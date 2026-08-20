@@ -136,6 +136,127 @@ const DATA = {
     return /^[A-Za-z]{1,5}$/.test(code);
   },
 
+  // ── 本益比/殖利率/股價淨值比（只有上市股票有，上櫃TPEX端點目前被擋）──
+  peRatioCache: null, // { date, byCode: {code: {pe, yield, pb}} }
+  async fetchPERatios() {
+    const todayStr = this._localDateStr(new Date());
+    if (this.peRatioCache?.date === todayStr) return this.peRatioCache.byCode;
+    try {
+      const url = 'https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL';
+      const res = await this._fetch(url);
+      const json = await res.json();
+      const byCode = {};
+      (json || []).forEach(r => {
+        byCode[r.Code] = {
+          pe: parseFloat(r.PEratio) || null,
+          yield: parseFloat(r.DividendYield) || null,
+          pb: parseFloat(r.PBratio) || null,
+        };
+      });
+      this.peRatioCache = { date: todayStr, byCode };
+      return byCode;
+    } catch(e) { return this.peRatioCache?.byCode || {}; }
+  },
+
+  // ── 今日產業類股漲跌排行（TWSE官方36種產業指數，只有今日快照）──
+  sectorRankingCache: null, // { date, list: [{name, close, chgPct}] }
+  _sectorHistKey() { return 'stock-agent-sector-hist'; },
+  async fetchSectorRanking() {
+    const todayStr = this._localDateStr(new Date());
+    if (this.sectorRankingCache?.date === todayStr) return this.sectorRankingCache.list;
+    try {
+      const url = 'https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX';
+      const res = await this._fetch(url);
+      const json = await res.json();
+      const list = (json || [])
+        .filter(r => r.指數?.includes('類指數') && !r.指數.includes('槓桿') && !r.指數.includes('反向'))
+        .map(r => ({ name: r.指數.replace('類指數',''), close: parseFloat(r.收盤指數), chgPct: parseFloat(r.漲跌百分比) || 0 }))
+        .filter(r => !isNaN(r.chgPct))
+        .sort((a,b) => b.chgPct - a.chgPct);
+      this.sectorRankingCache = { date: todayStr, list };
+      // ★ 自我累積歷史（TWSE只給今日快照，沒有歷史API，只能像K線一樣自己每天記錄，
+      // 累積幾週後才能畫出真正的產業輪動走勢圖，是漸進式建立的功能）
+      this._trackSectorHistory(todayStr, list);
+      return list;
+    } catch(e) { return this.sectorRankingCache?.list || []; }
+  },
+  _trackSectorHistory(dateStr, list) {
+    try {
+      const hist = JSON.parse(localStorage.getItem(this._sectorHistKey()) || '{}');
+      const snapshot = {};
+      list.forEach(s => { snapshot[s.name] = s.close; });
+      hist[dateStr] = snapshot;
+      const dates = Object.keys(hist).sort();
+      if (dates.length > 90) dates.slice(0, dates.length - 90).forEach(d => delete hist[d]); // 最多留90天
+      localStorage.setItem(this._sectorHistKey(), JSON.stringify(hist));
+    } catch(e) {}
+  },
+  getSectorHistory() {
+    try {
+      const hist = JSON.parse(localStorage.getItem(this._sectorHistKey()) || '{}');
+      return hist;
+    } catch(e) { return {}; }
+  },
+
+  // ── 三大法人買賣超（外資/投信/自營商，只有台股有）────
+  institutionalCache: null, // { date, byCode: {code: {foreign, trust, dealer, total}} }
+  _instHistKey() { return 'stock-agent-inst-hist'; }, // 自我累積的歷史（供之後算連續買賣超天數用）
+
+  async fetchInstitutional() {
+    const todayStr = this._localDateStr(new Date());
+    if (this.institutionalCache?.date === todayStr) return this.institutionalCache;
+
+    // 找最近一個有交易的日期（今天是假日/還沒收盤時，抓最近一個交易日的資料）
+    for (let i = 0; i < 5; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const weekday = d.getDay();
+      if (weekday === 0 || weekday === 6) continue;
+      const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+      try {
+        const url = `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALL&response=json`;
+        const res = await this._fetch(url);
+        const json = await res.json();
+        if (!json?.data?.length) continue; // 這天沒資料（假日/尚未公布），試前一天
+
+        const byCode = {};
+        json.data.forEach(row => {
+          const code = row[0]?.trim();
+          if (!code) return;
+          const foreign = parseInt((row[2] || '0').replace(/,/g, '')) || 0; // 外資買賣超（不含自營商）
+          const trust   = parseInt((row[9] || '0').replace(/,/g, '')) || 0; // 投信買賣超
+          const dealer  = parseInt((row[11] || '0').replace(/,/g, '')) || 0; // 自營商買賣超（合計）
+          const total   = parseInt((row[18] || '0').replace(/,/g, '')) || 0; // 三大法人合計
+          byCode[code] = { foreign, trust, dealer, total };
+        });
+
+        this.institutionalCache = { date: this._localDateStr(d), byCode };
+        this._trackInstHistory(this._localDateStr(d), byCode);
+        return this.institutionalCache;
+      } catch(e) { /* 這天失敗，試前一天 */ }
+    }
+    return null;
+  },
+
+  // 自我累積每日三大法人買賣超歷史（存最近14天，供算「連續買超天數」等用）
+  _trackInstHistory(dateStr, byCode) {
+    try {
+      const hist = JSON.parse(localStorage.getItem(this._instHistKey()) || '{}');
+      hist[dateStr] = byCode;
+      const dates = Object.keys(hist).sort();
+      if (dates.length > 14) dates.slice(0, dates.length - 14).forEach(d => delete hist[d]);
+      localStorage.setItem(this._instHistKey(), JSON.stringify(hist));
+    } catch(e) {}
+  },
+
+  getInstHistory(code) {
+    try {
+      const hist = JSON.parse(localStorage.getItem(this._instHistKey()) || '{}');
+      const dates = Object.keys(hist).sort();
+      return dates.map(d => ({ date: d, ...(hist[d][code] || { foreign:0, trust:0, dealer:0, total:0 }) }));
+    } catch(e) { return []; }
+  },
+
   // ── CORS Proxy ────────────────────────────────────────
   proxies: [
     'https://flat-resonance-0773.s51511830-74e.workers.dev/?url=',

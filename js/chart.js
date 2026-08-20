@@ -44,8 +44,8 @@ const CHART = {
     });
   },
 
-  // ── 今日統計小字：成交量、最高、最低、勾選的均線（跟總覽卡片同一套邏輯）──
-  _renderTodayStats(symbol) {
+  // ── 今日統計小字：成交量、最高、最低、勾選的均線、本益比（跟總覽卡片同一套邏輯）──
+  async _renderTodayStats(symbol) {
     const el = document.getElementById('chart-today-stats');
     if (!el || !this.currentData?.length) return;
     const last = this.currentData[this.currentData.length - 1];
@@ -61,6 +61,14 @@ const CHART = {
     const volDisplay = !last.v ? '彙總中' : (last.v >= 10000 ? (last.v/10000).toFixed(1)+'萬' : last.v.toLocaleString());
     const parts = [`量 ${volDisplay}`, `高 ${last.h.toFixed(isUSStock?2:1)}`, `低 ${last.l.toFixed(isUSStock?2:1)}`, ...maParts];
     el.innerHTML = parts.map(p => `<span class="stat-item">${p}</span>`).join('');
+
+    if (!isUSStock && symbol && !symbol.startsWith('^')) {
+      try {
+        const peData = await DATA.fetchPERatios();
+        const pe = peData[symbol];
+        if (pe?.pe != null) el.innerHTML += `<span class="stat-item">PE ${pe.pe.toFixed(1)}</span>`;
+      } catch(e) {}
+    }
   },
   // Zoom/pan state
   zoomStart: 0,    // 顯示起始 index（0 = 最舊）
@@ -291,6 +299,23 @@ const CHART = {
         // SOX 10日變動% 轉換成類似量級的斜率修正，加權15%混入
         const soxSlopeEquiv = (soxChgPct / 100 * lastClose) / 10;
         slope = slope * 0.85 + soxSlopeEquiv * 0.15;
+      }
+    }
+
+    // ★ 三大法人買賣超修正：外資+投信近期若連續同方向買賣超，對斜率做小幅修正（權重10%）。
+    // 只用台股（美股/指數沒有這種資料），且只在自己有累積足夠天數的歷史時才套用，
+    // 避免只有一兩天資料就過度反應雜訊。
+    if (symbol && typeof DATA !== 'undefined' && !symbol.startsWith('^') && !DATA.isUSCode(symbol)) {
+      const instHist = DATA.getInstHistory(symbol);
+      if (instHist.length >= 3) {
+        // 外資+投信合計買賣超股數，換算成「連續天數加權」的動能分數
+        const recent = instHist.slice(-5); // 最近最多5天
+        const netShares = recent.reduce((sum, d) => sum + d.foreign + d.trust, 0);
+        // 用近期平均成交量當分母，換算成相對強度百分比（避免不同股票股本大小差異造成誤判）
+        const avgVol = data.slice(-20).reduce((s,d) => s + (d.v || 0), 0) / Math.min(20, data.length) || 1;
+        const instStrength = Math.max(-1, Math.min(1, netShares / (avgVol * recent.length) )); // 夾在-1~1之間
+        const instSlopeEquiv = instStrength * lastClose * 0.01; // 轉換成價格量級的斜率修正
+        slope = slope * 0.9 + instSlopeEquiv * 0.1;
       }
     }
 

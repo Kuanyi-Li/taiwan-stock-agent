@@ -204,16 +204,12 @@ const GOALS = {
     const portfolio = APP.portfolio;
     if (portfolio.length < 2) { el.style.display = 'none'; return; }
 
-    // 從 RECOMMEND.CANDIDATES 找產業別，找不到歸類「其他」
-    const sectorMap = {};
-    (typeof RECOMMEND !== 'undefined' ? RECOMMEND.CANDIDATES : []).forEach(c => { sectorMap[c.code] = c.sector; });
-
     const totalVal = portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
     if (!totalVal) { el.style.display = 'none'; return; }
 
     const bySector = {};
     portfolio.forEach(s => {
-      const sector = sectorMap[s.code] || '其他';
+      const sector = getStockSector(s.code);
       const val = (s.price ?? s.cost) * s.shares;
       bySector[sector] = (bySector[sector] || 0) + val;
     });
@@ -916,6 +912,16 @@ const Performance = {
         <div class="perf-card-title">🤖 AI循環階段（基建 vs 應用端輪動）</div>
         <div class="form-note" style="margin-bottom:10px">⚠️ 用股價相對強度動能推論的代理指標，非產業基本面分析，僅供留意訊號參考，不構成投資建議。</div>
         <div id="ai-cycle-body"><div class="empty-state">計算中...</div></div>
+      </div>
+      <div class="perf-card" style="margin-top:14px">
+        <div class="perf-card-title">📊 今日台股類股漲跌排行</div>
+        <div class="form-note" style="margin-bottom:10px">TWSE官方36種產業分類，只有今日快照，無歷史走勢。</div>
+        <div id="sector-ranking-body"><div class="empty-state">載入中...</div></div>
+      </div>
+      <div class="perf-card" style="margin-top:14px">
+        <div class="perf-card-title">🏦 持股三大法人買賣超（今日）</div>
+        <div class="form-note" style="margin-bottom:10px">外資、投信、自營商買賣超股數，正值＝買超、負值＝賣超。</div>
+        <div id="inst-flow-body"><div class="empty-state">載入中...</div></div>
       </div>`;
 
     this._drawNetWorthChart();
@@ -926,6 +932,58 @@ const Performance = {
     this._drawMonthlyPnlChart();
     this._renderStockRanking();
     this._renderAICycle();
+    this._renderSectorRanking();
+    this._renderInstFlow();
+  },
+
+  async _renderSectorRanking() {
+    const el = document.getElementById('sector-ranking-body');
+    if (!el) return;
+    const list = await DATA.fetchSectorRanking();
+    if (!list.length) { el.innerHTML = '<div class="empty-state">暫無資料</div>'; return; }
+    const maxAbs = Math.max(...list.map(s => Math.abs(s.chgPct)), 1);
+    el.innerHTML = list.map(s => {
+      const color = s.chgPct >= 0 ? '#E24B4A' : '#1D9E75';
+      const pct = Math.abs(s.chgPct) / maxAbs * 100;
+      return `
+        <div class="perf-sector-row" style="margin-bottom:5px">
+          <span class="perf-sector-name" style="width:100px">${s.name}</span>
+          <div class="perf-sector-track"><div class="perf-sector-fill" style="width:${pct}%;background:${color}"></div></div>
+          <span class="perf-sector-pct" style="width:60px;color:${color}">${s.chgPct>=0?'+':''}${s.chgPct.toFixed(2)}%</span>
+        </div>`;
+    }).join('');
+  },
+
+  async _renderInstFlow() {
+    const el = document.getElementById('inst-flow-body');
+    if (!el) return;
+    const portfolio = APP._twPortfolio;
+    if (!portfolio.length) { el.innerHTML = '<div class="empty-state">尚無台股持股</div>'; return; }
+    const inst = await DATA.fetchInstitutional();
+    if (!inst) { el.innerHTML = '<div class="empty-state">暫無資料</div>'; return; }
+    const rows = portfolio.map(s => {
+      const d = inst.byCode[s.code];
+      if (!d) return null;
+      return { code: s.code, name: s.name, ...d };
+    }).filter(Boolean).sort((a,b) => b.total - a.total);
+    if (!rows.length) { el.innerHTML = '<div class="empty-state">暫無資料（可能還沒收盤公布）</div>'; return; }
+    const fmtShares = n => {
+      const abs = Math.abs(n);
+      const str = abs >= 10000 ? (abs/1000).toFixed(0)+'張' : abs.toLocaleString()+'股';
+      return (n>=0?'+':'-') + str;
+    };
+    el.innerHTML = `
+      <div style="font-size:10px;color:var(--text-3);margin-bottom:8px">資料日期：${inst.date}</div>
+      ${rows.map(r => `
+        <div class="perf-trade-item">
+          <span>${r.code} ${r.name}</span>
+          <span style="display:flex;gap:10px;font-size:11px">
+            <span style="color:var(--text-2)">外資 <b style="color:${r.foreign>=0?'#E24B4A':'#1D9E75'}">${fmtShares(r.foreign)}</b></span>
+            <span style="color:var(--text-2)">投信 <b style="color:${r.trust>=0?'#E24B4A':'#1D9E75'}">${fmtShares(r.trust)}</b></span>
+            <span style="color:${r.total>=0?'#E24B4A':'#1D9E75'};font-weight:700">合計 ${fmtShares(r.total)}</span>
+          </span>
+        </div>`).join('')}
+    `;
   },
 
   async _renderAICycle() {
@@ -1213,12 +1271,10 @@ const Performance = {
     if (!el) return;
     const portfolio = APP.portfolio;
     if (!portfolio.length) { el.innerHTML = '<div class="empty-state" style="padding:10px 0">尚無持股</div>'; return; }
-    const sectorMap = {};
-    (typeof RECOMMEND !== 'undefined' ? RECOMMEND.CANDIDATES : []).forEach(c => { sectorMap[c.code] = c.sector; });
     const totalVal = portfolio.reduce((s,x)=>s+(x.price??x.cost)*x.shares,0) || 1;
     const bySector = {};
     portfolio.forEach(s => {
-      const sector = sectorMap[s.code] || '其他';
+      const sector = getStockSector(s.code);
       bySector[sector] = (bySector[sector]||0) + (s.price??s.cost)*s.shares;
     });
     const sorted = Object.entries(bySector).map(([sector,val])=>({sector,pct:val/totalVal*100})).sort((a,b)=>b.pct-a.pct);
@@ -1472,9 +1528,9 @@ const Dashboard = {
         } catch(e) { /* 靜默失敗，quickEstimate 會fallback */ }
       }
 
-      // ★ 今日統計小字：成交量、最高、最低、勾選的均線
+      // ★ 今日統計小字：成交量、最高、最低、勾選的均線、本益比
       if (!compact && data) {
-        this._renderCardStats(id, data, isUSStock);
+        this._renderCardStats(id, data, isUSStock, c.code);
       }
 
       let prediction = null;
@@ -1786,7 +1842,7 @@ const Dashboard = {
   },
 
   // ── 今日統計小字（成交量、最高、最低、勾選的均線）──────
-  _renderCardStats(id, data, isUSStock) {
+  async _renderCardStats(id, data, isUSStock, code) {
     const el = document.getElementById(`dash-stats-${id}`);
     if (!el || !data?.length) return;
     const last = data[data.length - 1];
@@ -1809,6 +1865,18 @@ const Dashboard = {
       ...maParts,
     ];
     el.innerHTML = parts.map(p => `<span class="dash-stat-item">${p}</span>`).join('');
+
+    // ★ 本益比等基本面數字（只有台股上市股票有，非同步補上，不擋主要渲染）
+    if (!isUSStock && code && !code.startsWith('^')) {
+      try {
+        const peData = await DATA.fetchPERatios();
+        const pe = peData[code];
+        if (pe?.pe != null) {
+          const peSpan = `<span class="dash-stat-item">PE ${pe.pe.toFixed(1)}</span>`;
+          el.innerHTML += peSpan;
+        }
+      } catch(e) { /* 靜默失敗，不影響其他資訊顯示 */ }
+    }
   },
 
   // ── 卡片排序（依市場分開儲存）──────────────────────
@@ -2443,6 +2511,46 @@ const SYNC = {
 };
 
 
+// ── 台股細分產業分類表（比 RECOMMEND.CANDIDATES 更細，專供產業集中度分析用）──
+// 涵蓋常見台股，會持續視需要擴充；找不到的股票歸類「其他」
+const SECTOR_MAP = {
+  // 半導體上游（設計/製造）
+  '2330':'晶圓代工', '2303':'晶圓代工', '5347':'晶圓代工', '3711':'封測',
+  '2454':'IC設計', '3034':'IC設計', '2379':'IC設計', '6415':'IC設計', '3443':'IC設計', '2449':'封測', '8299':'IC設計',
+  '2408':'記憶體', '3529':'記憶體', '2337':'記憶體',
+  '2481':'功率半導體', '2436':'功率半導體', '8028':'功率半導體',
+  // 被動元件
+  '2327':'被動元件', '2492':'被動元件', '2375':'被動元件', '3027':'被動元件', '2493':'被動元件',
+  // PCB/載板
+  '2313':'PCB', '3037':'PCB', '2383':'PCB', '6274':'PCB',
+  // 連接器/電源
+  '6278':'連接器', '2308':'電源供應/電子零組件', '2404':'連接器',
+  // 面板/光電
+  '2409':'面板', '3481':'面板', '2354':'光電',
+  // 網通/通信設備
+  '2345':'網通設備', '3596':'網通設備',
+  // AI伺服器/組裝
+  '2382':'AI伺服器', '2317':'AI伺服器', '6669':'AI伺服器', '2356':'AI伺服器',
+  // 金融
+  '2882':'金融保險', '2881':'金融保險', '2891':'金融保險', '2886':'金融保險', '2884':'金融保險', '2891':'金融保險',
+  // 電信
+  '2412':'電信', '3045':'電信', '4904':'電信',
+  // ETF
+  '0050':'ETF', '0056':'ETF', '00878':'ETF', '006208':'ETF', '00919':'ETF', '00929':'ETF',
+  // 傳產/其他
+  '1301':'塑化', '1303':'塑化', '2002':'鋼鐵', '1216':'食品',
+  // 美股
+  'NVDA':'半導體(美股)', 'AMD':'半導體(美股)', 'ASML':'半導體(美股)', 'TSM':'半導體(美股)',
+  'AAPL':'科技(美股)', 'MSFT':'科技(美股)', 'GOOGL':'科技(美股)', 'META':'科技(美股)', 'AMZN':'電商雲端(美股)',
+  'TSLA':'電動車(美股)', 'SPY':'ETF(美股)', 'QQQ':'ETF(美股)',
+};
+
+function getStockSector(code) {
+  if (SECTOR_MAP[code]) return SECTOR_MAP[code];
+  const fromCandidates = RECOMMEND?.CANDIDATES?.find(c => c.code === code)?.sector;
+  return fromCandidates || '其他';
+}
+
 const RECOMMEND = {
   CANDIDATES: [
     // ── 台股 ──
@@ -2801,6 +2909,12 @@ const APP = {
     setTimeout(() => this._renderExDiv(), 2000);
     // 總覽頁迷你K線定期重繪（跟報價文字分開頻率，避免每8秒都重算預測線耗效能）
     setInterval(() => Dashboard.refreshMiniCharts(), 60000);
+    // 三大法人買賣超（每日資料，開網站時抓一次，之後每小時檢查一次是否有新資料）
+    setTimeout(() => DATA.fetchInstitutional(), 4000);
+    setInterval(() => DATA.fetchInstitutional(), 3600000);
+    // 產業類股排行（同時累積歷史，供未來輪動走勢圖用）
+    setTimeout(() => DATA.fetchSectorRanking(), 5000);
+    setInterval(() => DATA.fetchSectorRanking(), 3600000);
 
     // ★ 核心修正：init 完成後 12 秒才解鎖自動上傳
     // 確保 refreshPrices、renderAll 等所有初始化動作都不會觸發上傳
