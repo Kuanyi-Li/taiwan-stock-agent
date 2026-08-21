@@ -254,6 +254,12 @@ body {
 .exdiv-item { display: flex; justify-content: space-between; align-items: center; font-size: 11px; padding: 4px 7px; background: var(--bg-2); border-radius: 4px; }
 .exdiv-code { font-family: var(--font-mono); font-weight: 700; }
 .exdiv-date { color: var(--text-1); }
+.macro-event-row { display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 4px 7px; background: var(--bg-2); border-radius: 4px; }
+.macro-event-row.urgent { background: rgba(226,75,74,0.12); border: 1px solid rgba(226,75,74,0.3); }
+.macro-event-icon { flex-shrink: 0; }
+.macro-event-label { color: var(--text-1); flex: 1; }
+.macro-event-days { color: var(--text-2); font-family: var(--font-mono); font-weight: 600; }
+.macro-event-row.urgent .macro-event-days { color: #E24B4A; }
 .s-label { font-size: 10px; color: var(--text-1); margin-bottom: 3px; }
 .s-value { font-size: 15px; font-weight: 600; font-family: var(--font-mono); }
 .s-value.neutral { color: var(--text-1); }
