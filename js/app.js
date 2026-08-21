@@ -3991,6 +3991,13 @@ const APP = {
     this.activeIdx = idx;
     this._source = source;
 
+    // ★ 修正：歷史相似情境比對面板如果保持展開狀態切換股票，不會自動重新計算，
+    // 會殘留上一支股票的舊數字誤導使用者。切換股票時強制收合+清空，逼使用者重新點開才會看到新資料。
+    const analogBody = document.getElementById('analog-body');
+    const analogHint = document.getElementById('analog-toggle-hint');
+    if (analogBody) { analogBody.style.display = 'none'; analogBody.innerHTML = ''; }
+    if (analogHint) analogHint.textContent = '點擊展開';
+
     const s = source === 'portfolio' ? this.portfolio[idx] : this.watchlist[idx];
     if (s) {
       const price = s.price ?? 0;
