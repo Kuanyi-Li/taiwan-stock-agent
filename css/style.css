@@ -103,6 +103,7 @@ body {
 .cal-event.buy { background: rgba(226,75,74,0.15); color: #E24B4A; }
 .cal-event.sell { background: rgba(29,158,117,0.15); color: #1D9E75; }
 .cal-event.div { background: rgba(234,179,8,0.15); color: #eab308; }
+.cal-event.macro { background: rgba(139,92,246,0.15); color: #a78bfa; }
 .perf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 16px; }
 .perf-card { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px 18px; }
 .perf-card-title { font-size: 15px; font-weight: 700; color: var(--text-1); margin-bottom: 12px; letter-spacing: 0.02em; }
