@@ -130,6 +130,7 @@ body {
 .screener-code { font-family: var(--font-mono); font-weight: 700; font-size: 13px; }
 .screener-name { font-size: 13px; font-weight: 600; color: var(--text-1); }
 .screener-sector { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--bg-3); color: var(--text-3); margin-left: auto; }
+.screener-core-badge { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 4px; background: rgba(29,158,117,0.18); color: #1D9E75; border: 1px solid rgba(29,158,117,0.4); white-space: nowrap; }
 .screener-row-stats { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--text-2); }
 .screener-score { font-size: 12px; font-weight: 700; color: #fff; background: var(--green-l); padding: 1px 8px; border-radius: 10px; }
 .screener-breakdown { font-size: 10.5px; color: var(--text-3); margin-top: 4px; }
