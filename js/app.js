@@ -2780,6 +2780,7 @@ const Backtest = {
     { label: '近1年', days: 252 },
   ],
   LOOKBACK_BUFFER: 250, // 往前多抓的緩衝天數，讓MA240等長週期指標在回測起點就有效
+  COOLDOWN_DAYS: 7, // ★ 冷卻期：某股票賣出後N個交易日內不能重新買進，減少訊號巴來巴去的頻繁進出
 
   // 台美股手續費/稅制差異：美股無交易手續費、無證交稅（實際上美股券商可能有其他費用，
   // 但這裡先用最單純的假設，避免引入我們不確定的規則）；台股沿用現有的費率邏輯
@@ -2792,7 +2793,7 @@ const Backtest = {
     return { fee, tax };
   },
 
-  async run(rangeDays, mode, market) {
+  async run(rangeDays, mode, market, useCooldown = true) {
     // mode: 'long' | 'short'　market: 'TW' | 'US'
     const portfolio = market === 'US' ? APP._usPortfolio : APP._twPortfolio;
     if (!portfolio || !portfolio.length) return null;
@@ -2826,6 +2827,7 @@ const Backtest = {
     const trades = [];
     const equityCurve = [];
     const pendingOrders = {};
+    const lastSellIdx = {}; // 記錄每支股票最近一次賣出是第幾天，供冷卻期判斷用
 
     codes.forEach(c => { positions[c] = { shares: 0, avgCost: 0 }; });
 
@@ -2853,6 +2855,7 @@ const Backtest = {
             cash += net;
             trades.push({ code, name: perStock[code].name, action: 'sell', date: this._fmtDate(candles[i].t), price: openPrice, shares: pos.shares, pnl: net - pos.shares * pos.avgCost });
             positions[code] = { shares: 0, avgCost: 0 };
+            lastSellIdx[code] = i; // ★ 記錄賣出當天的索引，冷卻期從這天開始算
           }
         }
         delete pendingOrders[code];
@@ -2893,7 +2896,13 @@ const Backtest = {
         const supportBreak = ind.last.c < (ind.support || 0) * 0.98;
         const sig = SIGNAL.fromScore(score, gainPct, supportBreak, mode);
 
-        if (pos.shares === 0 && sig.tier >= 4) {
+        // ★ 冷卻期：剛賣出這支股票沒多久，就算訊號又轉強也先不要馬上買回去，
+        // 避免同一支股票短期內反覆進出（先前用「市場狀態修正」測試沒有明顯改善，
+        // 改成直接針對「買賣過於頻繁」這個症狀下手）
+        const daysSinceSell = lastSellIdx[code] != null ? i - lastSellIdx[code] : Infinity;
+        const inCooldown = useCooldown && daysSinceSell < this.COOLDOWN_DAYS;
+
+        if (pos.shares === 0 && sig.tier >= 4 && !inCooldown) {
           pendingOrders[code] = 'buy';
           pendingOrders[code + '_tier'] = sig.tier;
         } else if (pos.shares > 0 && sig.tier <= 2) {
@@ -2973,23 +2982,24 @@ const Backtest = {
     const rangeIdx = parseInt(document.querySelector('.bt-range-btn.active')?.dataset.idx ?? '1');
     const rangeDays = this.RANGE_OPTIONS[rangeIdx].days;
     const market = document.querySelector('.bt-market-btn.active')?.dataset.market ?? 'TW';
+    const useCooldown = document.getElementById('bt-use-cooldown')?.checked ?? true;
     const body = document.getElementById('bt-body');
     body.innerHTML = '<div class="empty-state">回測計算中，需要抓取每支持股的完整歷史資料，請稍候...</div>';
 
     // ★ 修正：兩個模式改成依序執行，不要用 Promise.all 並行——
     // 實測發現並行時，兩邊同時對同一批股票抓歷史資料，會互相干擾導致其中一個意外失敗
     // （共用的資料快取機制沒有處理好同時重複請求同一支股票的情況）
-    const longResult = await this.run(rangeDays, 'long', market);
-    const shortResult = await this.run(rangeDays, 'short', market);
+    const longResult = await this.run(rangeDays, 'long', market, useCooldown);
+    const shortResult = await this.run(rangeDays, 'short', market, useCooldown);
 
     if (!longResult && !shortResult) {
       body.innerHTML = `<div class="empty-state">資料不足，無法回測（可能持股歷史資料不夠長，或目前沒有${market==='US'?'美股':'台股'}持股）</div>`;
       return;
     }
-    this._renderResults(longResult, shortResult, market);
+    this._renderResults(longResult, shortResult, market, useCooldown);
   },
 
-  _renderResults(longResult, shortResult, market) {
+  _renderResults(longResult, shortResult, market, useCooldown) {
     const body = document.getElementById('bt-body');
     const isUS = market === 'US';
     const cur = isUS ? '$' : 'NT$';
@@ -3013,7 +3023,7 @@ const Backtest = {
     };
 
     body.innerHTML = `
-      <div class="form-note" style="margin-bottom:14px">⚠️ 這是用你目前${isUS?'美股':'台股'}持股的歷史資料回測「現有買賣訊號邏輯」，不是另外訓練的模型。訊號在收盤後才算得出來，成交一律用「隔天開盤價」，避免用到不可能拿到的價格。這份資料也是調整訊號門檻時參考過的同一批歷史資料，好看的結果不能排除「湊巧貼合過去」，不保證對未來同樣有效。${isUS ? '美股假設無交易手續費、無交易稅（實際費用依券商而定，這裡是簡化假設）。' : '手續費、證交稅已計入。'}</div>
+      <div class="form-note" style="margin-bottom:14px">⚠️ 這是用你目前${isUS?'美股':'台股'}持股的歷史資料回測「現有買賣訊號邏輯」，不是另外訓練的模型。訊號在收盤後才算得出來，成交一律用「隔天開盤價」，避免用到不可能拿到的價格。這份資料也是調整訊號門檻時參考過的同一批歷史資料，好看的結果不能排除「湊巧貼合過去」，不保證對未來同樣有效。${isUS ? '美股假設無交易手續費、無交易稅（實際費用依券商而定，這裡是簡化假設）。' : '手續費、證交稅已計入。'}　${useCooldown ? `✅ 已套用${Backtest.COOLDOWN_DAYS}天冷卻期（賣出後短期內不重新買進）。` : '⬜ 未套用冷卻期（原始訊號邏輯）。'}</div>
       ${renderOne(longResult, '長線模式')}
       ${renderOne(shortResult, '短線模式')}
     `;
@@ -3426,6 +3436,8 @@ const APP = {
     // 產業類股排行（同時累積歷史，供未來輪動走勢圖用）
     setTimeout(() => DATA.fetchSectorRanking(), 5000);
     setInterval(() => DATA.fetchSectorRanking(), 3600000);
+    // （市場狀態修正這個方向已用回測A/B測試過，沒有觀察到明顯改善，暫時不啟用，
+    // REGIME模組保留在analysis.js裡但不主動呼叫，之後有需要可以再重新評估）
 
     // ★ 核心修正：init 完成後 12 秒才解鎖自動上傳
     // 確保 refreshPrices、renderAll 等所有初始化動作都不會觸發上傳
