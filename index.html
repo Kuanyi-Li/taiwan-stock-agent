@@ -242,6 +242,13 @@
           ⚠️ 灰色區域為綜合近中期價格走勢、成交量、ADX趨勢強度、RSI動能、近期高低點位階統計外推的可能區間，<strong>非預測未來股價，僅供技術面參考</strong>，實際走勢受消息面、基本面等因素影響，請勿作為唯一下單依據。
         </div>
         <div class="predict-accuracy" id="predict-accuracy" style="display:none"></div>
+        <div class="analog-section" id="analog-section">
+          <div class="analog-header" onclick="HistoricalAnalogUI.toggle()">
+            <span>🔎 歷史相似情境比對</span>
+            <span class="analog-toggle-hint" id="analog-toggle-hint">點擊展開</span>
+          </div>
+          <div class="analog-body" id="analog-body" style="display:none"></div>
+        </div>
         <div class="vol-wrap"><canvas id="volChart"></canvas></div>
         <div class="ma-legend-hint">滾輪移動日期 / 拖曳平移</div>
       </div>
