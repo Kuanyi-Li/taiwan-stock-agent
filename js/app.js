@@ -2056,6 +2056,7 @@ const ORDER = {
     const scored = stocks.map(s => {
       let score = 0, hasAnalysis = false, reasons = [];
       const gainPct = (s.price - s.cost) / s.cost * 100;
+      const mode = (typeof APP.getStockMode === 'function') ? APP.getStockMode(s.code) : 'long';
 
       // ★ 用此股票自己的快取，不是 lastInd
       const cached = ANALYSIS._cache[s.code];
@@ -2080,6 +2081,13 @@ const ORDER = {
         else                    { score = 1;   reasons.push('損益正常範圍'); }
       }
 
+      // ★ 修正門檻不一致的問題：先用「跟個股訊號徽章完全同一套標準」（SIGNAL.fromScore）
+      // 判斷這支股票現在算不算「該買」，這樣資金分配頁跟個股頁的訊號徽章才不會互相矛盾
+      // （之前是各自訂門檻，同一支股票可能兩邊顯示不一樣的建議）。
+      const supportBreak = cachedInd ? cachedInd.last.c < (cachedInd.support || 0) * 0.98 : false;
+      const sigLevel = SIGNAL.fromScore(score, gainPct, supportBreak, mode);
+      const sigTier = sigLevel.tier;
+
       // VIX 調整
       const vixAdj = VIX.score || 0;
       if (vixAdj > 0) reasons.push(`VIX${VIX.label}利多`);
@@ -2102,17 +2110,21 @@ const ORDER = {
         if (confidenceMul < 0.8) reasons.push(`此股預測歷史準確度較低(${predAdj.sampleCount}筆)，已縮減建議部位`);
         else if (confidenceMul > 1.05) reasons.push(`此股預測歷史準確度高(${predAdj.sampleCount}筆)，適度加重權重`);
       }
+      // ★ 這裡的加權只影響「買多少、賣多少」，不影響「算不算該買該賣」——
+      // 算不算的判斷交給上面已經算好的 sigTier，維持跟個股訊號徽章一致
       score *= confidenceMul;
 
-      return { ...s, score, gainPct, hasAnalysis, reasons, confidenceMul, predSampleCount: predAdj.sampleCount };
+      return { ...s, score, sigTier, gainPct, hasAnalysis, reasons, confidenceMul, predSampleCount: predAdj.sampleCount };
     });
 
     const el = document.getElementById('portfolio-alloc-result');
     if (!el) return;
 
-    const toBuy    = scored.filter(s => s.score > 1.5).sort((a,b) => b.score - a.score);
-    const toWatch  = scored.filter(s => s.score >= -1 && s.score <= 1.5);
-    const toReduce = scored.filter(s => s.score < -1);
+    // ★ 修正：改用 sigTier（跟個股訊號徽章同一套標準）決定分類，不再用另外訂的 score>1.5 門檻，
+    // 疊加過準確度/損益調整的 score 只用來排序、決定金額分配比例，不影響分類本身
+    const toBuy    = scored.filter(s => s.sigTier >= 4).sort((a,b) => b.score - a.score);
+    const toWatch  = scored.filter(s => s.sigTier === 3);
+    const toReduce = scored.filter(s => s.sigTier <= 2);
     const totalScore = toBuy.reduce((a, s) => a + Math.max(0.1, s.score), 0);
 
     let html = '';

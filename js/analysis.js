@@ -620,11 +620,15 @@ const ANALYSIS = {
     const mode = (typeof APP !== 'undefined' && symbol) ? APP.getStockMode(symbol) : 'long';
     const isLong = mode === 'long';
 
-    // ★ 問題11: 用 SIGNAL.fromScore 確保左右側一致
+    // ★ 修正VIX重複計算的bug：之前這裡傳的是adjScore（已經加過一次VIX），
+    // 但SIGNAL.fromScore內部自己又會加一次同樣的VIX調整，等於VIX的實際影響力變成
+    // 設計上預期的兩倍，而且會導致訊號徽章(用fromScore內部算的)跟旁邊的信心文字
+    // (用這裡的adjScore算的)使用不同的有效VIX權重，兩者可能互相矛盾。
+    // 改成傳原始score，讓fromScore自己做唯一一次調整，這樣兩邊才會用同一個有效值。
     const stock = APP.getActiveStock();
     const gainPct = stock ? (ind.last.c - stock.cost) / stock.cost * 100 : 0;
     const supportBreak = ind.last.c < (ind.support || 0) * 0.98;
-    const sigLevel = SIGNAL.fromScore(adjScore, gainPct, supportBreak, mode);
+    const sigLevel = SIGNAL.fromScore(score, gainPct, supportBreak, mode);
 
     // action 直接用 SIGNAL level 的 label，確保左右一致
     let action, confidence, confClass;
