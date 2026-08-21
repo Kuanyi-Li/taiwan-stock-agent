@@ -2734,15 +2734,21 @@ const Screener = {
       return;
     }
 
+    // ★ 跟RECOMMEND（長期核心觀察清單）交叉比對：這裡回答的是「今天當下」的短期戰術訊號，
+    // RECOMMEND回答的是「體質好不好、適合長期核心持有」，兩者是不同問題，不是互相矛盾。
+    // 如果一支股票兩邊都出現，代表短期時機、長期體質都到位，特別標示出來讓你知道這個交集。
+    const recommendCodes = new Set((typeof RECOMMEND !== 'undefined' ? RECOMMEND.CANDIDATES : []).map(c => c.code));
+
     const fmtShares = n => n == null ? '—' : `${n>=0?'+':''}${(n/1000).toFixed(0)}張`;
     resultsEl.innerHTML = `
-      <div class="form-note" style="margin-bottom:8px">⚠️ 這是用批次快照資料算的簡化評分（法人買超+估值+殖利率+動能），不是嚴謹量化模型，僅供參考起點，請自行判斷。排除你已持有的股票，顯示前30檔。</div>
+      <div class="form-note" style="margin-bottom:8px">⚠️ 這是「今天當下」的短期戰術訊號（法人買超+估值+殖利率+動能+分散度），用批次快照資料算的簡化評分，不是嚴謹量化模型。跟「選股推薦」tab不一樣——那邊回答的是「體質好不好、適合長期核心持有」，這裡回答的是「今天時機好不好」，兩者是不同問題。排除你已持有的股票，顯示前30檔。</div>
       ${results.slice(0, 30).map(r => `
         <div class="screener-row" onclick="Screener.viewStock('${r.code}')">
           <div class="screener-row-main">
             <span class="screener-score">${r.score}分</span>
             <span class="screener-code">${r.code}</span>
             <span class="screener-name">${r.name}</span>
+            ${recommendCodes.has(r.code) ? '<span class="screener-core-badge" title="也在長期核心觀察清單裡，短期時機+長期體質都到位">✅ 核心清單</span>' : ''}
             <span class="screener-sector">${r.sector}</span>
           </div>
           <div class="screener-row-stats">
@@ -2782,6 +2788,7 @@ const Screener = {
     }
 
     const fmtShares = n => n == null ? '—' : `${n>=0?'+':''}${(n/1000).toFixed(0)}張`;
+    const recommendCodes = new Set((typeof RECOMMEND !== 'undefined' ? RECOMMEND.CANDIDATES : []).map(c => c.code));
     resultsEl.innerHTML = `
       <div class="form-note" style="margin-bottom:8px">找到 ${results.length} 檔符合條件，顯示前50檔（依三大法人買超排序）</div>
       ${results.slice(0, 50).map(r => `
@@ -2789,6 +2796,7 @@ const Screener = {
           <div class="screener-row-main">
             <span class="screener-code">${r.code}</span>
             <span class="screener-name">${r.name}</span>
+            ${recommendCodes.has(r.code) ? '<span class="screener-core-badge" title="也在長期核心觀察清單裡">✅ 核心清單</span>' : ''}
             <span class="screener-sector">${r.sector}</span>
           </div>
           <div class="screener-row-stats">
