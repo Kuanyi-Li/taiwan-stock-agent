@@ -159,6 +159,9 @@
           <button class="bt-range-btn perf-period-btn active" data-idx="1" onclick="Backtest._setRange(1)">近6個月</button>
           <button class="bt-range-btn perf-period-btn" data-idx="2" onclick="Backtest._setRange(2)">近1年</button>
         </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-bottom:10px">
+          <input type="checkbox" id="bt-use-cooldown" checked> 套用7天冷卻期（賣出後短期內不重新買進，減少頻繁進出被巴）
+        </label>
         <button class="btn-primary" style="width:100%" onclick="Backtest.runFromUI()">開始回測</button>
       </div>
       <div id="bt-body"><div class="empty-state">選擇市場、回測期間後按「開始回測」</div></div>
