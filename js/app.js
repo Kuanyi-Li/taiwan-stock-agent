@@ -3356,6 +3356,93 @@ const PriceAlert = {
 };
 
 // ── ExDividend module（除權息日期：台股用TWSE官方公開資料，美股用Yahoo歷史股利估算下次）──
+// ── MacroEvents module（重大總經事件：FOMC利率決策、CPI公布）──
+// ⚠️ 日期是官方公告的年度時程表（Fed/BLS每年會提前公布整年度時程），直接寫死比爬蟲穩定，
+// 這種資料變動很慢，一年更新一次即可（每年年底Fed/BLS會公布下一年度時程，屆時要記得更新）。
+// FOMC來源：federalreserve.gov/monetarypolicy/fomccalendars.htm（決策在會議第二天公布，2pm ET）
+// CPI來源：bls.gov/schedule/news_release/cpi.htm（8:30am ET公布）
+const MacroEvents = {
+  EVENTS_2026: [
+    // FOMC 利率決策會議（2026全年8次，決策在第二天公布）
+    { type: 'FOMC', date: '2026-01-28', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2026-03-18', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2026-04-29', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2026-06-17', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2026-07-29', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2026-09-16', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2026-10-28', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2026-12-09', label: 'FOMC利率決策' },
+    // 美國CPI公布（每月一次）
+    { type: 'CPI', date: '2026-01-13', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-02-13', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-03-11', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-04-10', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-05-12', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-06-10', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-07-14', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-08-12', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-09-11', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-10-14', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-11-10', label: '美國CPI公布' },
+    { type: 'CPI', date: '2026-12-10', label: '美國CPI公布' },
+    // 台灣央行理監事聯席會議（一年4次，官方於前一年12月公告，來源：cbc.gov.tw新聞稿114年12月18日發布）
+    { type: 'CBC', date: '2026-03-19', label: '台灣央行理監事會議' },
+    { type: 'CBC', date: '2026-06-18', label: '台灣央行理監事會議' },
+    { type: 'CBC', date: '2026-09-17', label: '台灣央行理監事會議' },
+    { type: 'CBC', date: '2026-12-17', label: '台灣央行理監事會議' },
+  ],
+  // 2027年時程Fed/BLS通常會在2026年秋天陸續公布，屆時要記得補上
+  EVENTS_2027: [
+    { type: 'FOMC', date: '2027-01-27', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2027-03-17', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2027-04-28', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2027-06-09', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2027-07-28', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2027-09-15', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2027-10-27', label: 'FOMC利率決策' },
+    { type: 'FOMC', date: '2027-12-08', label: 'FOMC利率決策' },
+  ],
+
+  _allEvents() { return [...this.EVENTS_2026, ...this.EVENTS_2027]; },
+
+  // 取得未來N天內的重大事件（依日期排序）
+  getUpcoming(withinDays = 14) {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    return this._allEvents()
+      .map(e => {
+        const d = new Date(e.date + 'T00:00:00');
+        const daysUntil = Math.round((d - today) / 86400000);
+        return { ...e, daysUntil };
+      })
+      .filter(e => e.daysUntil >= 0 && e.daysUntil <= withinDays)
+      .sort((a,b) => a.daysUntil - b.daysUntil);
+  },
+
+  // 判斷某支股票要不要標示「近期有重大事件、不確定性較高」
+  // 邏輯：美股/美股ETF對FOMC+CPI都敏感；台股主要受FOMC影響（外資資金流向），CPI影響較間接但仍相關
+  isRelevant(code, market) {
+    return true; // 目前FOMC/CPI是全市場性事件，台美股都相關，先不做個股層級的排除邏輯
+  },
+
+  render() {
+    const el = document.getElementById('macro-events-list');
+    if (!el) return;
+    const upcoming = this.getUpcoming(14);
+    if (!upcoming.length) { el.innerHTML = '<div class="empty-state" style="padding:6px 0;font-size:11px">近期無重大事件</div>'; return; }
+    el.innerHTML = upcoming.map(e => {
+      const urgent = e.daysUntil <= 3;
+      const icon = e.type === 'FOMC' ? '🏦' : e.type === 'CBC' ? '🇹🇼' : '📊';
+      return `
+        <div class="macro-event-row ${urgent?'urgent':''}">
+          <span class="macro-event-icon">${icon}</span>
+          <span class="macro-event-label">${e.label}</span>
+          <span class="macro-event-days">${e.daysUntil === 0 ? '今天' : e.daysUntil + '天後'}</span>
+        </div>`;
+    }).join('');
+  },
+};
+
 const ExDividend = {
   _cacheKey() { return 'twsa-exdiv-cache'; },
 
@@ -3480,6 +3567,8 @@ const APP = {
     setInterval(() => PredictTrack.evaluate(), 3600000);
     // 除權息行事曆（背景載入，有1天快取）
     setTimeout(() => this._renderExDiv(), 2000);
+    // 重大總經事件提醒（FOMC/CPI，日期是固定寫死的年度時程表，不用重複抓取，開網站時算一次即可）
+    setTimeout(() => MacroEvents.render(), 500);
     // 總覽頁迷你K線定期重繪（跟報價文字分開頻率，避免每8秒都重算預測線耗效能）
     setInterval(() => Dashboard.refreshMiniCharts(), 60000);
     // 三大法人買賣超（每日資料，開網站時抓一次，之後每小時檢查一次是否有新資料）
