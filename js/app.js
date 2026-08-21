@@ -2582,7 +2582,7 @@ const Screener = {
   // ── 評分邏輯（不用使用者設條件，程式自己判斷）─────────
   // 用三大法人買超強度、估值合理性、殖利率組成綜合分數，透明列出每項怎麼算的。
   // ⚠️ 這是用批次快照資料算的簡化評分，不是嚴謹的量化模型，僅供參考起點，不是投資建議。
-  _scoreStock(code, s, pe, flow) {
+  _scoreStock(code, s, pe, flow, sectorWeights) {
     // 流動性門檻：成交量太低（<100張/日）直接排除，不好買賣、風險高
     if (s.volume < 100000) return null;
 
@@ -2617,7 +2617,36 @@ const Screener = {
     let momentumPenalty = 0;
     if (s.chgPct > 7) { momentumPenalty = Math.min(15, (s.chgPct - 7) * 2); score -= momentumPenalty; breakdown.push(`今日漲幅過大 -${momentumPenalty.toFixed(0)}分`); }
 
+    // 5. 組合層面的分散度（最高±15分）：這支股票的產業，你現在的持股裡佔比越高，
+    // 加入後只會讓你更集中、不是分散風險，就算技術面分數再高也要打折扣；
+    // 反之如果是你完全沒碰過的產業，加分鼓勵分散配置。
+    // ⚠️ 這只反映「跟你現有持股的重疊程度」，不是這支股票本身好壞的判斷。
+    let diversifyScore = 0;
+    if (sectorWeights) {
+      const sector = (typeof getStockSector === 'function') ? getStockSector(code) : '其他';
+      const currentWeight = sectorWeights[sector] || 0; // 0~1之間
+      if (currentWeight >= 0.35) { diversifyScore = -15; breakdown.push(`你已重壓${sector}(${(currentWeight*100).toFixed(0)}%) -15分`); }
+      else if (currentWeight >= 0.20) { diversifyScore = -8; breakdown.push(`${sector}佔比偏高(${(currentWeight*100).toFixed(0)}%) -8分`); }
+      else if (currentWeight === 0) { diversifyScore = 12; breakdown.push(`分散到新產業(${sector}) +12分`); }
+      else if (currentWeight < 0.08) { diversifyScore = 6; breakdown.push(`${sector}佔比較低 +6分`); }
+      score += diversifyScore;
+    }
+
     return { score: Math.round(score), breakdown, netInst };
+  },
+
+  // 算出目前投組各產業的市值佔比（0~1），供分散度評分用
+  _calcSectorWeights() {
+    const portfolio = APP._twPortfolio;
+    const totalVal = portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
+    if (!totalVal) return {};
+    const weights = {};
+    portfolio.forEach(s => {
+      const sector = (typeof getStockSector === 'function') ? getStockSector(s.code) : '其他';
+      const val = (s.price ?? s.cost) * s.shares;
+      weights[sector] = (weights[sector] || 0) + val / totalVal;
+    });
+    return weights;
   },
 
   async autoRecommend() {
@@ -2627,6 +2656,7 @@ const Screener = {
       DATA.fetchInstitutional(),
     ]);
     const heldCodes = new Set(APP._twPortfolio.map(s => s.code));
+    const sectorWeights = this._calcSectorWeights();
 
     const results = [];
     for (const code of Object.keys(snapshot)) {
@@ -2634,7 +2664,7 @@ const Screener = {
       const s = snapshot[code];
       const pe = peData[code];
       const flow = inst?.byCode?.[code];
-      const scored = this._scoreStock(code, s, pe, flow);
+      const scored = this._scoreStock(code, s, pe, flow, sectorWeights);
       if (!scored || scored.score <= 0) continue;
       results.push({
         code, name: s.name, close: s.close, chgPct: s.chgPct,
