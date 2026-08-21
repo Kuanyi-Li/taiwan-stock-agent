@@ -2090,7 +2090,21 @@ const ORDER = {
       if (gainPct <= -8)   { score -= 0.5; }
       if (gainPct >= 25)   { score -= 0.3; reasons.push('建議部分了結'); }
 
-      return { ...s, score, gainPct, hasAnalysis, reasons };
+      // ★ 加碼建議跟這支股票的歷史預測準確度掛鉤：預測方向常猜錯的股票，
+      // 就算現在訊號分數高，也該打折扣，不要押太大部位；反之準確度高的可以加重一點。
+      // 複用 PredictTrack.getAdjustment() 現成的邏輯（本來就是拿來修正預測線信心強度的，
+      // 直接借來用在部位大小上，同一份資料、同一套判斷標準，不用另外設計）。
+      // ⚠️ 樣本不足（<5筆已驗證記錄）時，getAdjustment 本身就會回傳中性值(slopeMul=1)，
+      // 不會因為資料不夠就亂調整，這是安全的預設行為。
+      const predAdj = (typeof PredictTrack !== 'undefined') ? PredictTrack.getAdjustment(s.code) : { slopeMul: 1, sampleCount: 0 };
+      const confidenceMul = predAdj.slopeMul;
+      if (predAdj.sampleCount >= 5) {
+        if (confidenceMul < 0.8) reasons.push(`此股預測歷史準確度較低(${predAdj.sampleCount}筆)，已縮減建議部位`);
+        else if (confidenceMul > 1.05) reasons.push(`此股預測歷史準確度高(${predAdj.sampleCount}筆)，適度加重權重`);
+      }
+      score *= confidenceMul;
+
+      return { ...s, score, gainPct, hasAnalysis, reasons, confidenceMul, predSampleCount: predAdj.sampleCount };
     });
 
     const el = document.getElementById('portfolio-alloc-result');
