@@ -1,5 +1,174 @@
 // ── analysis.js  ── Technical analysis, AI signals, sell engine (v2)
 
+// ── REGIME module（市場狀態判斷）─────────────────────────
+// 用加權指數(或任何指數)的價格結構+趨勢強度，判斷目前大盤處於什麼狀態，
+// 拿這個狀態去修正買賣訊號的門檻——回測發現現有訊號系統在「盤整/下跌」時
+// 容易被巴來巴去（買進後很快又停損），這裡的用意是在這種格局下提高買進門檻，
+// 減少無謂的進出。
+// ⚠️ 這是用價格結構(MA排列)+趨勢強度(ADX)做的簡化分類，不是嚴謹的總經模型，
+// 只是一個「先別在爛格局裡頻繁進出」的機制性修正，不保證每次分類都準確。
+const REGIME = {
+  current: null, // { state, label, scoreAdj }，即時系統用；回測則逐日重新計算，不用這個快取
+
+  // states: strongBull / mildBull / choppy / mildBear / strongBear
+  STATES: {
+    strongBull: { label: '🟢 強勢多頭', scoreAdj: 0.5 },
+    mildBull:   { label: '🟡 溫和多頭', scoreAdj: 0 },
+    choppy:     { label: '⚪ 盤整',     scoreAdj: -1.5 },
+    mildBear:   { label: '🟠 溫和空頭', scoreAdj: -1.5 },
+    strongBear: { label: '🔴 強勢空頭', scoreAdj: -2.5 },
+  },
+
+  // ★ 核心分類邏輯：只吃K線陣列（跟ANALYSIS._calcIndicators一樣，只看「到目前為止」
+  // 的資料，不會偷看未來，可以安全用在回測的逐日模擬裡）
+  detect(candles) {
+    if (!candles || candles.length < 65) return { state: 'mildBull', ...this.STATES.mildBull };
+    const closes = candles.map(c => c.c);
+    const ma20 = this._sma(closes, 20);
+    const ma60 = this._sma(closes, 60);
+    const last = closes[closes.length - 1];
+    const { adx } = ANALYSIS._adx(candles, 14);
+
+    const priceAboveMA60 = last > ma60;
+    const ma20AboveMA60 = ma20 > ma60;
+    const strongTrend = adx >= 25; // ADX>=25 一般視為有明確趨勢，<20視為盤整
+
+    let state;
+    if (priceAboveMA60 && ma20AboveMA60) {
+      state = strongTrend ? 'strongBull' : 'mildBull';
+    } else if (!priceAboveMA60 && !ma20AboveMA60) {
+      state = strongTrend ? 'strongBear' : 'mildBear';
+    } else {
+      // 價格跟均線排列不一致（例如價格在MA60之上但MA20還在下方）→ 判定為盤整/轉換期
+      state = 'choppy';
+    }
+
+    return { state, ...this.STATES[state], adx: +adx.toFixed(1), priceVsMA60: +((last-ma60)/ma60*100).toFixed(1) };
+  },
+
+  _sma(arr, period) {
+    const slice = arr.slice(-period);
+    return slice.reduce((a,b) => a+b, 0) / slice.length;
+  },
+
+  // 即時系統用：抓大盤資料、算出目前狀態、存起來供 SIGNAL.fromScore 讀取
+  async refresh(indexCode = '^TWII') {
+    try {
+      const data = await DATA.fetchHistory(indexCode, '1d');
+      this.current = this.detect(data);
+    } catch(e) { /* 抓不到就維持舊值，不要讓其他功能連帶壞掉 */ }
+  },
+};
+
+// ── HistoricalAnalog module（歷史相似情境比對）──────────
+// 取代單一預測線的想法：與其用回歸線+信賴區間「猜」未來，不如找過去技術面組合
+// 跟現在很像的時間點，直接秀出「那幾次之後實際發生了什麼」——是真實發生過的數字，
+// 不是模型推算出來的。
+// ⚠️ 這仍然是統計參考，不是保證：歷史相似不代表未來會重演同樣的結果，樣本數也有限
+// （通常只有幾百個交易日可以掃，扣掉需要的緩衝期後，符合條件的歷史點可能不多）。
+const HistoricalAnalog = {
+  HORIZON_DAYS: 15, // 比對「之後N個交易日」發生了什麼，跟PredictTrack同一個天期方便對照
+  TOP_K: 8, // 取最相似的幾個歷史時間點
+  MIN_WARMUP: 65, // 跟REGIME一樣的邏輯，指標需要足夠歷史才穩定
+
+  // 從 _calcIndicators 的結果抽出一組精簡的特徵向量，用來做相似度比對
+  // （不用全部30幾種指標，太多維度反而會稀釋掉真正有意義的相似性）
+  _featureVector(ind) {
+    const posInRange = ind.resistance > ind.support
+      ? (ind.last.c - ind.support) / (ind.resistance - ind.support) * 100
+      : 50;
+    const priceVsMA20 = ind.ma20 ? (ind.last.c - ind.ma20) / ind.ma20 * 100 : 0;
+    return {
+      rsi: ind.rsi ?? 50,
+      adx: ind.adx ?? 0,
+      posInRange: Math.max(0, Math.min(100, posInRange)),
+      volRatio: Math.min(5, ind.volRatio ?? 1), // 量比極端值夾住，避免單一離群值主導距離計算
+      priceVsMA20: Math.max(-30, Math.min(30, priceVsMA20)), // 同樣夾住極端值
+    };
+  },
+
+  // 正規化後的歐式距離（每個維度的量級差很多，例如RSI是0-100、量比是0-5，
+  // 沒有正規化的話量級大的維度會主導整個距離計算）
+  _distance(a, b) {
+    const norm = { rsi: 100, adx: 60, posInRange: 100, volRatio: 5, priceVsMA20: 30 };
+    let sumSq = 0;
+    for (const key of Object.keys(a)) {
+      const diff = (a[key] - b[key]) / norm[key];
+      sumSq += diff * diff;
+    }
+    return Math.sqrt(sumSq);
+  },
+
+  // symbol的完整K線資料 → 找出最相似的歷史時間點 + 那之後實際發生了什麼
+  find(candles) {
+    if (!candles || candles.length < this.MIN_WARMUP + this.HORIZON_DAYS + 20) {
+      return { error: '歷史資料不足，無法比對' };
+    }
+    const n = candles.length;
+    const todayInd = ANALYSIS._calcIndicators(candles);
+    const todayVec = this._featureVector(todayInd);
+
+    const candidates = [];
+    // 掃描範圍：要留够緩衝期(MIN_WARMUP)讓指標穩定，也要留够HORIZON_DAYS天才能算出「之後發生了什麼」
+    // 最後20天不比對（太接近現在，樣本太新、缺乏足夠的「之後」可以觀察，也容易跟今天過度相似沒有代表性）
+    for (let j = this.MIN_WARMUP; j < n - this.HORIZON_DAYS - 20; j++) {
+      const slice = candles.slice(0, j + 1);
+      let ind;
+      try { ind = ANALYSIS._calcIndicators(slice); } catch(e) { continue; }
+      const vec = this._featureVector(ind);
+      const dist = this._distance(todayVec, vec);
+      candidates.push({ idx: j, dist, closeAtJ: candles[j].c, dateAtJ: candles[j].t });
+    }
+
+    candidates.sort((a, b) => a.dist - b.dist);
+    // ★ 修正：相鄰日期的指標高度相關，如果直接取距離最近的前K名，很容易選到一堆
+    // 「其實是同一個歷史事件」的連續日期（例如某一週股價走勢很像，這週7天都會很像），
+    // 會人為灌水樣本數、扭曲勝率跟平均報酬。改成貪婪選取時跳過離已選中日期太近的候選，
+    // 確保取到的是真正分散、獨立的歷史事件。
+    const MIN_GAP_DAYS = 10;
+    const top = [];
+    for (const c of candidates) {
+      if (top.length >= this.TOP_K) break;
+      const tooClose = top.some(t => Math.abs(t.idx - c.idx) < MIN_GAP_DAYS);
+      if (!tooClose) top.push(c);
+    }
+
+    const matches = top.map(c => {
+      const futureIdx = c.idx + this.HORIZON_DAYS;
+      const futureClose = candles[futureIdx].c;
+      const pctChange = (futureClose - c.closeAtJ) / c.closeAtJ * 100;
+      // 這段期間內的最大漲跌幅（不只看終點，也看過程中波動多大）
+      const pathSlice = candles.slice(c.idx, futureIdx + 1);
+      const pathHigh = Math.max(...pathSlice.map(d => d.h));
+      const pathLow  = Math.min(...pathSlice.map(d => d.l));
+      const maxUp = (pathHigh - c.closeAtJ) / c.closeAtJ * 100;
+      const maxDown = (pathLow - c.closeAtJ) / c.closeAtJ * 100;
+      return {
+        date: new Date(c.dateAtJ).toISOString().slice(0,10),
+        dist: +c.dist.toFixed(2),
+        pctChange: +pctChange.toFixed(2),
+        maxUp: +maxUp.toFixed(2),
+        maxDown: +maxDown.toFixed(2),
+      };
+    });
+
+    const avgReturn = matches.reduce((s,m) => s+m.pctChange, 0) / matches.length;
+    const upCount = matches.filter(m => m.pctChange > 0).length;
+    const winRate = upCount / matches.length * 100;
+    const sorted = [...matches].sort((a,b) => a.pctChange - b.pctChange);
+
+    return {
+      todayVec, matches,
+      avgReturn: +avgReturn.toFixed(2),
+      winRate: +winRate.toFixed(0),
+      bestCase: sorted[sorted.length-1]?.pctChange,
+      worstCase: sorted[0]?.pctChange,
+      sampleSize: matches.length,
+      totalCandidatesScanned: candidates.length,
+    };
+  },
+};
+
 const ANALYSIS = {
   lastData: [],
   lastSymbol: '',

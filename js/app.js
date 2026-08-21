@@ -2773,6 +2773,58 @@ const Screener = {
 // 完全排除「湊巧貼合這段歷史」的可能，不是保證對未來同樣有效。
 // ⚠️ VIX：無法取得逐日歷史VIX資料，回測中一律當作0（不調整），這跟即時系統會用
 // 當下VIX微調不同，是已知的簡化，不是誤差。
+// ── HistoricalAnalogUI（歷史相似情境比對的畫面呈現）─────
+const HistoricalAnalogUI = {
+  async toggle() {
+    const body = document.getElementById('analog-body');
+    const hint = document.getElementById('analog-toggle-hint');
+    const isOpen = body.style.display !== 'none';
+    if (isOpen) {
+      body.style.display = 'none';
+      hint.textContent = '點擊展開';
+      return;
+    }
+    body.style.display = 'block';
+    hint.textContent = '計算中...';
+    body.innerHTML = '<div class="empty-state">分析歷史相似情境中...</div>';
+
+    const symbol = APP.activeSymbol;
+    if (!symbol) { body.innerHTML = '<div class="empty-state">請先選擇股票</div>'; hint.textContent='點擊展開'; return; }
+
+    try {
+      const candles = CHART.currentData?.length ? CHART.currentData : await DATA.fetchHistory(symbol, '2y');
+      const result = HistoricalAnalog.find(candles);
+      hint.textContent = '點擊收合';
+      if (result.error) { body.innerHTML = `<div class="empty-state">${result.error}</div>`; return; }
+      this._render(body, result);
+    } catch(e) {
+      body.innerHTML = '<div class="empty-state">計算失敗，稍後重試</div>';
+      hint.textContent = '點擊展開';
+    }
+  },
+
+  _render(body, r) {
+    const color = r.avgReturn >= 0 ? '#E24B4A' : '#1D9E75';
+    body.innerHTML = `
+      <div class="form-note" style="margin-bottom:10px">⚠️ 找歷史上技術面組合（RSI/ADX/區間位置/量比/乖離）跟現在最相似的${r.sampleSize}個時間點，秀出「那之後${HistoricalAnalog.HORIZON_DAYS}個交易日實際發生了什麼」，是真實發生過的數字，不是模型推算的。樣本數少（從${r.totalCandidatesScanned ?? r.totalScanned}個候選日挑出來），歷史相似不代表未來會重演，僅供參考。</div>
+      <div class="analog-summary">
+        <div class="analog-summary-item"><span class="analog-summary-label">平均報酬</span><span class="analog-summary-num" style="color:${color}">${r.avgReturn>=0?'+':''}${r.avgReturn}%</span></div>
+        <div class="analog-summary-item"><span class="analog-summary-label">正報酬比例</span><span class="analog-summary-num">${r.winRate}%</span></div>
+        <div class="analog-summary-item"><span class="analog-summary-label">最佳情況</span><span class="analog-summary-num" style="color:#E24B4A">+${r.bestCase}%</span></div>
+        <div class="analog-summary-item"><span class="analog-summary-label">最差情況</span><span class="analog-summary-num" style="color:#1D9E75">${r.worstCase}%</span></div>
+      </div>
+      <div class="analog-list">
+        ${r.matches.map(m => `
+          <div class="analog-row">
+            <span class="analog-date">${m.date}</span>
+            <span class="analog-dist" title="相似度距離，越小越像">相似度 ${(100 - Math.min(100, m.dist*100)).toFixed(0)}%</span>
+            <span class="analog-pct" style="color:${m.pctChange>=0?'#E24B4A':'#1D9E75'}">${m.pctChange>=0?'+':''}${m.pctChange}%（${HistoricalAnalog.HORIZON_DAYS}日後）</span>
+          </div>`).join('')}
+      </div>
+    `;
+  },
+};
+
 const Backtest = {
   RANGE_OPTIONS: [
     { label: '近3個月', days: 63 },
