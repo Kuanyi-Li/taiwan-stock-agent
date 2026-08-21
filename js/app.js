@@ -718,7 +718,7 @@ const TradeCalendar = {
       const dayTrades = trades.filter(t => t.date === c.dateStr);
       const dayDivs = (this._divCache || []).filter(e => e.date === c.dateStr);
       const dayMacros = (typeof MacroEvents !== 'undefined' ? MacroEvents._allEvents() : []).filter(e => e.date === c.dateStr);
-      const macroIcon = t => t === 'FOMC' ? '🏦' : t === 'CBC' ? '🇹🇼' : '📊';
+      const macroIcon = t => t === 'FOMC' ? '🏦' : t === 'CBC' ? '🇹🇼' : t === 'NFP' ? '👷' : t === 'PCE' ? '💵' : '📊';
       const events = [
         ...dayTrades.map(t => `<div class="cal-event ${t.action}">${t.action==='buy'?'買':'賣'} ${t.code} ${t.shares}股</div>`),
         ...dayDivs.map(e => `<div class="cal-event div">💰 ${e.code}${e.estimated?'(估)':''}</div>`),
@@ -3393,6 +3393,19 @@ const MacroEvents = {
     { type: 'CBC', date: '2026-06-18', label: '台灣央行理監事會議' },
     { type: 'CBC', date: '2026-09-17', label: '台灣央行理監事會議' },
     { type: 'CBC', date: '2026-12-17', label: '台灣央行理監事會議' },
+    // 美國非農就業報告（NFP，每月公布，2026年因為之前政府停擺導致部分月份日期跟平常「每月第一個週五」不同，
+    // 已逐一查證官方公告；9月以後的日期是依照「每月第一個週五」規律推算，還沒有BLS正式公告確認，用(推估)標記）
+    { type: 'NFP', date: '2026-08-07', label: '美國非農就業報告' },
+    { type: 'NFP', date: '2026-09-04', label: '美國非農就業報告' },
+    { type: 'NFP', date: '2026-10-02', label: '美國非農就業報告(推估)' },
+    { type: 'NFP', date: '2026-11-06', label: '美國非農就業報告(推估)' },
+    { type: 'NFP', date: '2026-12-04', label: '美國非農就業報告(推估)' },
+    // PCE物價指數（Fed真正參考的通膨指標，比CPI更關鍵但知名度較低；2026年同樣受政府停擺影響過部分月份日期，
+    // 8月之後的日期用「每月最後一個週五」規律推算，還沒正式公告確認，用(推估)標記）
+    { type: 'PCE', date: '2026-08-26', label: '美國PCE物價指數' },
+    { type: 'PCE', date: '2026-09-25', label: '美國PCE物價指數(推估)' },
+    { type: 'PCE', date: '2026-10-30', label: '美國PCE物價指數(推估)' },
+    { type: 'PCE', date: '2026-11-27', label: '美國PCE物價指數(推估)' },
   ],
   // 2027年時程Fed/BLS通常會在2026年秋天陸續公布，屆時要記得補上
   EVENTS_2027: [
@@ -3435,7 +3448,7 @@ const MacroEvents = {
     if (!upcoming.length) { el.innerHTML = '<div class="empty-state" style="padding:6px 0;font-size:11px">近期無重大事件</div>'; return; }
     el.innerHTML = upcoming.map(e => {
       const urgent = e.daysUntil <= 3;
-      const icon = e.type === 'FOMC' ? '🏦' : e.type === 'CBC' ? '🇹🇼' : '📊';
+      const icon = e.type === 'FOMC' ? '🏦' : e.type === 'CBC' ? '🇹🇼' : e.type === 'NFP' ? '👷' : e.type === 'PCE' ? '💵' : '📊';
       return `
         <div class="macro-event-row ${urgent?'urgent':''}">
           <span class="macro-event-icon">${icon}</span>
