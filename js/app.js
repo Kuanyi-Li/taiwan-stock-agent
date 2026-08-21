@@ -717,9 +717,12 @@ const TradeCalendar = {
     grid.innerHTML = cells.map(c => {
       const dayTrades = trades.filter(t => t.date === c.dateStr);
       const dayDivs = (this._divCache || []).filter(e => e.date === c.dateStr);
+      const dayMacros = (typeof MacroEvents !== 'undefined' ? MacroEvents._allEvents() : []).filter(e => e.date === c.dateStr);
+      const macroIcon = t => t === 'FOMC' ? '🏦' : t === 'CBC' ? '🇹🇼' : '📊';
       const events = [
         ...dayTrades.map(t => `<div class="cal-event ${t.action}">${t.action==='buy'?'買':'賣'} ${t.code} ${t.shares}股</div>`),
         ...dayDivs.map(e => `<div class="cal-event div">💰 ${e.code}${e.estimated?'(估)':''}</div>`),
+        ...dayMacros.map(e => `<div class="cal-event macro">${macroIcon(e.type)} ${e.label}</div>`),
       ];
       const isToday = c.dateStr === todayStr;
       return `
