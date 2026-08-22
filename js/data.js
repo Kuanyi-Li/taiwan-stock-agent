@@ -244,7 +244,17 @@ const DATA = {
       const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
       try {
         const url = `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALL&response=json`;
-        const res = await this._fetch(url);
+        // ★ 修正：這個端點資料量特別大（全市場約15000筆），實測發現如果 _fetch() 的代理輪替
+        // 剛好從一個對這麼大檔案處理很慢/會失敗的代理開始試，光繞過去找到能用的那個
+        // 就可能花40秒以上，導致整個函式常常悄悄失敗回傳null（畫面顯示「暫無資料」）。
+        // 改成優先直接打已知可靠的主要代理，只有失敗才退回完整的輪替機制當備援。
+        let res;
+        try {
+          res = await fetch(this.proxies[0] + encodeURIComponent(url), { signal: AbortSignal.timeout(9000) });
+          if (!res.ok) throw new Error('primary proxy not ok');
+        } catch(primaryErr) {
+          res = await this._fetch(url); // 主要代理失敗才用完整輪替機制
+        }
         const json = await res.json();
         if (!json?.data?.length) continue; // 這天沒資料（假日/尚未公布），試前一天
 
