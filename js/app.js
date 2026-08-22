@@ -204,17 +204,10 @@ const GOALS = {
     const portfolio = APP.portfolio;
     if (portfolio.length < 2) { el.style.display = 'none'; return; }
 
-    const totalVal = portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
-    if (!totalVal) { el.style.display = 'none'; return; }
+    const bySectorPct = calcSectorWeights('ALL'); // 已經是0~1的比例了，不用再除一次
+    if (!Object.keys(bySectorPct).length) { el.style.display = 'none'; return; }
 
-    const bySector = {};
-    portfolio.forEach(s => {
-      const sector = getStockSector(s.code);
-      const val = (s.price ?? s.cost) * s.shares;
-      bySector[sector] = (bySector[sector] || 0) + val;
-    });
-
-    const sorted = Object.entries(bySector).map(([sector, val]) => ({ sector, pct: val / totalVal * 100 })).sort((a,b) => b.pct - a.pct);
+    const sorted = Object.entries(bySectorPct).map(([sector, weight]) => ({ sector, pct: weight * 100 })).sort((a,b) => b.pct - a.pct);
     const top = sorted[0];
     if (!top || top.pct < 35) { el.style.display = 'none'; return; }
 
@@ -1276,13 +1269,8 @@ const Performance = {
     if (!el) return;
     const portfolio = APP.portfolio;
     if (!portfolio.length) { el.innerHTML = '<div class="empty-state" style="padding:10px 0">尚無持股</div>'; return; }
-    const totalVal = portfolio.reduce((s,x)=>s+(x.price??x.cost)*x.shares,0) || 1;
-    const bySector = {};
-    portfolio.forEach(s => {
-      const sector = getStockSector(s.code);
-      bySector[sector] = (bySector[sector]||0) + (s.price??s.cost)*s.shares;
-    });
-    const sorted = Object.entries(bySector).map(([sector,val])=>({sector,pct:val/totalVal*100})).sort((a,b)=>b.pct-a.pct);
+    const bySectorPct = calcSectorWeights('ALL');
+    const sorted = Object.entries(bySectorPct).map(([sector,weight])=>({sector,pct:weight*100})).sort((a,b)=>b.pct-a.pct);
     const colors = ['#E24B4A','#eab308','#37adf0','#1D9E75','#a78bfa','#f97316'];
     el.innerHTML = sorted.map((s,i) => `
       <div class="perf-sector-row">
@@ -2582,6 +2570,26 @@ function getStockSector(code) {
   return fromCandidates || '其他';
 }
 
+// ── 共用的產業佔比計算（單一真實來源）─────────────────
+// 之前這個邏輯在側邊欄集中度警示、績效頁圖表、選股篩選器分散度評分，三個地方
+// 各自獨立重複實作，數字目前雖然一致，但改一個地方容易忘記改另外兩個，
+// 是潛在的矛盾風險。統一成這個函式，三個地方都改成呼叫這裡。
+// market: 'TW' | 'US' | 'ALL'（預設ALL，混合台美股一起算；個別頁面需要哪種自己指定）
+function calcSectorWeights(market = 'ALL') {
+  const portfolio = market === 'TW' ? APP._twPortfolio
+    : market === 'US' ? APP._usPortfolio
+    : APP.portfolio;
+  const totalVal = portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
+  if (!totalVal) return {};
+  const weights = {};
+  portfolio.forEach(s => {
+    const sector = getStockSector(s.code);
+    const val = (s.price ?? s.cost) * s.shares;
+    weights[sector] = (weights[sector] || 0) + val / totalVal;
+  });
+  return weights;
+}
+
 // ── Screener module（全市場選股篩選器）─────────────────
 // 掃描全部上市股票（不侷限於RECOMMEND.CANDIDATES這份手寫清單），
 // 用當日快照資料（價格變動、本益比、殖利率、三大法人買賣超）做多條件篩選。
@@ -2647,20 +2655,6 @@ const Screener = {
     return { score: Math.round(score), breakdown, netInst };
   },
 
-  // 算出目前投組各產業的市值佔比（0~1），供分散度評分用
-  _calcSectorWeights() {
-    const portfolio = APP._twPortfolio;
-    const totalVal = portfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
-    if (!totalVal) return {};
-    const weights = {};
-    portfolio.forEach(s => {
-      const sector = (typeof getStockSector === 'function') ? getStockSector(s.code) : '其他';
-      const val = (s.price ?? s.cost) * s.shares;
-      weights[sector] = (weights[sector] || 0) + val / totalVal;
-    });
-    return weights;
-  },
-
   async autoRecommend() {
     const [snapshot, peData, inst] = await Promise.all([
       DATA.fetchMarketSnapshot(),
@@ -2668,7 +2662,7 @@ const Screener = {
       DATA.fetchInstitutional(),
     ]);
     const heldCodes = new Set(APP._twPortfolio.map(s => s.code));
-    const sectorWeights = this._calcSectorWeights();
+    const sectorWeights = calcSectorWeights('TW'); // Screener目前只掃台股，分散度也只看台股部位
 
     const results = [];
     for (const code of Object.keys(snapshot)) {
