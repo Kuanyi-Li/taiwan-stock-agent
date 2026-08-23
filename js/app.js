@@ -339,7 +339,7 @@ const GOALS = {
     }
 
     // Labels
-    const isDark = !document.body.classList.contains('light-mode');
+    const isDark = true; // 淺色模式已移除，固定深色
     ctx.fillStyle = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
     ctx.font = '10px monospace'; ctx.textAlign = 'center';
     if (history.length > 0) {
@@ -551,8 +551,11 @@ const SIGNAL = {
   ],
 
   // 完整評分（有技術分析時用）
-  fromScore(score, gainPct, supportBreak, mode = 'long') {
-    const vixAdj = VIX.score || 0;
+  // vixOverride: 選填，讓呼叫端明確指定要用的VIX調整值。不傳的話預設讀取「現在」的VIX（即時系統用）。
+  // 回測一定要明確傳0，因為VIX.score是全域變數、只反映「現在當下」的VIX，
+  // 沒有辦法查到「歷史上某一天的VIX是多少」，拿現在的VIX套用在模擬的歷史某一天身上就是偷看未來。
+  fromScore(score, gainPct, supportBreak, mode = 'long', vixOverride = null) {
+    const vixAdj = vixOverride != null ? vixOverride : (VIX.score || 0);
     const adjusted = score + vixAdj * 0.5;
     const isLong = mode === 'long';
 
@@ -1029,7 +1032,7 @@ const Performance = {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
 
-    const isDark = !document.body.classList.contains('light-mode');
+    const isDark = true; // 淺色模式已移除，固定深色
     const axisColor = isDark ? '#8b949e' : '#57606a';
     const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
 
@@ -1074,7 +1077,7 @@ const Performance = {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
 
-    const isDark = !document.body.classList.contains('light-mode');
+    const isDark = true; // 淺色模式已移除，固定深色
     const axisColor = isDark ? '#8b949e' : '#57606a';
 
     const sells = TRADES.get().filter(t => t.action === 'sell' && t.realizedPnl != null);
@@ -1161,7 +1164,7 @@ const Performance = {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
 
-    const isDark = !document.body.classList.contains('light-mode');
+    const isDark = true; // 淺色模式已移除，固定深色
     const axisColor = isDark ? '#8b949e' : '#57606a';   // canvas fillStyle 不支援 CSS 變數，必須用實際色碼
     const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
     const axisLineColor = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)';
@@ -1644,7 +1647,7 @@ const Dashboard = {
     const yOf = p => (1 - (p - minP) / range) * priceH;
 
     // ── 格線（水平3條 + 垂直分段），淡色不搶眼 ──
-    const isDark = !document.body.classList.contains('light-mode');
+    const isDark = true; // 淺色模式已移除，固定深色
     const gridColor = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)';
     ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
     ctx.setLineDash([2, 3]);
@@ -2232,7 +2235,7 @@ const PIE = {
     const d = this._getData();
     if (!d) return;
     const { stocks, data, total, colors } = d;
-    const isDark = !document.body.classList.contains('light-mode');
+    const isDark = true; // 淺色模式已移除，固定深色
     const legendColor = isDark ? 'rgba(230,237,243,0.85)' : 'rgba(36,41,47,0.85)';
     if (this.instance) { this.instance.destroy(); this.instance = null; }
     this.instance = new Chart(canvas, {
@@ -3007,7 +3010,9 @@ const Backtest = {
         const pos = positions[code];
         const gainPct = pos.shares > 0 ? (ind.last.c - pos.avgCost) / pos.avgCost * 100 : 0;
         const supportBreak = ind.last.c < (ind.support || 0) * 0.98;
-        const sig = SIGNAL.fromScore(score, gainPct, supportBreak, mode);
+        // ★ 修正：明確傳0關掉VIX調整，避免用「現在」的VIX套用在模擬的歷史某一天身上（偷看未來）。
+        // VIX.score是全域變數只反映當下，沒有逐日歷史VIX資料可以查，這是已知的簡化，不是誤差。
+        const sig = SIGNAL.fromScore(score, gainPct, supportBreak, mode, 0);
 
         // ★ 冷卻期：剛賣出這支股票沒多久，就算訊號又轉強也先不要馬上買回去，
         // 避免同一支股票短期內反覆進出（先前用「市場狀態修正」測試沒有明顯改善，
@@ -3136,7 +3141,7 @@ const Backtest = {
     };
 
     body.innerHTML = `
-      <div class="form-note" style="margin-bottom:14px">⚠️ 這是用你目前${isUS?'美股':'台股'}持股的歷史資料回測「現有買賣訊號邏輯」，不是另外訓練的模型。訊號在收盤後才算得出來，成交一律用「隔天開盤價」，避免用到不可能拿到的價格。這份資料也是調整訊號門檻時參考過的同一批歷史資料，好看的結果不能排除「湊巧貼合過去」，不保證對未來同樣有效。${isUS ? '美股假設無交易手續費、無交易稅（實際費用依券商而定，這裡是簡化假設）。' : '手續費、證交稅已計入。'}　${useCooldown ? `✅ 已套用${Backtest.COOLDOWN_DAYS}天冷卻期（賣出後短期內不重新買進）。` : '⬜ 未套用冷卻期（原始訊號邏輯）。'}</div>
+      <div class="form-note" style="margin-bottom:14px">⚠️ 這是用你目前${isUS?'美股':'台股'}持股的歷史資料回測「現有買賣訊號邏輯」，不是另外訓練的模型。訊號在收盤後才算得出來，成交一律用「隔天開盤價」，避免用到不可能拿到的價格。這份資料也是調整訊號門檻時參考過的同一批歷史資料，好看的結果不能排除「湊巧貼合過去」，不保證對未來同樣有效。回測中VIX調整固定關閉（沒有逐日歷史VIX資料，用現在的VIX套用在過去會偷看未來，所以不用）——這代表即時系統看到的訊號，可能會比回測結果更容易觸發買進（如果現在剛好VIX偏高）。${isUS ? '美股假設無交易手續費、無交易稅（實際費用依券商而定，這裡是簡化假設）。' : '手續費、證交稅已計入。'}　${useCooldown ? `✅ 已套用${Backtest.COOLDOWN_DAYS}天冷卻期（賣出後短期內不重新買進）。` : '⬜ 未套用冷卻期（原始訊號邏輯）。'}</div>
       ${renderOne(longResult, '長線模式')}
       ${renderOne(shortResult, '短線模式')}
     `;
@@ -3166,7 +3171,7 @@ const Backtest = {
     const xOf = i => PAD.l + (i/(n-1)) * chartW;
     const yOf = v => PAD.t + chartH - ((v-minV)/range) * chartH;
 
-    const isDark = !document.body.classList.contains('light-mode');
+    const isDark = true; // 淺色模式已移除，固定深色
     ctx.font = '11px sans-serif'; ctx.textAlign='right'; ctx.fillStyle = isDark?'#8b949e':'#57606a';
     [0,0.5,1].forEach(f => {
       const y = PAD.t + f*chartH;
@@ -4392,9 +4397,6 @@ const APP = {
   _loadSettings() {
     const s = this.settings;
     if (s.corsProxy) DATA.proxies[0] = s.corsProxy;
-    if (s.darkMode === false) document.body.classList.add('light-mode');
-    const toggle = document.getElementById('dark-mode-toggle');
-    if (toggle) toggle.checked = s.darkMode !== false;
     if (s.goalTarget) {
       const g = GOALS.get();
       g.target = s.goalTarget; g.years = s.goalYears; GOALS.save(g);
@@ -4859,13 +4861,6 @@ function saveCashSettings() {
   g.cashTWD = cashTWD; g.cashUSD = cashUSD;
   GOALS.save(g);
   GOALS.updateDashboard();
-}
-
-function toggleDarkMode(checked) {
-  document.body.classList.toggle('light-mode', !checked);
-  APP.settings.darkMode = checked;
-  localStorage.setItem('twsa-settings', JSON.stringify(APP.settings));
-  setTimeout(() => { if (CHART.currentData.length) CHART.draw(); PIE.render(); }, 100);
 }
 
 function renderSellSignals(result) {
