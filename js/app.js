@@ -915,12 +915,12 @@ const Performance = {
         <div id="ai-cycle-body"><div class="empty-state">計算中...</div></div>
       </div>
       <div class="perf-card" style="margin-top:14px">
-        <div class="perf-card-title">📊 今日台股類股漲跌排行</div>
+        <div class="perf-card-title">📊 今日台股類股漲跌排行 <span class="snapshot-badge" title="一天更新一次的快照資料，非即時">📅快照</span></div>
         <div class="form-note" style="margin-bottom:10px">TWSE官方36種產業分類，只有今日快照，無歷史走勢。</div>
         <div id="sector-ranking-body"><div class="empty-state">載入中...</div></div>
       </div>
       <div class="perf-card" style="margin-top:14px">
-        <div class="perf-card-title">🏦 持股三大法人買賣超（今日）</div>
+        <div class="perf-card-title">🏦 持股三大法人買賣超（今日）<span class="snapshot-badge" title="一天更新一次的快照資料，非即時">📅快照</span></div>
         <div class="form-note" style="margin-bottom:10px">外資、投信、自營商買賣超股數，正值＝買超、負值＝賣超。</div>
         <div id="inst-flow-body"><div class="empty-state">載入中...</div></div>
       </div>`;
@@ -1868,7 +1868,10 @@ const Dashboard = {
         const peData = await DATA.fetchPERatios();
         const pe = peData[code];
         if (pe?.pe != null) {
-          const peSpan = `<span class="dash-stat-item">PE ${pe.pe.toFixed(1)}</span>`;
+          // ★ 修正即時 vs 快照資料無區分的問題：PE是一天只更新一次的快照資料，
+          // 跟同一排的量/高/低（盤中會隨即時報價更新）性質不同，畫面上卻長得一模一樣，
+          // 容易誤以為PE也是即時跳動的。加上淡化樣式+小圖示+tooltip說明。
+          const peSpan = `<span class="dash-stat-item stat-snapshot" title="本益比為今日快照資料，非即時更新，一天更新一次">📅PE ${pe.pe.toFixed(1)}</span>`;
           el.innerHTML += peSpan;
         }
       } catch(e) { /* 靜默失敗，不影響其他資訊顯示 */ }

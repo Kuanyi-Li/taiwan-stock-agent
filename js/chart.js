@@ -66,7 +66,7 @@ const CHART = {
       try {
         const peData = await DATA.fetchPERatios();
         const pe = peData[symbol];
-        if (pe?.pe != null) el.innerHTML += `<span class="stat-item">PE ${pe.pe.toFixed(1)}</span>`;
+        if (pe?.pe != null) el.innerHTML += `<span class="stat-item stat-snapshot" title="本益比為今日快照資料，非即時更新，一天更新一次">📅PE ${pe.pe.toFixed(1)}</span>`;
       } catch(e) {}
     }
   },
