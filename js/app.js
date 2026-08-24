@@ -632,6 +632,7 @@ function showMainView(view) {
   const perf = document.getElementById('performance-content');
   const cal = document.getElementById('calendar-page-content');
   const bt = document.getElementById('backtest-content');
+  const theater = document.getElementById('theater-content');
   const sidebar = document.querySelector('.sidebar');
   const layout = document.querySelector('.app-layout');
   if (dv) dv.style.display = view === 'dashboard' ? '' : 'none';
@@ -639,12 +640,15 @@ function showMainView(view) {
   if (perf) perf.style.display = view === 'performance' ? '' : 'none';
   if (cal) cal.style.display = view === 'calendar' ? '' : 'none';
   if (bt) bt.style.display = view === 'backtest' ? '' : 'none';
-  // 績效、日曆、回測頁面內容較豐富，隱藏側邊欄讓版面更寬敞
-  const hideSidebar = view === 'performance' || view === 'calendar' || view === 'backtest';
+  if (theater) theater.style.display = view === 'theater' ? '' : 'none';
+  // 績效、日曆、回測、劇場頁面內容較豐富，隱藏側邊欄讓版面更寬敞
+  const hideSidebar = view === 'performance' || view === 'calendar' || view === 'backtest' || view === 'theater';
   if (sidebar) sidebar.style.display = hideSidebar ? 'none' : '';
   if (layout) layout.classList.toggle('sidebar-hidden', hideSidebar);
   const dashBtn = document.getElementById('dashboard-toggle-btn');
   if (dashBtn) dashBtn.textContent = view === 'dashboard' ? '📈 個股' : '🏠 總覽';
+  if (view === 'theater' && typeof Theater !== 'undefined') Theater.onEnter();
+  if (view !== 'theater' && typeof Theater !== 'undefined') Theater.onExit();
 }
 
 // ── Performance module（績效分析獨立頁面）──────────────
