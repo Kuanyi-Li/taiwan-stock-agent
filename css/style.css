@@ -487,9 +487,11 @@ body {
 .ai-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; }
 .ai-header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .confidence-chip { font-size: 11px; padding: 3px 10px; border-radius: 99px; font-weight: 600; }
-.confidence-chip.high { background: rgba(226,75,74,0.15); color: var(--red); }
-.confidence-chip.low  { background: rgba(29,158,117,0.15); color: var(--green-l); }
-.confidence-chip.mid  { background: rgba(239,159,39,0.15); color: var(--amber); }
+/* 修正：預測信心度是「模型有多有把握」，不是「買或賣」，原本紅綠配色會被誤認成訊號本身。
+   改用灰階＋透明度區分高低，讓真正的買賣訊號徽章保有視覺上的獨特性，不被稀釋。 */
+.confidence-chip.high { background: var(--bg-3); color: var(--text-1); }
+.confidence-chip.low  { background: var(--bg-2); color: var(--text-3); }
+.confidence-chip.mid  { background: var(--bg-3); color: var(--text-2); }
 .analyze-btn { display: flex; align-items: center; gap: 5px; font-size: 12px; padding: 5px 12px; background: var(--bg-3); border: 1px solid var(--border); color: var(--text-1); border-radius: var(--radius-sm); cursor: pointer; }
 .analyze-btn:hover { border-color: var(--green-l); color: var(--green-l); }
 .ai-body { padding: 14px 16px; }
@@ -683,8 +685,8 @@ body {
 .rec-sector { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--bg-3); color: var(--text-2); }
 .rec-risk { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; }
 .rec-horizon { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; }
-.horizon-long  { background: rgba(29,158,117,0.12); color: var(--green-l); }
-.horizon-short { background: rgba(239,159,39,0.12); color: var(--amber); }
+.horizon-long  { background: var(--bg-3); color: var(--text-2); } /* 修正：長短線只是分類不是方向，原本綠/橘配色會誤導成有漲跌含義 */
+.horizon-short { background: var(--bg-3); color: var(--text-2); }
 .horizon-both  { background: rgba(55,138,221,0.12); color: var(--blue); }
 .rec-reason,.rec-logic { font-size: 12px; color: var(--text-2); line-height: 1.7; margin-bottom: 4px; }
 .rec-tag { font-size: 10px; color: var(--text-3); margin-right: 4px; }
@@ -835,11 +837,14 @@ body {
 /* ── VIX badge ── */
 .vix-badge { font-size: 11px; font-family: var(--font-mono); white-space: nowrap; cursor: help; }
 .vix-badge strong { margin: 0 2px; }
-.vix-extreme { color: #ff6b6b; font-weight: 700; }
-.vix-fear    { color: var(--amber); font-weight: 600; }
-.vix-caution { color: #EF9F27; }
-.vix-neutral { color: var(--green-l); }
-.vix-greed   { color: var(--red); }
+/* 修正：5種狀態全部給滿飽和色，在頂部列跟其他白色數字並列太搶戲。
+   改成只有「極度恐慌」「極度貪婪」這兩個真正值得注意的極端狀態保留強顏色，
+   中間三種（恐慌/謹慎/中性）用灰階，靠文字本身表達差異，不靠顏色搶注意力。 */
+.vix-extreme { color: #ff6b6b; font-weight: 700; } /* 極端恐慌：保留，這是最值得注意的逆向機會訊號 */
+.vix-fear    { color: var(--text-2); font-weight: 600; }
+.vix-caution { color: var(--text-2); }
+.vix-neutral { color: var(--text-2); }
+.vix-greed   { color: var(--red); font-weight: 700; } /* 極端貪婪：保留，這是最值得注意的風險警訊 */
 
 .vix-info-bar {
   font-size: 12px; color: var(--text-2);
