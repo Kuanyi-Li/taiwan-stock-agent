@@ -76,6 +76,9 @@
 }
 .theater-3d-label-core { font-size: 15px; font-weight: 700; }
 .theater-3d-label-moon { font-size: 10px; font-weight: 700; line-height: 1.3; text-align: center; }
+.theater-3d-label-event { font-size: 10px; font-weight: 600; line-height: 1.3; text-align: center; color: #c4b5fd; }
+#theater-stage { cursor: grab; }
+#theater-stage:active { cursor: grabbing; }
 
 @media (max-width: 900px) {
   .theater-panel { width: 220px; padding: 14px 16px; }
