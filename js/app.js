@@ -3759,6 +3759,11 @@ const APP = {
     document.querySelectorAll('.market-switch-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.market === market);
     });
+    // ★ 劇場模式下：不要跑一般模式的重置邏輯，改成攝影機動畫飛到對應的星系
+    if (typeof Theater !== 'undefined' && Theater._isActive) {
+      Theater.flyToMarket(market);
+      return;
+    }
     // 切換 logo 文字
     const logoSpan = document.querySelector('.logo span');
     if (logoSpan) logoSpan.textContent = market === 'US' ? '🇺🇸 股票 Agent' : '🇹🇼 股票 Agent';
