@@ -4396,7 +4396,10 @@ const APP = {
 
   _loadSettings() {
     const s = this.settings;
-    if (s.corsProxy) DATA.proxies[0] = s.corsProxy;
+    // ★ 修正：之前這裡會整個蓋掉 proxies[0]（我們自己可靠的Worker），
+    // 只要自訂代理存過一次壞值，就會永久蓋掉可靠的預設值，沒有任何防呆。
+    // 改成把自訂代理「加進清單」當額外備援，不要取代掉可靠的預設代理。
+    if (s.corsProxy && !DATA.proxies.includes(s.corsProxy)) DATA.proxies.push(s.corsProxy);
     if (s.goalTarget) {
       const g = GOALS.get();
       g.target = s.goalTarget; g.years = s.goalYears; GOALS.save(g);
@@ -4847,7 +4850,8 @@ function saveSettings() {
   // 儲存現金
   saveCashSettings();
   localStorage.setItem('twsa-settings', JSON.stringify(s));
-  if (s.corsProxy) DATA.proxies[0] = s.corsProxy;
+  // ★ 同樣的修正：加進清單當備援，不要蓋掉可靠的預設代理
+  if (s.corsProxy && !DATA.proxies.includes(s.corsProxy)) DATA.proxies.push(s.corsProxy);
   closeModal('settings-modal');
   GOALS.updateDashboard();
   SYNC.updateStatus();
