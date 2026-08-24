@@ -28,18 +28,19 @@
 
 /* ── 劇場模式 ── */
 .theater-wrap { position: relative; width: 100%; height: calc(100vh - 52px); background: #000; overflow: hidden; }
-#theater-stage { width: 100%; height: 100%; }
+#theater-stage { width: 100%; height: 100%; z-index: 1; }
 
 /* 修正衛星面板太小的問題：寬度、內距、字級都放大一階 */
 .theater-panel {
   position: absolute; width: 320px; background: rgba(13,17,23,0.8); border: 1px solid rgba(90,143,192,0.35);
   border-radius: 14px; padding: 20px 22px; backdrop-filter: blur(6px); color: var(--text-1);
   transition: border-color 0.2s; overflow: hidden; box-sizing: border-box;
+  z-index: 3; /* 版塊層級：選單>衛星面板>時間環>星系 */
 }
 .theater-panel:hover { border-color: rgba(120,160,210,0.7); }
-.theater-panel-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
-.theater-panel-content { font-size: 15px; color: var(--text-2); line-height: 1.6; min-height: 44px; }
-.theater-panel-chart { width: 100%; height: 64px; display: block; margin-bottom: 6px; box-sizing: border-box; }
+.theater-panel-title { font-size: 19px; font-weight: 700; margin-bottom: 10px; }
+.theater-panel-content { font-size: 18px; color: var(--text-2); line-height: 1.6; min-height: 44px; }
+.theater-panel-chart { width: 100%; height: 64px; display: block; margin-bottom: 6px; box-sizing: border-box; border: 1px solid rgba(90,143,192,0.3); border-radius: 6px; }
 .theater-panel-dots { display: flex; gap: 6px; margin-top: 12px; }
 .theater-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bg-3); transition: background 0.2s; }
 .theater-dot.active { background: #5a8fc0; }
@@ -48,8 +49,18 @@
 #theater-panel-sector { top: 24px; right: 24px; }
 #theater-panel-flow   { bottom: 96px; left: 24px; }
 
+#theater-timering-svg { z-index: 2; }
+
+#theater-lock-wrap { position: absolute; bottom: 24px; right: 210px; z-index: 4; }
+#theater-lock-btn {
+  padding: 12px 20px; border-radius: 24px; background: rgba(13,17,23,0.85);
+  border: 1px solid rgba(90,143,192,0.4); color: var(--text-1); font-size: 14px;
+  cursor: pointer; user-select: none;
+}
+#theater-lock-btn:hover { border-color: rgba(120,160,210,0.8); }
+
 /* 修正選單按鈕太小的問題 */
-#theater-nav-wrap { position: absolute; bottom: 24px; right: 24px; }
+#theater-nav-wrap { position: absolute; bottom: 24px; right: 24px; z-index: 4; }
 #theater-nav-btn {
   display: flex; align-items: center; gap: 10px; padding: 16px 28px; border-radius: 30px;
   background: rgba(13,17,23,0.88); border: 1px solid rgba(90,143,192,0.45); color: var(--text-1);
