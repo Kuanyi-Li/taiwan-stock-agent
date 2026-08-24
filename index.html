@@ -32,6 +32,7 @@
     <button class="dashboard-toggle-btn" id="cal-toggle-btn" onclick="TradeCalendar.toggle()" title="交易與除權息日曆">📅 日曆</button>
     <button class="dashboard-toggle-btn" onclick="Screener.openModal()" title="全市場選股篩選器">🔍 選股</button>
     <button class="dashboard-toggle-btn" onclick="Backtest.toggle()" title="回測現有買賣訊號邏輯">🧪 回測</button>
+    <button class="dashboard-toggle-btn" onclick="Theater.toggle()" title="切換劇場模式（3D視覺化總覽）">🌌 劇場</button>
     <div class="topbar-market" id="tw-market-bar">
       <span class="badge closed" id="mkt-status">休市</span>
       <span class="index-chip" id="taiex-badge">加權 —</span>
@@ -170,6 +171,43 @@
         <button class="btn-primary" style="width:100%" onclick="Backtest.runFromUI()">開始回測</button>
       </div>
       <div id="bt-body"><div class="empty-state">選擇市場、回測期間後按「開始回測」</div></div>
+    </div>
+
+    <!-- ── 劇場模式（Theater）── -->
+    <div class="theater-wrap" id="theater-content" style="display:none">
+      <div id="theater-stage"></div>
+
+      <div class="theater-panel" id="theater-panel-asset">
+        <div class="theater-panel-title">📊 資產表現</div>
+        <div class="theater-panel-content" id="theater-panel-asset-content">載入中...</div>
+        <div class="theater-panel-dots" id="theater-panel-asset-dots"></div>
+      </div>
+
+      <div class="theater-panel" id="theater-panel-sector">
+        <div class="theater-panel-title">🏭 產業視角</div>
+        <div class="theater-panel-content" id="theater-panel-sector-content">載入中...</div>
+        <div class="theater-panel-dots" id="theater-panel-sector-dots"></div>
+      </div>
+
+      <div class="theater-panel" id="theater-panel-flow">
+        <div class="theater-panel-title">🏦 資金訊號</div>
+        <div class="theater-panel-content" id="theater-panel-flow-content">載入中...</div>
+        <div class="theater-panel-dots" id="theater-panel-flow-dots"></div>
+      </div>
+
+      <div id="theater-nav-wrap">
+        <div id="theater-nav-btn" onclick="Theater.toggleNavMenu()">
+          <span class="theater-nav-icon"></span> 前往頁面
+        </div>
+        <div id="theater-nav-menu">
+          <button onclick="Theater.goTo('dashboard')">🏠 總覽</button>
+          <button onclick="Theater.goTo('detail')">📈 個股</button>
+          <button onclick="Theater.goTo('performance')">📊 績效</button>
+          <button onclick="Theater.goTo('calendar')">📅 日曆</button>
+          <button onclick="Theater.goTo('screener')">🔍 選股</button>
+          <button onclick="Theater.goTo('backtest')">🧪 回測</button>
+        </div>
+      </div>
     </div>
 
     <!-- ── 交易與除權息日曆（TradeCalendar）── -->
@@ -847,10 +885,12 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://cdn.emailjs.com/dist/email.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="js/data.js"></script>
 <script src="js/chart.js"></script>
 <script src="js/analysis.js"></script>
 <script src="js/app.js"></script>
+<script src="js/theater.js"></script>
 
 </body>
 </html>
