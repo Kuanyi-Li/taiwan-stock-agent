@@ -271,8 +271,15 @@ const Theater = {
       for (let a = 0; a <= 64; a++) { const t = (a / 64) * Math.PI * 2; pathPts.push(new THREE.Vector3(Math.cos(t) * orbitR, 0, Math.sin(t) * orbitR)); }
       // ★ 修正軌道要保留但改回全實線：拿掉之前的虛線輪替（使用者反映還是覺得亂），
       // 改成單純用顏色差異+更大間距做區分，維持「實心線」的乾淨視覺
-      const orbitLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPts), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 }));
+      // ★ 軌道線依距離核心遠近做漸層：越近越清楚越粗(用疊線模擬粗細)，越遠越淡越細
+      const distFactor = i / Math.max(1, sectors.length - 1); // 0(最近)~1(最遠)
+      const orbitOpacity = 0.75 - distFactor * 0.5;
+      const orbitMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: orbitOpacity });
+      const orbitLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPts), orbitMat);
       orbitHolder.add(orbitLine);
+      if (distFactor < 0.4) { // 只有比較靠近核心的幾圈疊線模擬加粗，越遠的維持單細線
+        orbitHolder.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPts.map(p=>p.clone().multiplyScalar(1.012))), orbitMat));
+      }
 
       // ★ 中球大小：這個產業佔投組總市值的比例
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
@@ -322,7 +329,10 @@ const Theater = {
         moon.userData.spinSpeed = 0.01 + Math.random() * 0.015;
 
         const angle = (j / stocks.length) * Math.PI * 2;
-        const speed = 0.012 + Math.min(0.03, Math.abs(chgPct) * 0.004);
+        // ★ 小球公轉方向也各自獨立（用股票代號當種子，固定不變，不用Math.random避免每次重建就變）
+        const moonSeed = s.code.charCodeAt(0) + s.code.charCodeAt(s.code.length-1);
+        const moonDirection = (moonSeed % 2 === 0) ? 1 : -1;
+        const speed = (0.012 + Math.min(0.03, Math.abs(chgPct) * 0.004)) * moonDirection;
         planetGroup.add(moon);
         const spokeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22 });
         const spoke = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(moonOrbitR,0,0)]), spokeMat);
@@ -331,7 +341,10 @@ const Theater = {
       });
 
       orbitHolder.add(planetGroup);
-      this._planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: (i / sectors.length) * Math.PI * 2, speed: 0.0008 + i * 0.0001, moons, sector });
+      // ★ 混合順逆時鐘方向：全部同方向轉太機械化，改成每個產業各自(用seed決定，
+      // 固定不會每次重建就變來變去)決定順時鐘或逆時鐘公轉，看起來更自然、有生命感
+      const direction = (seed % 2 === 0) ? 1 : -1;
+      this._planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: (i / sectors.length) * Math.PI * 2, speed: (0.0008 + i * 0.0001) * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh });
     });
     this._buildLabels();
     this._buildTimeRing();
@@ -394,7 +407,7 @@ const Theater = {
 
     const w = container.clientWidth || 900;
     // ★ 修正：照設計稿改回弧形（不是直線），整個橫屏寬度、實心白粗線
-    const cx = w / 2, arcW = w - 40, y0 = 45, dip = 45;
+    const cx = w / 2, arcW = w - 40, y0 = 45, dip = 110; // ★ 修正弧度太淺看起來像直線的問題：下凹幅度大幅加深
     const pathD = `M ${cx-arcW/2} ${y0} Q ${cx} ${y0+dip} ${cx+arcW/2} ${y0}`;
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', pathD);
@@ -487,27 +500,29 @@ const Theater = {
     const w = container.clientWidth, h = container.clientHeight;
     if (!this._raycaster) this._raycaster = new THREE.Raycaster();
 
-    // ★ 球體是實心的，角度對了應該要真的擋住文字（包含被自己所屬的產業球擋住），
-    // 用光線投射檢查「相機→目標點」這條視線上有沒有實心球體擋在更近的地方
-    const isOccluded = (worldPos) => {
+    // ★ 修正球體中心文字消失的bug：之前檢查時會把「球體自己的實心網格」也算進遮擋物，
+    // 但文字就在球心，射線必然先穿過自己的表面，等於每顆球都自己擋住自己的文字。
+    // 改成呼叫時可以指定「排除某個網格」（自己），只讓「別的球」有機會擋住這個文字。
+    const isOccluded = (worldPos, excludeMesh) => {
       if (!this._occluders || !this._occluders.length) return false;
       const dir = worldPos.clone().sub(this._camera.position).normalize();
       const distToTarget = this._camera.position.distanceTo(worldPos);
       this._raycaster.set(this._camera.position, dir);
-      const hits = this._raycaster.intersectObjects(this._occluders, false);
+      const testList = excludeMesh ? this._occluders.filter(m => m !== excludeMesh) : this._occluders;
+      const hits = this._raycaster.intersectObjects(testList, false);
       return hits.length > 0 && hits[0].distance < distToTarget - 0.02;
     };
 
-    const project = (obj3d) => {
+    const project = (obj3d, ownMesh) => {
       const vec = new THREE.Vector3();
       obj3d.getWorldPosition(vec);
       const worldPos = vec.clone();
       vec.project(this._camera);
-      return { x: (vec.x * 0.5 + 0.5) * w, y: (-vec.y * 0.5 + 0.5) * h, behind: vec.z > 1, occluded: isOccluded(worldPos) };
+      return { x: (vec.x * 0.5 + 0.5) * w, y: (-vec.y * 0.5 + 0.5) * h, behind: vec.z > 1, occluded: isOccluded(worldPos, ownMesh) };
     };
 
     if (this._coreLabelEl && this._core) {
-      const p = project(this._core);
+      const p = project(this._core, this._core.userData.solidMesh);
       // ★ 真正找到字沒有置中的原因：這裡的transform會整個覆蓋掉CSS類別裡的translate(-50%,-50%)
       // （置中用的），不是合併疊加，是取代。改成同一個transform字串裡把兩個位移都寫進去。
       this._coreLabelEl.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
@@ -515,7 +530,7 @@ const Theater = {
     }
     this._planetGroups.forEach(p => {
       if (p.labelEl) {
-        const pos = project(p.group);
+        const pos = project(p.group, p.solidMesh);
         p.labelEl.style.transform = `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%)`;
         p.labelEl.style.display = (pos.behind || pos.occluded) ? 'none' : 'block';
       }
@@ -528,24 +543,43 @@ const Theater = {
     });
   },
 
+  // ★ 判斷開盤狀態，只用來決定「目標速度」，不會像之前那樣拿去決定要不要設定位置
+  // （那正是上次bug的根源：讓某個條件同時控制「動不動」和「有沒有初始化」兩件事）
+  _isMarketOpen() {
+    const now = new Date();
+    const day = now.getDay();
+    if (day === 0 || day === 6) return false;
+    const h = now.getHours(), m = now.getMinutes();
+    const mins = h * 60 + m;
+    return mins >= 9*60 && mins <= 13*60+30;
+  },
+
   _animate() {
     this._animId = requestAnimationFrame(() => this._animate());
     if (!this._isActive || !this._renderer) return;
-    if (this._core) this._core.rotation.y += (this._core.userData.spinSpeed || 0.0008);
+
+    // ★ 開盤收盤漸進加減速：不是瞬間切換，每一幀都往「目標速度」逼近一點點，
+    // 收盤時逐漸放慢到10%速度（不是完全停止，避免重蹈上次「完全停掉」的bug覆轍），
+    // 開盤時逐漸加速回100%
+    const targetMul = this._isMarketOpen() ? 1 : 0.1;
+    if (this._speedMul == null) this._speedMul = targetMul;
+    this._speedMul += (targetMul - this._speedMul) * 0.003;
+
+    if (this._core) this._core.rotation.y += (this._core.userData.spinSpeed || 0.0008) * this._speedMul;
     this._planetGroups.forEach(p => {
-      p.angle += p.speed;
+      p.angle += p.speed * this._speedMul;
       p.group.position.x = Math.cos(p.angle) * p.orbitR;
       p.group.position.z = Math.sin(p.angle) * p.orbitR;
-      p.group.rotation.y += 0.002;
+      p.group.rotation.y += 0.002 * this._speedMul;
       p.moons.forEach(m => {
-        m.angle += m.speed;
+        m.angle += m.speed * this._speedMul;
         m.mesh.position.x = Math.cos(m.angle) * m.radius;
         m.mesh.position.z = Math.sin(m.angle) * m.radius;
-        m.mesh.rotation.y += m.mesh.userData.spinSpeed || 0.012;
-        m.mesh.rotation.x += (m.mesh.userData.spinSpeed || 0.012) * 0.6;
+        m.mesh.rotation.y += (m.mesh.userData.spinSpeed || 0.012) * this._speedMul;
+        m.mesh.rotation.x += (m.mesh.userData.spinSpeed || 0.012) * 0.6 * this._speedMul;
       });
     });
-    if (this._stars) this._stars.rotation.y += 0.00015;
+    if (this._stars) this._stars.rotation.y += 0.00015 * this._speedMul;
     if (this._scene) {
       this._scene.rotation.x = this._userRotX ?? 0.06;
       this._scene.rotation.y = this._userRotY ?? 0;
