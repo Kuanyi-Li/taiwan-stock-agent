@@ -152,7 +152,10 @@ body {
 .dash-price-left { display: flex; align-items: baseline; gap: 8px; }
 .dash-card-price { font-family: var(--font-mono); font-size: 17px; font-weight: 700; }
 .dash-card-chg { font-size: 11px; font-weight: 600; }
-.dash-card-stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 8px; font-size: 10px; font-weight: 400; color: var(--text-1); }
+/* 修正資訊層級跟決策重要性顛倒的問題：量/高/低/PE這排是L3次要資訊（看了不會馬上做決定），
+   之前為了可讀性改成text-1（跟股價同樣的最亮白色），結果比真正該做決策依據的訊號徽章更搶眼。
+   text-2對比度已經驗證過夠亮夠好讀（5.65-8.45:1），降回正確層級不會犧牲可讀性。 */
+.dash-card-stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 8px; font-size: 10px; font-weight: 400; color: var(--text-2); }
 .dash-stat-item { white-space: nowrap; }
 /* 修正即時 vs 快照資料無區分：快照數字用較淡的顏色+小圖示，跟即時更新的數字區分開，避免誤以為也是即時跳動的 */
 .dash-stat-item.stat-snapshot { color: var(--text-3); font-size: 0.92em; cursor: help; }
@@ -371,7 +374,9 @@ body {
 .chart-price-row { display: flex; align-items: center; gap: 8px; margin-top: 2px; flex-wrap: wrap; }
 .chart-price { font-size: 24px; font-weight: 700; font-family: var(--font-mono); }
 .chart-change { font-size: 13px; font-family: var(--font-mono); }
-.chart-today-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; font-weight: 600; color: var(--text-1); margin-left: auto; align-items: center; }
+/* 修正同樣的層級問題：這排統計數字之前用跟主要訊號(.sig-value)一樣的text-1+粗體，
+   互相搶戲。降到text-2、字重降到500，讓真正的決策依據(訊號)保持視覺上的主導地位。 */
+.chart-today-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; font-weight: 500; color: var(--text-2); margin-left: auto; align-items: center; }
 .chart-today-stats .stat-item { white-space: nowrap; }
 .chart-today-stats .stat-item.stat-snapshot { color: var(--text-3); font-size: 0.92em; cursor: help; }
 .chart-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
