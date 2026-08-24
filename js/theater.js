@@ -193,6 +193,42 @@ const Theater = {
   // 同時提高透明度、加亮顏色、加密經緯線數量，讓球體視覺上更扎實。
   // ★ 改用測地線（Icosahedron細分）幾何取代原本的經緯線框，搭配黑色實心不透明底座，
   // 線框疊在球體表面上，做出參考圖那種「實心暗色球體+多面切割紋理」的科技感質感。
+  // ★ 建立一條可動態更新亮度的軌道線：用逐頂點顏色(vertex colors)實作，
+  // 建立時先全部填暗，實際亮度由_updateOrbitGradient()每一幀依當下角度重新計算
+  _makeGradientOrbit(radius, colorHex, segments = 64) {
+    const positions = [], colors = [];
+    for (let a = 0; a <= segments; a++) {
+      const t = (a / segments) * Math.PI * 2;
+      positions.push(Math.cos(t) * radius, 0, Math.sin(t) * radius);
+      colors.push(0, 0, 0);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95 });
+    const line = new THREE.Line(geo, mat);
+    return { line, geo, segments, baseColor: new THREE.Color(colorHex) };
+  },
+
+  // ★ 依「一個或多個目前角度」重新計算這條軌道線每個頂點的亮度：
+  // 離目前角度越近越亮（球體本身所在的那一段），離越遠越暗，最暗也保留一點點微光不要全黑消失
+  _updateOrbitGradient(grad, currentAngles) {
+    const colorAttr = grad.geo.attributes.color;
+    const base = grad.baseColor;
+    for (let a = 0; a <= grad.segments; a++) {
+      const t = (a / grad.segments) * Math.PI * 2;
+      let minDist = Math.PI;
+      for (const ang of currentAngles) {
+        let d = Math.abs(t - ang) % (Math.PI * 2);
+        if (d > Math.PI) d = Math.PI * 2 - d;
+        if (d < minDist) minDist = d;
+      }
+      const brightness = Math.max(0.06, 1 - minDist / Math.PI);
+      colorAttr.setXYZ(a, base.r * brightness, base.g * brightness, base.b * brightness);
+    }
+    colorAttr.needsUpdate = true;
+  },
+
   _makeWireSphere(radius, color, opacity, detail = 2) {
     const group = new THREE.Group();
     const geo = new THREE.IcosahedronGeometry(radius, detail);
@@ -219,12 +255,13 @@ const Theater = {
     if (this._core) this._scene.remove(this._core);
     this._occluders = []; // ★ 收集所有實心球體，供文字遮擋判定用
 
-    // ★ 修正核心球體沒有反映大盤漲跌的問題：跟小球一樣的邏輯，加權指數漲用紅、跌用綠，
-    // 幅度大小反映在自轉速度上（存進userData，動畫迴圈裡讀取）
+    // ★ 加權指數核心球：漲跌幅度現在也反映在大小上（其餘球不變，維持權重決定大小的規則），
+    // 這是使用者明確要求「只有加權指數核心球」要有這個額外的漲跌幅度視覺
     const twiiData = DATA.priceStore['^TWII'];
     const twiiChgPct = (twiiData?.price && twiiData?.prevClose) ? (twiiData.price - twiiData.prevClose) / twiiData.prevClose * 100 : 0;
     const coreColor = twiiChgPct >= 0 ? 0xd9534f : 0x3d9970;
-    this._core = this._makeWireSphere(0.75, coreColor, 0.6, 3);
+    const coreSize = 0.65 + Math.min(0.35, Math.abs(twiiChgPct) * 0.12);
+    this._core = this._makeWireSphere(coreSize, coreColor, 0.6, 3);
     this._core.userData.spinSpeed = 0.0008 + Math.min(0.0015, Math.abs(twiiChgPct) * 0.0003);
     this._scene.add(this._core);
     this._occluders.push(this._core.userData.solidMesh);
@@ -269,17 +306,11 @@ const Theater = {
 
       const pathPts = [];
       for (let a = 0; a <= 64; a++) { const t = (a / 64) * Math.PI * 2; pathPts.push(new THREE.Vector3(Math.cos(t) * orbitR, 0, Math.sin(t) * orbitR)); }
-      // ★ 修正軌道要保留但改回全實線：拿掉之前的虛線輪替（使用者反映還是覺得亂），
-      // 改成單純用顏色差異+更大間距做區分，維持「實心線」的乾淨視覺
-      // ★ 軌道線依距離核心遠近做漸層：越近越清楚越粗(用疊線模擬粗細)，越遠越淡越細
-      const distFactor = i / Math.max(1, sectors.length - 1); // 0(最近)~1(最遠)
-      const orbitOpacity = 0.75 - distFactor * 0.5;
-      const orbitMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: orbitOpacity });
-      const orbitLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPts), orbitMat);
-      orbitHolder.add(orbitLine);
-      if (distFactor < 0.4) { // 只有比較靠近核心的幾圈疊線模擬加粗，越遠的維持單細線
-        orbitHolder.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPts.map(p=>p.clone().multiplyScalar(1.012))), orbitMat));
-      }
+      // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
+      // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
+      // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
+      const orbitGradient = this._makeGradientOrbit(orbitR, color);
+      orbitHolder.add(orbitGradient.line);
 
       // ★ 中球大小：這個產業佔投組總市值的比例
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
@@ -296,10 +327,9 @@ const Theater = {
       this._occluders.push(industrySphere.userData.solidMesh);
 
       const moonOrbitR = sphereSize + 0.32;
-      // ★ 修正個股小球看不出跟哪個中球一起的問題：加寬環的帶狀寬度、提高透明度
-      const ring = new THREE.Mesh(new THREE.RingGeometry(moonOrbitR - 0.02, moonOrbitR, 60), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.35 }));
-      ring.rotation.x = Math.PI / 2;
-      planetGroup.add(ring);
+      // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
+      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color);
+      planetGroup.add(moonRingGradient.line);
 
       const moons = stocks.map((s, j) => {
         const chgPct = s.price && s.prevClose ? (s.price - s.prevClose) / s.prevClose * 100 : 0;
@@ -344,7 +374,7 @@ const Theater = {
       // ★ 混合順逆時鐘方向：全部同方向轉太機械化，改成每個產業各自(用seed決定，
       // 固定不會每次重建就變來變去)決定順時鐘或逆時鐘公轉，看起來更自然、有生命感
       const direction = (seed % 2 === 0) ? 1 : -1;
-      this._planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: (i / sectors.length) * Math.PI * 2, speed: (0.0008 + i * 0.0001) * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh });
+      this._planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: (i / sectors.length) * Math.PI * 2, speed: (0.0008 + i * 0.0001) * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh, orbitGradient, moonRingGradient });
     });
     this._buildLabels();
     this._buildTimeRing();
@@ -413,7 +443,7 @@ const Theater = {
     path.setAttribute('d', pathD);
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', '#e6edf3');
-    path.setAttribute('stroke-width', '3');
+    path.setAttribute('stroke-width', '5');
     svg.appendChild(path);
 
     const pointOnArc = (t) => {
@@ -433,7 +463,7 @@ const Theater = {
       tick.setAttribute('x1', pos.x); tick.setAttribute('y1', pos.y-4);
       tick.setAttribute('x2', pos.x); tick.setAttribute('y2', pos.y+4);
       tick.setAttribute('stroke', '#e6edf3');
-      tick.setAttribute('stroke-width', d===0 ? 2 : 1);
+      tick.setAttribute('stroke-width', d===0 ? 3 : 1.5);
       tick.setAttribute('opacity', d===0 ? 1 : 0.35);
       svg.appendChild(tick);
     }
@@ -445,7 +475,7 @@ const Theater = {
       todayLabel.id = 'theater-today-label';
       todayLabel.setAttribute('text-anchor', 'middle');
       todayLabel.setAttribute('fill', '#e6edf3');
-      todayLabel.setAttribute('font-size', '13');
+      todayLabel.setAttribute('font-size', '18');
       todayLabel.setAttribute('font-weight', '700');
     }
     svg.appendChild(todayLabel);
@@ -578,6 +608,9 @@ const Theater = {
         m.mesh.rotation.y += (m.mesh.userData.spinSpeed || 0.012) * this._speedMul;
         m.mesh.rotation.x += (m.mesh.userData.spinSpeed || 0.012) * 0.6 * this._speedMul;
       });
+      // ★ 依目前角度更新軌道漸層：中球軌道用中球自己的角度；小球環用「這個環上全部小球」的角度
+      if (p.orbitGradient) this._updateOrbitGradient(p.orbitGradient, [p.angle]);
+      if (p.moonRingGradient) this._updateOrbitGradient(p.moonRingGradient, p.moons.map(m => m.angle));
     });
     if (this._stars) this._stars.rotation.y += 0.00015 * this._speedMul;
     if (this._scene) {
