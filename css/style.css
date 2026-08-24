@@ -154,6 +154,9 @@ body {
 .dash-card-chg { font-size: 11px; font-weight: 600; }
 .dash-card-stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 8px; font-size: 10px; font-weight: 400; color: var(--text-1); }
 .dash-stat-item { white-space: nowrap; }
+/* 修正即時 vs 快照資料無區分：快照數字用較淡的顏色+小圖示，跟即時更新的數字區分開，避免誤以為也是即時跳動的 */
+.dash-stat-item.stat-snapshot { color: var(--text-3); font-size: 0.92em; cursor: help; }
+.snapshot-badge { font-size: 9px; font-weight: 500; color: var(--text-3); background: var(--bg-3); padding: 1px 6px; border-radius: 4px; margin-left: 6px; cursor: help; vertical-align: middle; }
 
 .dash-card-canvas { display: block; width: 100%; flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box; }
 
@@ -370,6 +373,7 @@ body {
 .chart-change { font-size: 13px; font-family: var(--font-mono); }
 .chart-today-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; font-weight: 600; color: var(--text-1); margin-left: auto; align-items: center; }
 .chart-today-stats .stat-item { white-space: nowrap; }
+.chart-today-stats .stat-item.stat-snapshot { color: var(--text-3); font-size: 0.92em; cursor: help; }
 .chart-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 .period-tabs { display: flex; gap: 2px; flex-wrap: wrap; }
