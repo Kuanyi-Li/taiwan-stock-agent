@@ -32,14 +32,14 @@
 
 /* 修正衛星面板太小的問題：寬度、內距、字級都放大一階 */
 .theater-panel {
-  position: absolute; width: 280px; background: rgba(13,17,23,0.8); border: 1px solid rgba(90,143,192,0.35);
+  position: absolute; width: 320px; background: rgba(13,17,23,0.8); border: 1px solid rgba(90,143,192,0.35);
   border-radius: 14px; padding: 20px 22px; backdrop-filter: blur(6px); color: var(--text-1);
-  transition: border-color 0.2s;
+  transition: border-color 0.2s; overflow: hidden; box-sizing: border-box;
 }
 .theater-panel:hover { border-color: rgba(120,160,210,0.7); }
 .theater-panel-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
 .theater-panel-content { font-size: 15px; color: var(--text-2); line-height: 1.6; min-height: 44px; }
-.theater-panel-chart { width: 100%; height: 64px; display: block; margin-bottom: 6px; }
+.theater-panel-chart { width: 100%; height: 64px; display: block; margin-bottom: 6px; box-sizing: border-box; }
 .theater-panel-dots { display: flex; gap: 6px; margin-top: 12px; }
 .theater-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bg-3); transition: background 0.2s; }
 .theater-dot.active { background: #5a8fc0; }
