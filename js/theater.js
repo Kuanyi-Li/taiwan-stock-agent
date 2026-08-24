@@ -59,13 +59,14 @@ const Theater = {
     this._scene.background = new THREE.Color(0x000000);
     this._scene.fog = new THREE.Fog(0x000000, 8, 22);
 
-    // ★ 修正科技感不夠強的問題：加入背景星空粒子，純黑底配上球體線框太空、缺乏縱深感，
-    // 灑一片遠景星點能明顯增加「身處太空」的沉浸感
+    // ★ 修正背景太空的問題：星星數量從800加到1800、放大size增加可見度，
+    // 另外加一層更靠近、更亮的「近景星點」製造前後兩層的縱深差異，不是單一平面的星點。
+    // 再加一顆極大、極淡的背景光暈球，模擬星雲氛圍，填補純黑背景的空洞感。
     const starGeo = new THREE.BufferGeometry();
-    const starCount = 800;
+    const starCount = 1800;
     const starPositions = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i++) {
-      const r = 12 + Math.random() * 18;
+      const r = 12 + Math.random() * 22;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos((Math.random() * 2) - 1);
       starPositions[i*3]   = r * Math.sin(phi) * Math.cos(theta);
@@ -73,13 +74,19 @@ const Theater = {
       starPositions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-    const starMat = new THREE.PointsMaterial({ color: 0x8899aa, size: 0.045, transparent: true, opacity: 0.55 });
+    const starMat = new THREE.PointsMaterial({ color: 0x9aa8ba, size: 0.06, transparent: true, opacity: 0.7 });
     this._stars = new THREE.Points(starGeo, starMat);
     this._scene.add(this._stars);
 
+    // 遠景星雲光暈：一顆極大半徑、極低透明度的實心球，從內部包住整個場景，製造深邃感
+    const nebulaGeo = new THREE.SphereGeometry(28, 16, 16);
+    const nebulaMat = new THREE.MeshBasicMaterial({ color: 0x1a2540, transparent: true, opacity: 0.18, side: THREE.BackSide });
+    this._nebula = new THREE.Mesh(nebulaGeo, nebulaMat);
+    this._scene.add(this._nebula);
+
     this._camera = new THREE.PerspectiveCamera(48, w / h, 0.1, 100);
     // ★ 修正星系位置往上移：相機看向的目標點下移，畫面裡的星系相對就會往上移
-    this._camera.position.set(0, 1.8, 10.5);
+    this._camera.position.set(0, 1.6, 9.0);
     this._camera.lookAt(0, -0.9, 0);
 
     this._renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -196,7 +203,9 @@ const Theater = {
     sectors.forEach(([sector, stocks], i) => {
       // ★ 修正軌道太集中的問題：之前用 i%3 只有3種半徑輪流用，9個產業會有3個共用同一個半徑、
       // 疊在一起很雜亂。改成每個產業各自一個遞增半徑，完全不重疊。
-      const orbitR = 2.3 + i * 0.42;
+      // ★ 修正軌道太接近的問題：間距從0.42加大到0.7，讓每一圈之間的半徑差距更明顯，
+      // 主要靠半徑差異做出區隔（比靠傾斜角度更容易辨認，傾斜角維持前次縮小過的範圍不變）
+      const orbitR = 2.2 + i * 0.7;
       // ★ 修正軌道視覺太亂的問題：之前的傾斜角範圍太極端，縮小到原本的一半，
       // 讓所有軌道傾斜方向比較收斂、不會到處亂穿插
       const seed = sector.charCodeAt(0) + sector.length;
@@ -336,9 +345,10 @@ const Theater = {
       this._timeRingDots.push({ mesh: dot, ev });
     });
 
-    // 把整個弧形群組壓低、往後推，讓它只在畫面下半部露出一小段，配合輕微傾斜營造地平線感
-    this._timeRingGroup.position.set(0, -7.3, -1.5);
-    this._timeRingGroup.rotation.x = 1.15;
+    // ★ 修正時間環完全消失的問題：實際用瀏覽器測試投影座標校正過，之前的旋轉+位移組合
+    // 算出來的值讓整個弧形跑到畫面外太多。改成不旋轉、單純用Z軸深度定位，實測確認會落在
+    // 畫面下半部可見範圍。
+    this._timeRingGroup.position.set(0, 0, -5);
     this._scene.add(this._timeRingGroup);
     this._buildTimeRingLabels();
   },
@@ -564,7 +574,10 @@ const Theater = {
     const entries = Object.entries(weights).sort((a,b)=>b[1]-a[1]);
     if (!entries.length) return;
     const colors = ['#5a8fc0','#6ea88a','#b08a5a','#9a7ab0','#c07a7a','#7ab0a8','#8899aa'];
-    const cx = H/2, cy = H/2, rOuter = H/2 - 4, rInner = rOuter * 0.55;
+    // ★ 修正圓餅圖偏左的bug：之前cx用H/2(只有32px)算橫向位置，畫布明明是寬的長方形，
+    // 圓餅被擠在最左邊、右邊空一大片。改成用圓的半徑當左邊界，圓右邊留出空間放圖例文字。
+    const rOuter = H/2 - 4, rInner = rOuter * 0.55;
+    const cx = rOuter + 6, cy = H/2;
     let startAngle = -Math.PI/2;
     entries.forEach(([sector, w], i) => {
       const angle = w * Math.PI * 2;
@@ -575,6 +588,16 @@ const Theater = {
       ctx.fillStyle = colors[i % colors.length];
       ctx.fill();
       startAngle += angle;
+    });
+    // 用空出來的右側空間畫圖例（顏色色塊+產業名+百分比），前3大產業就好，避免太擠
+    const legendX = cx + rOuter + 14;
+    entries.slice(0, 3).forEach(([sector, w], i) => {
+      const ly = 8 + i * 18;
+      ctx.fillStyle = colors[i % colors.length];
+      ctx.fillRect(legendX, ly, 8, 8);
+      ctx.fillStyle = '#a5aebb';
+      ctx.font = '10px sans-serif';
+      ctx.fillText(`${sector} ${(w*100).toFixed(0)}%`, legendX + 13, ly + 8);
     });
   },
 
