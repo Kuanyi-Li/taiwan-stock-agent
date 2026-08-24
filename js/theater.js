@@ -11,10 +11,14 @@ const Theater = {
   toggle() {
     const isShowing = document.getElementById('theater-content')?.style.display !== 'none';
     showMainView(isShowing ? 'dashboard' : 'theater');
+    const checkbox = document.getElementById('theater-mode-toggle');
+    if (checkbox) checkbox.checked = !isShowing;
   },
 
   goTo(target) {
     this.toggleNavMenu(false);
+    const checkbox = document.getElementById('theater-mode-toggle');
+    if (checkbox) checkbox.checked = false; // 透過選單離開一定是離開劇場模式
     if (target === 'screener') { Screener.openModal(); return; }
     if (target === 'backtest') { showMainView('backtest'); return; }
     if (target === 'detail') {
@@ -99,6 +103,7 @@ const Theater = {
 
     window.addEventListener('resize', () => this._onResize());
     this._setupDragControls(container);
+    this._setupZoomControls(container);
   },
 
   // ★ 加入拖曳旋轉：Three.js r128的CDN沒有內建OrbitControls附加元件，用額外script載入
@@ -161,6 +166,17 @@ const Theater = {
     if (btn) btn.textContent = this._dragLocked ? '🔒 已鎖定' : '🔓 拖曳旋轉';
   },
 
+  // ★ 加入滾輪縮放：不用糾結星系該多大，讓使用者自己決定，記住上次的縮放程度
+  _setupZoomControls(container) {
+    const savedZoom = parseFloat(localStorage.getItem('theater-zoom') || '9.5');
+    this._camera.position.z = savedZoom;
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const newZ = Math.max(4, Math.min(20, this._camera.position.z + e.deltaY * 0.01));
+      this._camera.position.z = newZ;
+      localStorage.setItem('theater-zoom', String(newZ));
+    }, { passive: false });
+  },
 
   _onResize() {
     const container = document.getElementById('theater-stage');
@@ -241,8 +257,9 @@ const Theater = {
       const orbitR = 1.7 + i * 0.68;
       // ★ 修正軌道視覺太亂的問題：傾斜角範圍縮小，讓所有軌道傾斜方向比較收斂
       const seed = sector.charCodeAt(0) + sector.length;
-      const tiltX = ((seed % 7) - 3) * 0.075;
-      const tiltZ = ((seed % 5) - 2) * 0.1;
+      // ★ 修正：這次改成拉大角度間隔（跟上次縮小的方向相反，找一個更適中的平衡點）
+      const tiltX = ((seed % 7) - 3) * 0.14;
+      const tiltZ = ((seed % 5) - 2) * 0.18;
       const color = sectorColors[i % sectorColors.length];
 
       const orbitHolder = new THREE.Group();
@@ -264,7 +281,10 @@ const Theater = {
       const sphereSize = 0.28 + Math.min(0.35, sectorWeight * 0.75);
 
       const planetGroup = new THREE.Group();
-      const industrySphere = this._makeWireSphere(sphereSize, color, 0.7, 1);
+      // ★ 修正中球長得太像的問題：每個產業用不同的切面細分數量(0/1/2輪流)，
+      // 就算顏色接近，切面密度不同也能幫助分辨是哪一顆
+      const detailLevel = i % 3;
+      const industrySphere = this._makeWireSphere(sphereSize, color, 0.7, detailLevel);
       planetGroup.add(industrySphere);
       this._occluders.push(industrySphere.userData.solidMesh);
 
@@ -367,39 +387,45 @@ const Theater = {
     if (!svg) {
       svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.id = 'theater-timering-svg';
-      svg.style.cssText = 'position:absolute; bottom:0; left:0; width:100%; height:120px; pointer-events:none;';
+      svg.style.cssText = 'position:absolute; bottom:0; left:0; width:100%; height:150px; pointer-events:none;';
       container.appendChild(svg);
     }
     svg.innerHTML = '';
 
     const w = container.clientWidth || 900;
-    const y0 = 55; // 主軸線的Y座標
-    const marginX = 20;
+    // ★ 修正：照設計稿改回弧形（不是直線），整個橫屏寬度、實心白粗線
+    const cx = w / 2, arcW = w - 40, y0 = 45, dip = 45;
+    const pathD = `M ${cx-arcW/2} ${y0} Q ${cx} ${y0+dip} ${cx+arcW/2} ${y0}`;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', pathD);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#e6edf3');
+    path.setAttribute('stroke-width', '3');
+    svg.appendChild(path);
 
-    // 主軸線：整個橫屏寬度、實心白色粗線
-    const axisLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    axisLine.setAttribute('x1', marginX); axisLine.setAttribute('y1', y0);
-    axisLine.setAttribute('x2', w - marginX); axisLine.setAttribute('y2', y0);
-    axisLine.setAttribute('stroke', '#e6edf3');
-    axisLine.setAttribute('stroke-width', '3');
-    svg.appendChild(axisLine);
+    const pointOnArc = (t) => {
+      const x1=cx-arcW/2, y1=y0, x2=cx, y2=y0+dip, x3=cx+arcW/2, y3=y0;
+      const x = (1-t)*(1-t)*x1 + 2*(1-t)*t*x2 + t*t*x3;
+      const y = (1-t)*(1-t)*y1 + 2*(1-t)*t*y2 + t*t*y3;
+      return { x, y };
+    };
+    // ★ 修正方向：左邊是明天(未來)、右邊是昨天(過去)，中間是今天——
+    // daysOffset正值(未來)對應t變小(往左)，負值(過去)對應t變大(往右)
+    const DAY_RANGE = 14;
+    const dayToT = (daysOffset) => 0.5 - (daysOffset / DAY_RANGE) * 0.5;
 
-    const DAY_RANGE = 14; // 左右各14天
-    const dayToX = (daysOffset) => w/2 + (daysOffset / DAY_RANGE) * ((w - marginX*2) / 2);
-
-    // 每天一個小刻度
     for (let d = -DAY_RANGE; d <= DAY_RANGE; d++) {
-      const x = dayToX(d);
+      const pos = pointOnArc(dayToT(d));
       const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      tick.setAttribute('x1', x); tick.setAttribute('y1', y0-4);
-      tick.setAttribute('x2', x); tick.setAttribute('y2', y0+4);
+      tick.setAttribute('x1', pos.x); tick.setAttribute('y1', pos.y-4);
+      tick.setAttribute('x2', pos.x); tick.setAttribute('y2', pos.y+4);
       tick.setAttribute('stroke', '#e6edf3');
       tick.setAttribute('stroke-width', d===0 ? 2 : 1);
       tick.setAttribute('opacity', d===0 ? 1 : 0.35);
       svg.appendChild(tick);
     }
 
-    // 今天：正中央，較大的標記+即時日期時間文字（另外做成獨立元素，方便之後單獨更新時間不用重畫整個時間軸）
+    // 今天：正中央，即時日期時間文字
     let todayLabel = document.getElementById('theater-today-label');
     if (!todayLabel) {
       todayLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -408,30 +434,29 @@ const Theater = {
       todayLabel.setAttribute('fill', '#e6edf3');
       todayLabel.setAttribute('font-size', '13');
       todayLabel.setAttribute('font-weight', '700');
-      svg.appendChild(todayLabel);
-    } else {
-      svg.appendChild(todayLabel); // innerHTML=''清空過了，要重新接回svg裡
     }
-    todayLabel.setAttribute('x', w/2);
-    todayLabel.setAttribute('y', y0 - 14);
+    svg.appendChild(todayLabel);
+    const todayPos = pointOnArc(0.5);
+    todayLabel.setAttribute('x', todayPos.x);
+    todayLabel.setAttribute('y', todayPos.y - 14);
     this._updateTimeRingClock(todayLabel);
 
-    // 事件疊在對應日期的刻度上
+    // 事件：只有未來的資料(MacroEvents.getUpcoming只回傳未來)，全部會落在中間偏左（明天方向）
     const upcoming = MacroEvents.getUpcoming(DAY_RANGE);
     upcoming.forEach(ev => {
-      const x = dayToX(ev.daysUntil);
+      const pos = pointOnArc(dayToT(ev.daysUntil));
       const proximity = 1 - (ev.daysUntil / DAY_RANGE);
       const r = 4 + proximity * 4;
 
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      circle.setAttribute('cx', x); circle.setAttribute('cy', y0); circle.setAttribute('r', r);
+      circle.setAttribute('cx', pos.x); circle.setAttribute('cy', pos.y); circle.setAttribute('r', r);
       circle.setAttribute('fill', '#c4b5fd');
       circle.setAttribute('opacity', 0.6 + proximity*0.4);
       svg.appendChild(circle);
 
       const dateStr = ev.date ? ev.date.slice(5).replace('-', '/') : '';
       const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('x', x); text.setAttribute('y', y0 + r + 16);
+      text.setAttribute('x', pos.x); text.setAttribute('y', pos.y + r + 16);
       text.setAttribute('text-anchor', 'middle');
       text.setAttribute('fill', '#c4b5fd');
       text.setAttribute('font-size', '10');
@@ -503,39 +528,24 @@ const Theater = {
     });
   },
 
-  // ★ 休市時暫停自轉：只判斷台股交易時段(週一~五 9:00-13:30)，不含國定假日
-  // （假日判斷需要額外的行事曆資料，這裡先做最基本的星期+時間判斷）
-  _isMarketOpen() {
-    const now = new Date();
-    const day = now.getDay();
-    if (day === 0 || day === 6) return false;
-    const h = now.getHours(), m = now.getMinutes();
-    const mins = h * 60 + m;
-    return mins >= 9*60 && mins <= 13*60+30;
-  },
-
   _animate() {
     this._animId = requestAnimationFrame(() => this._animate());
     if (!this._isActive || !this._renderer) return;
-    const marketOpen = this._isMarketOpen();
-    if (marketOpen) {
-      if (this._core) this._core.rotation.y += (this._core.userData.spinSpeed || 0.0008);
-      this._planetGroups.forEach(p => {
-        p.angle += p.speed;
-        p.group.position.x = Math.cos(p.angle) * p.orbitR;
-        p.group.position.z = Math.sin(p.angle) * p.orbitR;
-        p.group.rotation.y += 0.002;
-        p.moons.forEach(m => {
-          m.angle += m.speed;
-          m.mesh.position.x = Math.cos(m.angle) * m.radius;
-          m.mesh.position.z = Math.sin(m.angle) * m.radius;
-          m.mesh.rotation.y += m.mesh.userData.spinSpeed || 0.012;
-          m.mesh.rotation.x += (m.mesh.userData.spinSpeed || 0.012) * 0.6;
-        });
+    if (this._core) this._core.rotation.y += (this._core.userData.spinSpeed || 0.0008);
+    this._planetGroups.forEach(p => {
+      p.angle += p.speed;
+      p.group.position.x = Math.cos(p.angle) * p.orbitR;
+      p.group.position.z = Math.sin(p.angle) * p.orbitR;
+      p.group.rotation.y += 0.002;
+      p.moons.forEach(m => {
+        m.angle += m.speed;
+        m.mesh.position.x = Math.cos(m.angle) * m.radius;
+        m.mesh.position.z = Math.sin(m.angle) * m.radius;
+        m.mesh.rotation.y += m.mesh.userData.spinSpeed || 0.012;
+        m.mesh.rotation.x += (m.mesh.userData.spinSpeed || 0.012) * 0.6;
       });
-      if (this._stars) this._stars.rotation.y += 0.00015;
-    }
-    // ★ 拖曳旋轉（使用者主動操作）不受休市影響，隨時都能拖曳查看
+    });
+    if (this._stars) this._stars.rotation.y += 0.00015;
     if (this._scene) {
       this._scene.rotation.x = this._userRotX ?? 0.06;
       this._scene.rotation.y = this._userRotY ?? 0;
