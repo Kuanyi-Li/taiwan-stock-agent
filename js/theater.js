@@ -86,7 +86,7 @@ const Theater = {
 
     this._camera = new THREE.PerspectiveCamera(48, w / h, 0.1, 100);
     // ★ 修正星系位置往上移：相機看向的目標點下移，畫面裡的星系相對就會往上移
-    this._camera.position.set(0, 1.6, 9.0);
+    this._camera.position.set(0, 1.3, 9.5);
     this._camera.lookAt(0, -0.9, 0);
 
     this._renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -182,13 +182,19 @@ const Theater = {
     const twiiData = DATA.priceStore['^TWII'];
     const twiiChgPct = (twiiData?.price && twiiData?.prevClose) ? (twiiData.price - twiiData.prevClose) / twiiData.prevClose * 100 : 0;
     const coreColor = twiiChgPct >= 0 ? 0xd9534f : 0x3d9970;
-    this._core = this._makeWireSphere(1.0, coreColor, 0.6, 3);
+    this._core = this._makeWireSphere(0.75, coreColor, 0.6, 3);
     this._core.userData.spinSpeed = 0.0008 + Math.min(0.0015, Math.abs(twiiChgPct) * 0.0003);
     this._scene.add(this._core);
 
     // 只用台股持股（美股的軌道/產業分類邏輯之後可以再擴充）
     const portfolio = (APP._twPortfolio || []).filter(s => s.price);
     if (!portfolio.length) return;
+
+    // ★ 大小改用持股權重，不用當日漲跌幅度：漲跌是每天隨機跳動的雜訊，用大小表達的話
+    // 星系每天看起來都不一樣、抓不到重點；「這支股票/產業佔我多少身家」才是相對穩定、
+    // 值得長期記住的資訊，更適合當作「這顆球該有多顯眼」的依據。
+    // 漲跌幅度改用顏色鮮豔度表達，兩個維度分開，不互相搶。
+    const totalVal = portfolio.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0) || 1;
 
     // 依產業分組
     const bySector = {};
@@ -201,13 +207,10 @@ const Theater = {
     const sectorColors = [0x5a8fc0, 0x6ea88a, 0xb08a5a, 0x9a7ab0, 0xc07a7a, 0x7ab0a8];
     const sectors = Object.entries(bySector);
     sectors.forEach(([sector, stocks], i) => {
-      // ★ 修正軌道太集中的問題：之前用 i%3 只有3種半徑輪流用，9個產業會有3個共用同一個半徑、
-      // 疊在一起很雜亂。改成每個產業各自一個遞增半徑，完全不重疊。
-      // ★ 修正軌道太接近的問題：間距從0.42加大到0.7，讓每一圈之間的半徑差距更明顯，
-      // 主要靠半徑差異做出區隔（比靠傾斜角度更容易辨認，傾斜角維持前次縮小過的範圍不變）
-      const orbitR = 2.2 + i * 0.7;
-      // ★ 修正軌道視覺太亂的問題：之前的傾斜角範圍太極端，縮小到原本的一半，
-      // 讓所有軌道傾斜方向比較收斂、不會到處亂穿插
+      // ★ 修正軌道太集中的問題：每個產業各自一個遞增半徑，完全不重疊
+      // ★ 修正星系整體太大的問題：間距縮小到0.5，核心球也縮小
+      const orbitR = 1.7 + i * 0.5;
+      // ★ 修正軌道視覺太亂的問題：傾斜角範圍縮小，讓所有軌道傾斜方向比較收斂
       const seed = sector.charCodeAt(0) + sector.length;
       const tiltX = ((seed % 7) - 3) * 0.075;
       const tiltZ = ((seed % 5) - 2) * 0.1;
@@ -220,17 +223,26 @@ const Theater = {
 
       const pathPts = [];
       for (let a = 0; a <= 64; a++) { const t = (a / 64) * Math.PI * 2; pathPts.push(new THREE.Vector3(Math.cos(t) * orbitR, 0, Math.sin(t) * orbitR)); }
-      // ★ 修正軌道變兩條線的問題：拿掉之前的疊線技巧（在畫面上反而變成兩條線很亂），
-      // 改回單線，用更高的不透明度讓線本身夠清楚就好，同時整體降低到更輔助性的視覺角色
-      const orbitMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.38 });
-      orbitHolder.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPts), orbitMat));
+      // ★ 修正軌道不易分辨的問題：每3個軌道輪流用實線/中虛線/細虛線，不只靠顏色分辨
+      const dashPatterns = [null, [0.15, 0.08], [0.05, 0.05]];
+      const pattern = dashPatterns[i % 3];
+      const orbitLine = pattern
+        ? new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPts), new THREE.LineDashedMaterial({ color, transparent: true, opacity: 0.55, dashSize: pattern[0], gapSize: pattern[1] }))
+        : new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPts), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.55 }));
+      if (pattern) orbitLine.computeLineDistances();
+      orbitHolder.add(orbitLine);
+
+      // ★ 中球大小：這個產業佔投組總市值的比例
+      const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
+      const sectorWeight = sectorVal / totalVal;
+      // ★ 同樣調整倍率，避免最大的產業(ETF 37.7%)太早頂到上限，要接近50%才頂滿
+      const sphereSize = 0.28 + Math.min(0.35, sectorWeight * 0.75);
 
       const planetGroup = new THREE.Group();
-      planetGroup.add(this._makeWireSphere(0.4, color, 0.7, 1));
+      planetGroup.add(this._makeWireSphere(sphereSize, color, 0.7, 1));
 
-      const moonOrbitR = 0.72;
-      // ★ 修正個股小球看不出跟哪個中球一起的問題：加寬環的帶狀寬度、提高透明度，
-      // 讓「這幾顆小球共用同一個環」這件事更明顯，環的顏色也跟母球顏色一致方便辨認歸屬
+      const moonOrbitR = sphereSize + 0.32;
+      // ★ 修正個股小球看不出跟哪個中球一起的問題：加寬環的帶狀寬度、提高透明度
       const ring = new THREE.Mesh(new THREE.RingGeometry(moonOrbitR - 0.02, moonOrbitR, 60), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.35 }));
       ring.rotation.x = Math.PI / 2;
       planetGroup.add(ring);
@@ -238,12 +250,23 @@ const Theater = {
       const moons = stocks.map((s, j) => {
         const chgPct = s.price && s.prevClose ? (s.price - s.prevClose) / s.prevClose * 100 : 0;
         const isUp = chgPct >= 0;
-        const moonColor = isUp ? 0xe0524f : 0x1d9e75;
-        const moonColorDark = isUp ? 0x6b2c2b : 0x0f4a37; // 實心底用更暗的同色調，邊線用亮色，做出切面寶石感
-        const size = 0.055 + Math.min(0.09, Math.abs(chgPct) * 0.016);
-        // ★ 修正小球太陽春的問題：改用八面體(稜角分明的幾何造型)取代純圓球，
-        // 呼應大中球「切面線框」的視覺語言但更簡約，層級上明顯比大中球小一號、更精緻。
-        // 不加拖尾效果(太繽紛)，改用緩慢自轉讓稜角隨轉動呈現不同角度，增加科技感細節。
+        // ★ 漲跌幅度改用顏色鮮豔度表達：波動小(接近平盤)顏色偏灰濁，波動大顏色越鮮豔飽和，
+        // 5%以上視為最大強度
+        const intensity = Math.min(1, Math.abs(chgPct) / 5);
+        const mutedColor = isUp ? new THREE.Color(0x8a5f5c) : new THREE.Color(0x4d6e63);
+        const vividColor = isUp ? new THREE.Color(0xe0524f) : new THREE.Color(0x1d9e75);
+        const moonColor = mutedColor.clone().lerp(vividColor, intensity);
+        const moonColorDark = moonColor.clone().multiplyScalar(0.35);
+
+        // ★ 小球大小：這支股票佔投組總市值的比例
+        const stockVal = (s.price ?? s.cost) * s.shares;
+        const stockWeight = stockVal / totalVal;
+        // ★ 修正大小上限太容易頂到的問題：原本倍率1.3，9.6%的持股就已經跟37.7%的0050
+        // 一樣大，完全看不出身家差距。改成0.28，要接近40%單一持股才會頂滿，
+        // 讓實際常見的1~40%持股範圍都能有感的大小差異。
+        const size = 0.045 + Math.min(0.11, stockWeight * 0.28);
+
+        // ★ 修正小球太陽春的問題：改用八面體(稜角分明的幾何造型)取代純圓球
         const moonGeo = new THREE.OctahedronGeometry(size, 0);
         const moon = new THREE.Group();
         moon.add(new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: moonColorDark })));
@@ -252,10 +275,8 @@ const Theater = {
         moon.userData.spinSpeed = 0.01 + Math.random() * 0.015;
 
         const angle = (j / stocks.length) * Math.PI * 2;
-        // 公轉速度反映活躍度：漲跌幅度越大轉越快（量比資料要另外抓，先用漲跌幅度概估活躍度）
         const speed = 0.012 + Math.min(0.03, Math.abs(chgPct) * 0.004);
         planetGroup.add(moon);
-        // 輻射細線連到中心，視覺上明確連結「這顆球屬於這個環」（配合整體降噪，透明度略降）
         const spokeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22 });
         const spoke = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(moonOrbitR,0,0)]), spokeMat);
         planetGroup.add(spoke);
@@ -310,60 +331,65 @@ const Theater = {
   },
 
   // ★ 補上最早設計稿就有、但一直沒做的「時間環」：環繞在星系外圍的淡淡光點，
-  // 提示還有幾天到重大事件（FOMC/CPI/PCE等），只做氛圍提示，不能點進去查明細
-  // （查明細要透過導覽選單進日曆頁，這裡刻意保持極簡）。
-  // ★ 重新設計時間環：不再是完整一圈環繞整個星系（畫面到處都是很亂），
-  // 改成一個超大半徑的弧形，整體位置壓低、往後推，只有靠近相機這一小段弧線會露出在
-  // 畫面下半部，像地平線一樣。事件也改成只顯示14天內（太遠的不顯示），
-  // 沿著這段可見弧線由中間（今天）往兩側展開，天數越少的事件離中心越近、越亮越大。
+  // ★ 徹底重新設計：時間環改成純2D的SVG疊加層，完全脫離3D場景，
+  // 這樣才能保證「固定貼在畫面底部、不受拖曳旋轉影響」——3D版本不管怎麼調整位置，
+  // 只要場景被拖曳轉動，時間環就會跟著轉動，不可能真正做到「不受拖曳影響」。
   _buildTimeRing() {
-    if (!this._scene || typeof MacroEvents === 'undefined') return;
-    if (this._timeRingGroup) { this._scene.remove(this._timeRingGroup); }
-    this._timeRingGroup = new THREE.Group();
+    if (typeof MacroEvents === 'undefined') return;
+    const container = document.getElementById('theater-stage');
+    if (!container) return;
+    let svg = document.getElementById('theater-timering-svg');
+    if (!svg) {
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.id = 'theater-timering-svg';
+      svg.style.cssText = 'position:absolute; bottom:0; left:0; width:100%; height:180px; pointer-events:none;';
+      container.appendChild(svg);
+    }
+    svg.innerHTML = '';
 
-    const ringR = 9;
-    const arcHalfAngle = 0.5; // 弧線只畫一個有限角度範圍，不是完整360度
-    const arcPts = [];
-    for (let a = -40; a <= 40; a++) { const t = (a/40) * arcHalfAngle; arcPts.push(new THREE.Vector3(Math.sin(t)*ringR, 0, Math.cos(t)*ringR)); }
-    const ringMat = new THREE.LineBasicMaterial({ color: 0x6b7684, transparent: true, opacity: 0.5 });
-    this._timeRingGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(arcPts), ringMat));
+    const w = container.clientWidth || 900;
+    const cx = w / 2, arcW = Math.min(w * 0.7, 900), y0 = 40, dip = 55;
 
-    const DAY_WINDOW = 14; // 只顯示14天內的事件，太遠的直接不顯示
+    const pathD = `M ${cx-arcW/2} ${y0} Q ${cx} ${y0+dip} ${cx+arcW/2} ${y0}`;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', pathD);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#6b7684');
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('opacity', '0.5');
+    svg.appendChild(path);
+
+    const pointOnArc = (t) => {
+      const x1=cx-arcW/2, y1=y0, x2=cx, y2=y0+dip, x3=cx+arcW/2, y3=y0;
+      const x = (1-t)*(1-t)*x1 + 2*(1-t)*t*x2 + t*t*x3;
+      const y = (1-t)*(1-t)*y1 + 2*(1-t)*t*y2 + t*t*y3;
+      return { x, y };
+    };
+
+    const DAY_WINDOW = 14;
     const upcoming = MacroEvents.getUpcoming(DAY_WINDOW);
-    this._timeRingDots = [];
     upcoming.forEach(ev => {
-      // 天數映射到弧線角度：0天=正中間（離相機最近），DAY_WINDOW天=弧線兩端
-      const side = ev.daysUntil % 2 === 0 ? 1 : -1; // 用奇偶簡單分散到弧線左右兩側，避免全部疊在同一側
-      const t = (ev.daysUntil / DAY_WINDOW) * arcHalfAngle * side;
-      const x = Math.sin(t) * ringR, z = Math.cos(t) * ringR;
-      const proximity = 1 - (ev.daysUntil / DAY_WINDOW); // 0~1，越接近今天越大越亮
-      const dotSize = 0.05 + proximity * 0.1;
-      const dotOpacity = 0.55 + proximity * 0.45;
-      const dot = new THREE.Mesh(new THREE.SphereGeometry(dotSize, 14, 14), new THREE.MeshBasicMaterial({ color: 0xc4b5fd, transparent: true, opacity: dotOpacity }));
-      dot.position.set(x, 0, z);
-      this._timeRingGroup.add(dot);
-      this._timeRingDots.push({ mesh: dot, ev });
-    });
+      const side = ev.daysUntil % 2 === 0 ? 1 : -1;
+      const t = 0.5 + side * (ev.daysUntil / DAY_WINDOW) * 0.42;
+      const pos = pointOnArc(t);
+      const proximity = 1 - (ev.daysUntil / DAY_WINDOW);
+      const r = 3 + proximity * 4;
 
-    // ★ 修正時間環完全消失的問題：實際用瀏覽器測試投影座標校正過，之前的旋轉+位移組合
-    // 算出來的值讓整個弧形跑到畫面外太多。改成不旋轉、單純用Z軸深度定位，實測確認會落在
-    // 畫面下半部可見範圍。
-    this._timeRingGroup.position.set(0, 0, -5);
-    this._scene.add(this._timeRingGroup);
-    this._buildTimeRingLabels();
-  },
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', pos.x); circle.setAttribute('cy', pos.y); circle.setAttribute('r', r);
+      circle.setAttribute('fill', '#c4b5fd');
+      circle.setAttribute('opacity', 0.55 + proximity*0.45);
+      svg.appendChild(circle);
 
-  // ★ 補上時間環沒有標記日期的問題：用跟球體/小球同一套HTML標籤機制，顯示「事件名稱+日期」
-  _buildTimeRingLabels() {
-    const labelLayer = document.getElementById('theater-label-layer');
-    if (!labelLayer || !this._timeRingDots) return;
-    this._timeRingDots.forEach(d => {
-      const label = document.createElement('div');
-      label.className = 'theater-3d-label theater-3d-label-event';
-      const dateStr = d.ev.date ? d.ev.date.slice(5).replace('-', '/') : '';
-      label.innerHTML = `${d.ev.label}<br>${dateStr}（${d.ev.daysUntil}天後）`;
-      labelLayer.appendChild(label);
-      d.labelEl = label;
+      const dateStr = ev.date ? ev.date.slice(5).replace('-', '/') : '';
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', pos.x); text.setAttribute('y', pos.y - r - 6);
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('fill', '#c4b5fd');
+      text.setAttribute('font-size', '10');
+      text.setAttribute('font-weight', '600');
+      text.textContent = `${ev.label} ${dateStr}(${ev.daysUntil}天後)`;
+      svg.appendChild(text);
     });
   },
 
@@ -400,14 +426,6 @@ const Theater = {
         m.labelEl.style.display = mpos.behind ? 'none' : 'block';
       });
     });
-    if (this._timeRingDots) {
-      this._timeRingDots.forEach(d => {
-        if (!d.labelEl) return;
-        const pos = project(d.mesh);
-        d.labelEl.style.transform = `translate(${pos.x}px, ${pos.y - 18}px) translate(-50%, -50%)`;
-        d.labelEl.style.display = pos.behind ? 'none' : 'block';
-      });
-    }
   },
 
   _animate() {
@@ -538,7 +556,7 @@ const Theater = {
     const canvas = document.getElementById(canvasId);
     if (!canvas || !values.length) return;
     const wrap = canvas.parentElement;
-    const W = wrap.clientWidth || 240, H = 64;
+    const W = (wrap.clientWidth || 320) - 44, H = 64; // ★ 修正溢出bug：扣掉面板左右內距(22px×2)
     const dpr = window.devicePixelRatio || 1;
     canvas.width = W * dpr; canvas.height = H * dpr;
     canvas.style.width = W+'px'; canvas.style.height = H+'px';
@@ -564,7 +582,7 @@ const Theater = {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const wrap = canvas.parentElement;
-    const W = wrap.clientWidth || 240, H = 64;
+    const W = (wrap.clientWidth || 320) - 44, H = 64; // ★ 修正溢出bug：扣掉面板左右內距(22px×2)
     const dpr = window.devicePixelRatio || 1;
     canvas.width = W * dpr; canvas.height = H * dpr;
     canvas.style.width = W+'px'; canvas.style.height = H+'px';
@@ -605,7 +623,7 @@ const Theater = {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const wrap = canvas.parentElement;
-    const W = wrap.clientWidth || 240, H = 64;
+    const W = (wrap.clientWidth || 320) - 44, H = 64; // ★ 修正溢出bug：扣掉面板左右內距(22px×2)
     const dpr = window.devicePixelRatio || 1;
     canvas.width = W * dpr; canvas.height = H * dpr;
     canvas.style.width = W+'px'; canvas.style.height = H+'px';
