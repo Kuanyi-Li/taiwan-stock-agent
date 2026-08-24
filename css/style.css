@@ -30,45 +30,55 @@
 .theater-wrap { position: relative; width: 100%; height: calc(100vh - 52px); background: #000; overflow: hidden; }
 #theater-stage { width: 100%; height: 100%; }
 
+/* 修正衛星面板太小的問題：寬度、內距、字級都放大一階 */
 .theater-panel {
-  position: absolute; width: 210px; background: rgba(13,17,23,0.75); border: 1px solid rgba(90,143,192,0.3);
-  border-radius: 12px; padding: 14px 16px; backdrop-filter: blur(6px); color: var(--text-1);
+  position: absolute; width: 280px; background: rgba(13,17,23,0.8); border: 1px solid rgba(90,143,192,0.35);
+  border-radius: 14px; padding: 20px 22px; backdrop-filter: blur(6px); color: var(--text-1);
   transition: border-color 0.2s;
 }
 .theater-panel:hover { border-color: rgba(120,160,210,0.7); }
-.theater-panel-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
-.theater-panel-content { font-size: 12px; color: var(--text-2); line-height: 1.6; min-height: 34px; }
-.theater-panel-dots { display: flex; gap: 5px; margin-top: 10px; }
-.theater-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--bg-3); transition: background 0.2s; }
+.theater-panel-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
+.theater-panel-content { font-size: 15px; color: var(--text-2); line-height: 1.6; min-height: 44px; }
+.theater-panel-dots { display: flex; gap: 6px; margin-top: 12px; }
+.theater-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bg-3); transition: background 0.2s; }
 .theater-dot.active { background: #5a8fc0; }
 
-#theater-panel-asset  { top: 20px; left: 20px; }
-#theater-panel-sector { top: 20px; right: 20px; }
-#theater-panel-flow   { bottom: 76px; left: 20px; }
+#theater-panel-asset  { top: 24px; left: 24px; }
+#theater-panel-sector { top: 24px; right: 24px; }
+#theater-panel-flow   { bottom: 96px; left: 24px; }
 
-#theater-nav-wrap { position: absolute; bottom: 20px; right: 20px; }
+/* 修正選單按鈕太小的問題 */
+#theater-nav-wrap { position: absolute; bottom: 24px; right: 24px; }
 #theater-nav-btn {
-  display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 24px;
-  background: rgba(13,17,23,0.85); border: 1px solid rgba(90,143,192,0.4); color: var(--text-1);
-  font-size: 13px; cursor: pointer; user-select: none; transition: border-color 0.2s;
+  display: flex; align-items: center; gap: 10px; padding: 16px 28px; border-radius: 30px;
+  background: rgba(13,17,23,0.88); border: 1px solid rgba(90,143,192,0.45); color: var(--text-1);
+  font-size: 16px; font-weight: 600; cursor: pointer; user-select: none; transition: border-color 0.2s;
 }
 #theater-nav-btn:hover { border-color: rgba(120,160,210,0.8); }
-.theater-nav-icon { width: 8px; height: 8px; border-radius: 50%; background: #5a8fc0; display: inline-block; }
+.theater-nav-icon { width: 10px; height: 10px; border-radius: 50%; background: #5a8fc0; display: inline-block; }
 #theater-nav-menu {
-  position: absolute; bottom: 52px; right: 0; width: 160px; background: rgba(13,17,23,0.92);
-  border: 1px solid rgba(90,143,192,0.4); border-radius: 10px; padding: 6px;
-  display: none; flex-direction: column; gap: 2px;
+  position: absolute; bottom: 64px; right: 0; width: 200px; background: rgba(13,17,23,0.94);
+  border: 1px solid rgba(90,143,192,0.45); border-radius: 12px; padding: 8px;
+  display: none; flex-direction: column; gap: 3px;
 }
 #theater-nav-menu.show { display: flex; }
 #theater-nav-menu button {
-  background: none; border: none; color: var(--text-1); font-size: 13px; text-align: left;
-  padding: 9px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+  background: none; border: none; color: var(--text-1); font-size: 15px; text-align: left;
+  padding: 12px 14px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 10px;
 }
 #theater-nav-menu button:hover { background: rgba(90,143,192,0.18); }
 
+/* 修正球體上完全沒有字的問題：HTML標籤浮在3D物體對應的螢幕座標上 */
+.theater-3d-label {
+  position: absolute; top: 0; left: 0; transform: translate(-50%, -50%);
+  font-size: 13px; font-weight: 600; color: var(--text-1); text-shadow: 0 0 6px rgba(0,0,0,0.9), 0 0 3px rgba(0,0,0,0.9);
+  white-space: nowrap; pointer-events: none;
+}
+.theater-3d-label-core { font-size: 15px; font-weight: 700; }
+
 @media (max-width: 900px) {
-  .theater-panel { width: 150px; padding: 10px 12px; }
-  .theater-panel-content { font-size: 11px; }
+  .theater-panel { width: 220px; padding: 14px 16px; }
+  .theater-panel-content { font-size: 13px; }
 }
 html { font-size: 14px; }
 body {
