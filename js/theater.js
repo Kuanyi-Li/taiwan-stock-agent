@@ -60,7 +60,7 @@ const Theater = {
     this._scene.fog = new THREE.Fog(0x000000, 6, 16);
 
     this._camera = new THREE.PerspectiveCamera(48, w / h, 0.1, 100);
-    this._camera.position.set(0, 2.4, 10.5);
+    this._camera.position.set(0, 2.0, 8.2); // 修正：星系太小，拉近相機讓整體視覺更大
     this._camera.lookAt(0, 0, 0);
 
     this._renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -82,15 +82,24 @@ const Theater = {
     this._renderer.setSize(w, h);
   },
 
-  _makeWireSphere(radius, color, opacity, latCount = 5, lonCount = 6) {
+  // ★ 修正線條太細的問題：Three.js的linewidth在大多數瀏覽器/顯卡上會被忽略（WebGL已知限制），
+  // 改用「同一條線疊兩次、半徑微調」的方式模擬粗線條效果，這個做法在所有瀏覽器都可靠。
+  // 同時提高透明度、加亮顏色、加密經緯線數量，讓球體視覺上更扎實。
+  _makeWireSphere(radius, color, opacity, latCount = 6, lonCount = 8) {
     const group = new THREE.Group();
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: Math.min(1, opacity + 0.25) });
+    const addThickLine = (pts) => {
+      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+      // 疊一條極微幅放大的線模擬粗細感
+      const ptsOuter = pts.map(p => p.clone().multiplyScalar(1.006));
+      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(ptsOuter), mat));
+    };
     for (let i = 1; i < latCount + 1; i++) {
       const phi = (i / (latCount + 1)) * Math.PI;
       const r = Math.sin(phi) * radius, y = Math.cos(phi) * radius;
       const pts = [];
       for (let a = 0; a <= 48; a++) { const t = (a / 48) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(t) * r, y, Math.sin(t) * r)); }
-      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+      addThickLine(pts);
     }
     for (let i = 0; i < lonCount; i++) {
       const rotY = (i / lonCount) * Math.PI;
@@ -99,6 +108,9 @@ const Theater = {
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
       line.rotation.y = rotY;
       group.add(line);
+      const lineOuter = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(p=>p.clone().multiplyScalar(1.006))), mat);
+      lineOuter.rotation.y = rotY;
+      group.add(lineOuter);
     }
     return group;
   },
@@ -112,6 +124,7 @@ const Theater = {
     if (this._core) this._scene.remove(this._core);
 
     this._core = this._makeWireSphere(1.0, 0x3d6fa8, 0.55, 5, 6);
+    this._core.userData.label = '加權指數';
     this._scene.add(this._core);
 
     // 只用台股持股（美股的軌道/產業分類邏輯之後可以再擴充）
@@ -169,6 +182,63 @@ const Theater = {
       orbitHolder.add(planetGroup);
       this._planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: (i / sectors.length) * Math.PI * 2, speed: 0.0008 + i * 0.0001, moons, sector });
     });
+    this._buildLabels();
+  },
+
+  // ★ 修正球體上完全沒有字的問題：Three.js畫文字很麻煩(要用貼圖或額外的文字幾何體)，
+  // 改用HTML標籤浮在3D物體對應的螢幕座標上，動畫迴圈裡持續更新位置，做法簡單可靠。
+  _buildLabels() {
+    const container = document.getElementById('theater-stage');
+    if (!container) return;
+    let labelLayer = document.getElementById('theater-label-layer');
+    if (!labelLayer) {
+      labelLayer = document.createElement('div');
+      labelLayer.id = 'theater-label-layer';
+      labelLayer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+      container.style.position = 'relative';
+      container.appendChild(labelLayer);
+    }
+    labelLayer.innerHTML = '';
+
+    const coreLabel = document.createElement('div');
+    coreLabel.className = 'theater-3d-label theater-3d-label-core';
+    coreLabel.textContent = '加權指數';
+    labelLayer.appendChild(coreLabel);
+    this._coreLabelEl = coreLabel;
+
+    this._planetGroups.forEach(p => {
+      const label = document.createElement('div');
+      label.className = 'theater-3d-label';
+      label.textContent = p.sector;
+      labelLayer.appendChild(label);
+      p.labelEl = label;
+    });
+  },
+
+  _updateLabels() {
+    if (!this._camera || !this._renderer) return;
+    const container = document.getElementById('theater-stage');
+    if (!container) return;
+    const w = container.clientWidth, h = container.clientHeight;
+
+    const project = (obj3d) => {
+      const vec = new THREE.Vector3();
+      obj3d.getWorldPosition(vec);
+      vec.project(this._camera);
+      return { x: (vec.x * 0.5 + 0.5) * w, y: (-vec.y * 0.5 + 0.5) * h, behind: vec.z > 1 };
+    };
+
+    if (this._coreLabelEl && this._core) {
+      const p = project(this._core);
+      this._coreLabelEl.style.transform = `translate(${p.x}px, ${p.y}px)`;
+      this._coreLabelEl.style.display = p.behind ? 'none' : 'block';
+    }
+    this._planetGroups.forEach(p => {
+      if (!p.labelEl) return;
+      const pos = project(p.group);
+      p.labelEl.style.transform = `translate(${pos.x}px, ${pos.y - 24}px)`;
+      p.labelEl.style.display = pos.behind ? 'none' : 'block';
+    });
   },
 
   _animate() {
@@ -188,6 +258,7 @@ const Theater = {
     });
     if (this._scene) this._scene.rotation.x = 0.06;
     this._renderer.render(this._scene, this._camera);
+    this._updateLabels();
   },
 
   // ── 衛星面板：接真實資料，每個面板2-3則輪播 ──────────────
