@@ -32,7 +32,6 @@
     <button class="dashboard-toggle-btn" id="cal-toggle-btn" onclick="TradeCalendar.toggle()" title="交易與除權息日曆">📅 日曆</button>
     <button class="dashboard-toggle-btn" onclick="Screener.openModal()" title="全市場選股篩選器">🔍 選股</button>
     <button class="dashboard-toggle-btn" onclick="Backtest.toggle()" title="回測現有買賣訊號邏輯">🧪 回測</button>
-    <button class="dashboard-toggle-btn" onclick="Theater.toggle()" title="切換劇場模式（3D視覺化總覽）">🌌 劇場</button>
     <div class="topbar-market" id="tw-market-bar">
       <span class="badge closed" id="mkt-status">休市</span>
       <span class="index-chip" id="taiex-badge">加權 —</span>
@@ -831,6 +830,14 @@
   <div class="modal modal-wide">
     <div class="modal-header"><h3>設定</h3><button class="modal-close" onclick="closeModal('settings-modal')">✕</button></div>
     <div class="modal-body">
+
+      <div class="settings-section">
+        <div class="settings-title">🌌 介面</div>
+        <div class="toggle-row">
+          <span class="toggle-label">劇場模式（3D視覺化總覽）</span>
+          <label class="toggle"><input type="checkbox" id="theater-mode-toggle" onchange="Theater.toggle()"><span class="toggle-slider"></span></label>
+        </div>
+      </div>
 
       <div class="settings-section">
         <div class="settings-title">☁️ 雲端同步（跨裝置 - 全自動）</div>
