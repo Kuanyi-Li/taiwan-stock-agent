@@ -39,6 +39,7 @@
 .theater-panel:hover { border-color: rgba(120,160,210,0.7); }
 .theater-panel-title { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
 .theater-panel-content { font-size: 15px; color: var(--text-2); line-height: 1.6; min-height: 44px; }
+.theater-panel-chart { width: 100%; height: 64px; display: block; margin-bottom: 6px; }
 .theater-panel-dots { display: flex; gap: 6px; margin-top: 12px; }
 .theater-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bg-3); transition: background 0.2s; }
 .theater-dot.active { background: #5a8fc0; }
