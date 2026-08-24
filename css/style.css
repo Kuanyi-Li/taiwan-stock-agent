@@ -379,14 +379,17 @@ body {
 .chart-today-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; font-weight: 500; color: var(--text-2); margin-left: auto; align-items: center; }
 .chart-today-stats .stat-item { white-space: nowrap; }
 .chart-today-stats .stat-item.stat-snapshot { color: var(--text-3); font-size: 0.92em; cursor: help; }
-.chart-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 修正個股頁按鈕群混雜的問題：時間段、均線勾選、K線類型、重設縮放，之前四種完全不同性質
+   的控制項長得一模一樣、擠在同一排沒有分組。改成每一群用淡淡的背景膠囊包起來，
+   群組之間的間距明顯大於群組內部的間距，一眼就能看出「這幾個是一類」。 */
+.chart-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 
-.period-tabs { display: flex; gap: 2px; flex-wrap: wrap; }
-.period-btn { background: none; border: 1px solid var(--border); color: var(--text-2); font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.1s; }
-.period-btn:hover { color: var(--text-1); border-color: var(--border-md); }
-.period-btn.active { background: var(--green-l); color: #fff; border-color: var(--green-l); }
-.chart-type-toggle { display: flex; gap: 2px; }
-.type-btn { background: none; border: 1px solid var(--border); color: var(--text-2); font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.1s; }
+.period-tabs { display: flex; gap: 2px; flex-wrap: wrap; background: var(--bg-2); padding: 3px; border-radius: 8px; }
+.period-btn { background: none; border: none; color: var(--text-2); font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.1s; }
+.period-btn:hover { color: var(--text-1); }
+.period-btn.active { background: var(--green-l); color: #fff; }
+.chart-type-toggle { display: flex; gap: 2px; background: var(--bg-2); padding: 3px; border-radius: 8px; }
+.type-btn { background: none; border: none; color: var(--text-2); font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.1s; }
 .type-btn.active { background: var(--bg-3); color: var(--text-1); }
 .zoom-btn { background: none; border: 1px solid var(--border); color: var(--text-2); font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; }
 .zoom-btn:hover { border-color: var(--amber); color: var(--amber); }
@@ -405,6 +408,7 @@ body {
 .vol-wrap { height: 64px; padding: 0; }
 .vol-wrap canvas { display: block; }
 .ma-legend { display: flex; gap: 8px; padding: 0; font-size: 11px; color: var(--text-2); flex-wrap: wrap; }
+.chart-controls .ma-legend { background: var(--bg-2); padding: 3px 10px; border-radius: 8px; gap: 10px; }
 .ma-legend-compact .ma-checkbox { padding: 2px 6px; font-size: 10px; }
 .ma-legend-hint { padding: 0 12px 6px; font-size: 10px; color: var(--text-3); }
 .ma-checkbox { display: flex; align-items: center; gap: 4px; cursor: pointer; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-3); user-select: none; transition: all 0.15s; }
