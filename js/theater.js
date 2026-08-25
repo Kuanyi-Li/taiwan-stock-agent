@@ -370,7 +370,7 @@ const Theater = {
       // 常數項幾乎不影響最終最細值（0.22×1.5=0.33已經是主要來源）。
       // 改成先把brightness正規化到0~1再套用比例，這樣常數項才是真正的最細值。
       const normBrightness = (brightness - 0.22) / (1 - 0.22);
-      const widthScale = 0.6 + 2.2 * normBrightness; // 最細提高到基準的60%，最粗到280%
+      const widthScale = 0.6 + 1.55 * normBrightness; // 最細維持60%，最粗改回215%
       const halfH = (grad.baseBandWidth / 2) * widthScale;
       const innerR = grad.radius - halfH, outerR = grad.radius + halfH;
       const cosT = Math.cos(t), sinT = Math.sin(t);
@@ -798,7 +798,7 @@ const Theater = {
     // ★ 修正球體中心文字消失的bug：之前檢查時會把「球體自己的實心網格」也算進遮擋物，
     // 但文字就在球心，射線必然先穿過自己的表面，等於每顆球都自己擋住自己的文字。
     // 改成呼叫時可以指定「排除某個網格」（自己），只讓「別的球」有機會擋住這個文字。
-    const isOccluded = (worldPos, excludeMesh) => {
+    const isOccludedByRay = (worldPos, excludeMesh) => {
       if (!this._occluders || !this._occluders.length) return false;
       const dir = worldPos.clone().sub(this._camera.position).normalize();
       const distToTarget = this._camera.position.distanceTo(worldPos);
@@ -808,18 +808,63 @@ const Theater = {
       return hits.length > 0 && hits[0].distance < distToTarget - 0.02;
     };
 
-    const project = (obj3d, ownMesh) => {
-      const vec = new THREE.Vector3();
-      obj3d.getWorldPosition(vec);
-      const worldPos = vec.clone();
+    const projectPoint = (worldPos) => {
+      const vec = worldPos.clone();
       vec.project(this._camera);
-      return { x: (vec.x * 0.5 + 0.5) * w, y: (-vec.y * 0.5 + 0.5) * h, behind: vec.z > 1, occluded: isOccluded(worldPos, ownMesh), worldPos };
+      return { x: (vec.x*0.5+0.5)*w, y: (-vec.y*0.5+0.5)*h, behind: vec.z > 1 };
     };
 
-    // ★ 修正字級沒有真正跟著滾輪縮放的問題：算出球體「螢幕投影後的實際像素半徑」，
-    // 不是用世界座標半徑——這樣不管鏡頭拉近拉遠，字級都會跟著球體實際看起來多大來調整，
-    // 才是真正的「跟著滾輪縮放同步」。
-    const projectedPixelRadius = (worldCenter, worldRadius) => {
+    // ★ 重新設計遮擋判定：之前只測試「精準光線是否穿過正中心那一個點」，
+    // 兩個球體只要沒有精準對齊中心（螢幕上明明已經疊在一起了），判定還是說「沒遮擋」，
+    // 導致文字疊字、小球飄過去文字卻不消失。改成額外加一層「螢幕空間範圍重疊」判定：
+    // 只要有任何一個更靠近鏡頭的球體/小球，投影後的螢幕位置夠接近這段文字，
+    // 不管有沒有精準對齊中心，都算被遮擋。這樣才符合「肉眼看起來重疊了」的直覺。
+    const gatherOccluderCandidates = () => {
+      const list = [];
+      Object.values(this._systems || {}).forEach(sys => {
+        if (!sys.core || !sys.core.visible) return;
+        const coreWorldPos = new THREE.Vector3();
+        sys.core.getWorldPosition(coreWorldPos);
+        const coreDist = this._camera.position.distanceTo(coreWorldPos);
+        const coreScreenR = this._core === sys.core ? 0 : 0; // 佔位，實際半徑下面用geometry算
+        const coreRadius = sys.core.userData.solidMesh?.geometry?.parameters?.radius || 0.3;
+        list.push({ worldPos: coreWorldPos, dist: coreDist, screenPos: projectPoint(coreWorldPos), radius: coreRadius });
+        sys.planetGroups.forEach(p => {
+          const pWorldPos = new THREE.Vector3();
+          p.group.getWorldPosition(pWorldPos);
+          const pDist = this._camera.position.distanceTo(pWorldPos);
+          const pRadius = p.solidMesh?.geometry?.parameters?.radius || 0.2;
+          list.push({ worldPos: pWorldPos, dist: pDist, screenPos: projectPoint(pWorldPos), radius: pRadius });
+          p.moons.forEach(m => {
+            const mWorldPos = new THREE.Vector3();
+            m.mesh.getWorldPosition(mWorldPos);
+            const mDist = this._camera.position.distanceTo(mWorldPos);
+            const mRadius = m.solidMesh?.geometry?.parameters?.radius || 0.05;
+            list.push({ worldPos: mWorldPos, dist: mDist, screenPos: projectPoint(mWorldPos), radius: mRadius });
+          });
+        });
+      });
+      return list;
+    };
+    const occluderCandidates = gatherOccluderCandidates();
+
+    // targetDist: 這段文字對應的球體離鏡頭多遠(用來判斷誰在誰前面)
+    // targetScreenPos: 這段文字的螢幕座標
+    // excludeWorldPos: 排除自己這顆球(不要自己跟自己比對)
+    const isOccludedByProximity = (targetScreenPos, targetDist, excludeWorldPos) => {
+      for (const c of occluderCandidates) {
+        if (excludeWorldPos && c.worldPos.equals(excludeWorldPos)) continue;
+        if (c.dist >= targetDist - 0.01) continue; // 必須比目標更靠近鏡頭，才有資格「擋住」
+        const dx = c.screenPos.x - targetScreenPos.x, dy = c.screenPos.y - targetScreenPos.y;
+        const screenDist = Math.sqrt(dx*dx + dy*dy);
+        // 用這顆遮擋候選球自己的世界半徑，換算成大概的螢幕像素半徑當判定門檻
+        const projR = projectedRadiusPx(c.worldPos, c.radius);
+        if (screenDist < projR * 1.1) return true; // 留一點餘裕(1.1倍)，比精準邊緣再寬鬆一點
+      }
+      return false;
+    };
+
+    const projectedRadiusPx = (worldCenter, worldRadius) => {
       const edge = worldCenter.clone().add(new THREE.Vector3(worldRadius, 0, 0));
       const vC = worldCenter.clone().project(this._camera);
       const vE = edge.project(this._camera);
@@ -827,6 +872,21 @@ const Theater = {
       const pxE = { x: (vE.x*0.5+0.5)*w, y: (-vE.y*0.5+0.5)*h };
       return Math.sqrt((pxE.x-pxC.x)**2 + (pxE.y-pxC.y)**2);
     };
+
+    const project = (obj3d, ownMesh) => {
+      const vec = new THREE.Vector3();
+      obj3d.getWorldPosition(vec);
+      const worldPos = vec.clone();
+      const screenPos = projectPoint(worldPos);
+      const dist = this._camera.position.distanceTo(worldPos);
+      const occluded = isOccludedByRay(worldPos, ownMesh) || isOccludedByProximity(screenPos, dist, worldPos);
+      return { x: screenPos.x, y: screenPos.y, behind: screenPos.behind, occluded, worldPos };
+    };
+
+    // ★ 修正字級沒有真正跟著滾輪縮放的問題：算出球體「螢幕投影後的實際像素半徑」，
+    // 不是用世界座標半徑——這樣不管鏡頭拉近拉遠，字級都會跟著球體實際看起來多大來調整，
+    // 才是真正的「跟著滾輪縮放同步」。（跟上面的projectedRadiusPx是同一件事，直接沿用）
+    const projectedPixelRadius = projectedRadiusPx;
 
     // ★ 遍歷全部星系（台股+美股）分別更新標籤位置/遮擋判定；不可見的星系直接隱藏標籤跳過計算
     Object.values(this._systems || {}).forEach(sys => {
