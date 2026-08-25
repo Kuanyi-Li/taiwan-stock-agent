@@ -45,6 +45,15 @@ const Theater = {
   onEnter() {
     this._isActive = true;
     document.body.classList.add('theater-active');
+    // ★ 修正切換按鈕位置一直沒生效的問題：.topbar有backdrop-filter，這個屬性會讓
+    // position:fixed的子元素被限制在.topbar自己的範圍內，跳不出去（CSS的containing block
+    // 特性），單靠CSS改不了，只能用JS把元素直接搬出.topbar、移到body底下。
+    const marketSwitch = document.querySelector('.market-switch');
+    if (marketSwitch && marketSwitch.parentElement !== document.body) {
+      this._marketSwitchOriginalParent = marketSwitch.parentElement;
+      this._marketSwitchOriginalNextSibling = marketSwitch.nextSibling;
+      document.body.appendChild(marketSwitch);
+    }
     if (!this._scene) this._initScene();
     // ★ 兩個星系都要建立（台股+美股），不是只建當下市場那一個，
     // 這樣切換市場時才能直接讓攝影機飛過去，不用重新建構
@@ -53,6 +62,7 @@ const Theater = {
     this._buildLabels();
     if (!this._currentMarket) this._currentMarket = APP.activeMarket || 'TW';
     this._setCameraToMarket(this._currentMarket, false); // 進入時直接定位，不用動畫
+    this._applySystemVisibility(); // ★ 只顯示目前市場的星系
     this._startPanels();
     if (!this._animId) this._animate();
     const btn = document.getElementById('theater-lock-btn');
@@ -62,6 +72,11 @@ const Theater = {
   onExit() {
     this._isActive = false;
     document.body.classList.remove('theater-active');
+    // 把切換按鈕搬回原本在topbar裡的位置
+    const marketSwitch = document.querySelector('.market-switch');
+    if (marketSwitch && this._marketSwitchOriginalParent) {
+      this._marketSwitchOriginalParent.insertBefore(marketSwitch, this._marketSwitchOriginalNextSibling);
+    }
     this._panelIntervals.forEach(id => clearInterval(id));
     this._panelIntervals = [];
     if (this._animId) { cancelAnimationFrame(this._animId); this._animId = null; }
@@ -75,6 +90,17 @@ const Theater = {
   _setCameraToMarket(market, animate) {
     const offset = market === 'US' ? this._US_OFFSET : this._TW_OFFSET;
     this._cameraLookAt = { x: offset.x, y: offset.y, z: offset.z };
+  },
+
+  // ★ 修正台股模式會同時看到美股星系(反之亦然)的問題：只顯示目前市場的星系，
+  // 另一個設成不可見。飛行動畫進行中例外——兩個都先顯示，這樣飛過去的路上才有東西可看，
+  // 不是穿過一片空無一物的黑，抵達後再把離開的那個藏起來。
+  _applySystemVisibility(showBoth) {
+    Object.entries(this._systems || {}).forEach(([market, sys]) => {
+      const visible = showBoth || market === this._currentMarket;
+      if (sys.core) sys.core.visible = visible;
+      sys.planetGroups.forEach(p => { p.orbitHolder.visible = visible; });
+    });
   },
 
   // ★ 攝影機動畫：從目前星系飛到目標市場的星系，做出「飛向右上方另一個星系」的感覺。
@@ -93,6 +119,7 @@ const Theater = {
 
     const startLookAt = this._cameraLookAt ? { ...this._cameraLookAt } : { x: 0, y: 0, z: 0 };
     const endLookAt = { x: toOffset.x, y: toOffset.y, z: toOffset.z };
+    this._applySystemVisibility(true); // 飛行途中兩個星系都先顯示
 
     if (this._flyAnimId) cancelAnimationFrame(this._flyAnimId);
     const duration = 1600; // ms
@@ -108,7 +135,7 @@ const Theater = {
         z: startLookAt.z + (endLookAt.z - startLookAt.z) * e,
       };
       if (t < 1) { this._flyAnimId = requestAnimationFrame(step); }
-      else { this._flyAnimId = null; }
+      else { this._flyAnimId = null; this._applySystemVisibility(false); } // 抵達後只留目前市場的星系
     };
     this._flyAnimId = requestAnimationFrame(step);
   },
@@ -122,11 +149,23 @@ const Theater = {
 
     this._scene = new THREE.Scene();
     this._scene.background = new THREE.Color(0x000000);
-    this._scene.fog = new THREE.Fog(0x000000, 8, 22);
+    // ★ 修正縮小時中大球消失的問題：霧化範圍(22)太近，縮放距離最大到20+星系本身的展開範圍，
+    // 很容易就超過22整個被霧蓋住看不見。大幅拉遠霧化終點，確保縮放範圍內都不會被霧吃掉。
+    this._scene.fog = new THREE.Fog(0x000000, 15, 55);
 
-    // ★ 修正背景太空的問題：星星數量從800加到1800、放大size增加可見度，
-    // 另外加一層更靠近、更亮的「近景星點」製造前後兩層的縱深差異，不是單一平面的星點。
-    // 再加一顆極大、極淡的背景光暈球，模擬星雲氛圍，填補純黑背景的空洞感。
+    // ★ 修正灰色小方塊漂過去的問題：PointsMaterial沒有貼圖時，每個點預設會畫成正方形，
+    // 不是圓形。用canvas畫一張圓形漸層貼圖當作點的材質貼圖，星星才會是圓點不是小方塊。
+    const starCanvas = document.createElement('canvas');
+    starCanvas.width = 32; starCanvas.height = 32;
+    const sctx = starCanvas.getContext('2d');
+    const grad = sctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.4, 'rgba(255,255,255,0.6)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    sctx.fillStyle = grad;
+    sctx.fillRect(0, 0, 32, 32);
+    const starTexture = new THREE.CanvasTexture(starCanvas);
+
     const starGeo = new THREE.BufferGeometry();
     const starCount = 1800;
     const starPositions = new Float32Array(starCount * 3);
@@ -139,7 +178,7 @@ const Theater = {
       starPositions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-    const starMat = new THREE.PointsMaterial({ color: 0x9aa8ba, size: 0.06, transparent: true, opacity: 0.7 });
+    const starMat = new THREE.PointsMaterial({ color: 0x9aa8ba, size: 0.06, map: starTexture, transparent: true, opacity: 0.7, depthWrite: false });
     this._stars = new THREE.Points(starGeo, starMat);
     this._scene.add(this._stars);
 
@@ -261,18 +300,28 @@ const Theater = {
   // ★ 放棄疊線模擬粗細的做法：不管偏移多小，還是會被看出是兩條分開的線
   // （這是WebGL渲染的已知限制，硬解決風險太高）。改回單線，靠拉高不透明度上限
   // 讓「亮的那段」感覺更扎實醒目，用亮度對比代替真正的粗細。
-  _makeGradientOrbit(radius, colorHex, segments = 64) {
-    const positions = [], colors = [];
+  // ★ 真正做出粗細：Line的linewidth在大多數瀏覽器/顯卡會被忽略，這是WebGL的已知限制，
+  // 不管怎麼調整都不可靠。改用「真正的三角形網格」做一條有實際寬度的細緞帶(跟小球環的
+  // RingGeometry是同樣的思路)，寬度是真實幾何尺寸，保證在任何裝置上都看得到粗細。
+  _makeGradientOrbit(radius, colorHex, segments = 64, bandWidth = 0.035) {
+    const positions = [], colors = [], indices = [];
     for (let a = 0; a <= segments; a++) {
       const t = (a / segments) * Math.PI * 2;
-      positions.push(Math.cos(t) * radius, 0, Math.sin(t) * radius);
-      colors.push(0, 0, 0);
+      const innerR = radius - bandWidth / 2, outerR = radius + bandWidth / 2;
+      positions.push(Math.cos(t) * innerR, 0, Math.sin(t) * innerR); // 內緣頂點
+      positions.push(Math.cos(t) * outerR, 0, Math.sin(t) * outerR); // 外緣頂點
+      colors.push(0,0,0, 0,0,0); // 內外緣各一組顏色
+      if (a < segments) {
+        const i0 = a*2, i1 = a*2+1, i2 = (a+1)*2, i3 = (a+1)*2+1;
+        indices.push(i0,i1,i2, i1,i3,i2); // 兩個三角形拼成一段緞帶
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 1 });
-    return { line: new THREE.Line(geo, mat), geos: [geo], segments, baseColor: new THREE.Color(colorHex) };
+    geo.setIndex(indices);
+    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, side: THREE.DoubleSide });
+    return { line: new THREE.Mesh(geo, mat), geos: [geo], segments, baseColor: new THREE.Color(colorHex), isRibbon: true };
   },
 
   // ★ 修正變淺的部分太淡幾乎消失的問題：最暗的底線亮度從0.04拉高到0.22，
@@ -290,7 +339,11 @@ const Theater = {
       }
       const raw = Math.max(0, 1 - minDist / hotZone);
       const brightness = Math.max(0.22, Math.pow(raw, 1.6));
-      grad.geos.forEach(geo => geo.attributes.color.setXYZ(a, base.r * brightness, base.g * brightness, base.b * brightness));
+      // ★ 緞帶版每個角度有內外緣兩個頂點(索引a*2、a*2+1)，兩個都要設定同樣亮度
+      grad.geos.forEach(geo => {
+        geo.attributes.color.setXYZ(a*2, base.r*brightness, base.g*brightness, base.b*brightness);
+        geo.attributes.color.setXYZ(a*2+1, base.r*brightness, base.g*brightness, base.b*brightness);
+      });
     }
     grad.geos.forEach(geo => { geo.attributes.color.needsUpdate = true; });
   },
@@ -385,7 +438,7 @@ const Theater = {
       // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
       // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
       // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
-      const orbitGradient = this._makeGradientOrbit(orbitR, color);
+      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.05);
       orbitHolder.add(orbitGradient.line);
 
       // ★ 中球大小：這個產業佔投組總市值的比例
@@ -405,9 +458,16 @@ const Theater = {
 
       const moonOrbitR = sphereSize + 0.32;
       // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
-      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color);
+      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.02);
       planetGroup.add(moonRingGradient.line);
 
+      // ★ 母球方向要先算出來，小球才能直接引用同一個方向
+      const direction = (seed % 2 === 0) ? 1 : -1;
+
+      // ★ 修正小球運動方向不一致的問題：之前每顆小球各自獨立決定方向、速度還跟著漲跌幅變化，
+      // 使用者要求「同一個母球底下的小球方向要一致、等間距、同速率」。改成全部小球共用
+      // 母球的direction，速度也固定一個值，不再用chgPct或各自的種子決定。
+      const MOON_SPEED = 0.018;
       const moons = stocks.map((s, j) => {
         const chgPct = s.price && s.prevClose ? (s.price - s.prevClose) / s.prevClose * 100 : 0;
         const isUp = chgPct >= 0;
@@ -433,13 +493,10 @@ const Theater = {
         moon.add(new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: moonColorDark })));
         const moonEdges = new THREE.EdgesGeometry(moonGeo);
         moon.add(new THREE.LineSegments(moonEdges, new THREE.LineBasicMaterial({ color: moonColor })));
-        moon.userData.spinSpeed = 0.01 + Math.random() * 0.015;
+        moon.userData.spinSpeed = 0.01 + Math.random() * 0.015; // 這是小球自轉(展示切面用)，跟公轉方向是兩回事，維持各自不同沒關係
 
-        const angle = (j / stocks.length) * Math.PI * 2;
-        // ★ 小球公轉方向也各自獨立（用股票代號當種子，固定不變，不用Math.random避免每次重建就變）
-        const moonSeed = s.code.charCodeAt(0) + s.code.charCodeAt(s.code.length-1);
-        const moonDirection = (moonSeed % 2 === 0) ? 1 : -1;
-        const speed = (0.012 + Math.min(0.03, Math.abs(chgPct) * 0.004)) * moonDirection;
+        const angle = (j / stocks.length) * Math.PI * 2; // 已經是等間距分佈
+        const speed = MOON_SPEED * direction; // 跟母球同方向、固定速率
         planetGroup.add(moon);
         const spokeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22 });
         const spoke = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(moonOrbitR,0,0)]), spokeMat);
@@ -448,9 +505,6 @@ const Theater = {
       });
 
       orbitHolder.add(planetGroup);
-      // ★ 混合順逆時鐘方向：全部同方向轉太機械化，改成每個產業各自(用seed決定，
-      // 固定不會每次重建就變來變去)決定順時鐘或逆時鐘公轉，看起來更自然、有生命感
-      const direction = (seed % 2 === 0) ? 1 : -1;
       sys.planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: (i / sectors.length) * Math.PI * 2, speed: (0.0008 + i * 0.0001) * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh, orbitGradient, moonRingGradient });
     });
     this._buildTimeRing();
@@ -641,8 +695,16 @@ const Theater = {
       return { x: (vec.x * 0.5 + 0.5) * w, y: (-vec.y * 0.5 + 0.5) * h, behind: vec.z > 1, occluded: isOccluded(worldPos, ownMesh) };
     };
 
-    // ★ 遍歷全部星系（台股+美股）分別更新標籤位置/遮擋判定
+    // ★ 遍歷全部星系（台股+美股）分別更新標籤位置/遮擋判定；不可見的星系直接隱藏標籤跳過計算
     Object.values(this._systems || {}).forEach(sys => {
+      if (sys.core && !sys.core.visible) {
+        if (sys.coreLabelEl) sys.coreLabelEl.style.display = 'none';
+        sys.planetGroups.forEach(p => {
+          if (p.labelEl) p.labelEl.style.display = 'none';
+          p.moons.forEach(m => { if (m.labelEl) m.labelEl.style.display = 'none'; });
+        });
+        return;
+      }
       if (sys.coreLabelEl && sys.core) {
         const p = project(sys.core, sys.core.userData.solidMesh);
         sys.coreLabelEl.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
