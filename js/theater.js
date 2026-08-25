@@ -341,9 +341,11 @@ const Theater = {
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.setIndex(indices);
     geo.computeVertexNormals();
-    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
     // ★ 記下半徑跟基準粗細，供每一幀重新計算「粗細也跟著亮度變化」用
-    return { line: new THREE.Mesh(geo, mat), geos: [geo], segments, baseColor: new THREE.Color(colorHex), vertsPerStep: 4, radius, baseBandWidth: bandWidth };
+    // ★ 顏色更淺：往白色混一點，不是純粹只靠透明度變淡
+    const lightenedColor = new THREE.Color(colorHex).lerp(new THREE.Color(0xffffff), 0.25);
+    return { line: new THREE.Mesh(geo, mat), geos: [geo], segments, baseColor: lightenedColor, vertsPerStep: 4, radius, baseBandWidth: bandWidth };
   },
 
   // ★ 修正粗細沒有跟著變化的問題：之前只有顏色在漸層，粗細是固定值。
@@ -364,7 +366,7 @@ const Theater = {
       const raw = Math.max(0, 1 - minDist / hotZone);
       const brightness = Math.max(0.22, Math.pow(raw, 1.6));
       // 粗細跟著同一個brightness縮放：最粗是基準寬度，最細縮到基準的25%（不會細到完全消失）
-      const widthScale = 0.04 + 1.5 * brightness; // 修正重疊時視覺干擾：最細降到基準的4%(幾乎無感)，最粗維持明顯
+      const widthScale = 0.02 + 1.5 * brightness; // 最細降到基準的2%
       const halfH = (grad.baseBandWidth / 2) * widthScale;
       const innerR = grad.radius - halfH, outerR = grad.radius + halfH;
       const cosT = Math.cos(t), sinT = Math.sin(t);
@@ -422,7 +424,10 @@ const Theater = {
     const idxChgPct = (indexData?.price && indexData?.prevClose) ? (indexData.price - indexData.prevClose) / indexData.prevClose * 100 : 0;
     const coreColor = idxChgPct >= 0 ? 0xd9534f : 0x3d9970;
     const coreSize = 0.65 + Math.min(0.35, Math.abs(idxChgPct) * 0.12);
-    sys.core = this._makeWireSphere(coreSize, coreColor, 0.6, 3);
+    // ★ 球體視覺放大：只放大實際畫出來的幾何體，軌道間距計算用的coreSize維持不變，
+    // 不會影響已經驗證過的防撞安全間距
+    const VISUAL_SCALE = 1.18;
+    sys.core = this._makeWireSphere(coreSize * VISUAL_SCALE, coreColor, 0.6, 3);
     sys.core.userData.spinSpeed = 0.0008 + Math.min(0.0015, Math.abs(idxChgPct) * 0.0003);
     sys.core.position.set(offset.x, offset.y, offset.z);
     this._scene.add(sys.core);
@@ -524,7 +529,7 @@ const Theater = {
       // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
       // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
       // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
-      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.07);
+      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.007);
       orbitHolder.add(orbitGradient.line);
 
       // ★ 直接沿用預先算好的sizeInfo，不要重新算一次——要確保球體實際大小
@@ -535,14 +540,14 @@ const Theater = {
       // ★ 修正中球長得太像的問題：每個產業用不同的切面細分數量(0/1/2輪流)，
       // 就算顏色接近，切面密度不同也能幫助分辨是哪一顆
       const detailLevel = i % 3;
-      const industrySphere = this._makeWireSphere(sphereSize, color, 0.7, detailLevel);
+      const industrySphere = this._makeWireSphere(sphereSize * VISUAL_SCALE, color, 0.7, detailLevel);
       planetGroup.add(industrySphere);
       this._occluders.push(industrySphere.userData.solidMesh);
       sys.occluders.push(industrySphere.userData.solidMesh);
 
       const moonOrbitR = sphereSize + 0.32;
       // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
-      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.02);
+      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.002);
       planetGroup.add(moonRingGradient.line);
 
       // ★ 方向由所在半區決定（不是隨機），前半順時鐘、後半逆時鐘，
@@ -557,7 +562,7 @@ const Theater = {
         // ★ 漲跌幅度改用顏色鮮豔度表達：波動小(接近平盤)顏色偏灰濁，波動大顏色越鮮豔飽和，
         // 5%以上視為最大強度
         const intensity = Math.min(1, Math.abs(chgPct) / 5);
-        const mutedColor = isUp ? new THREE.Color(0x8a5f5c) : new THREE.Color(0x4d6e63);
+        const mutedColor = isUp ? new THREE.Color(0x8f5a56) : new THREE.Color(0x4a7a5f);
         const vividColor = isUp ? new THREE.Color(0xe0524f) : new THREE.Color(0x1d9e75);
         const moonColor = mutedColor.clone().lerp(vividColor, intensity);
         const moonColorDark = moonColor.clone().multiplyScalar(0.35);
@@ -571,7 +576,8 @@ const Theater = {
         const size = 0.045 + Math.min(0.11, stockWeight * 0.28);
 
         // ★ 修正小球太陽春的問題：改用八面體(稜角分明的幾何造型)取代純圓球
-        const moonGeo = new THREE.OctahedronGeometry(size, 0);
+        // 視覺放大，跟中球/核心球一樣的邏輯
+        const moonGeo = new THREE.OctahedronGeometry(size * VISUAL_SCALE, 0);
         const moon = new THREE.Group();
         moon.add(new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: moonColorDark })));
         const moonEdges = new THREE.EdgesGeometry(moonGeo);
@@ -623,9 +629,15 @@ const Theater = {
         label.className = 'theater-3d-label';
         label.textContent = p.sector;
         // ★ 修正中球文字大小固定、跟球體大小不成比例的問題：依實際球體半徑動態算字級，
-        // 球越大字越大，小球體對應的產業名稱也不會顯得過度搶戲
+        // 球越大字越大。同時加上最大寬度限制+超出時省略號，因為球體螢幕投影大小
+        // 會隨鏡頭縮放變動，單純靠世界座標半徑沒辦法100%保證任何情況下都不超出，
+        // 這裡用最大寬度當一個保險，長產業名稱(比如「電源供應/電子零組件」)才不會爆版。
         const sphereRadius = p.solidMesh?.geometry?.parameters?.radius || 0.3;
-        label.style.fontSize = `${Math.round(11 + sphereRadius * 14)}px`;
+        label.style.fontSize = `${Math.round(10 + sphereRadius * 11)}px`;
+        label.style.maxWidth = `${Math.round(sphereRadius * 130)}px`;
+        label.style.overflow = 'hidden';
+        label.style.textOverflow = 'ellipsis';
+        label.style.whiteSpace = 'nowrap';
         labelLayer.appendChild(label);
         p.labelEl = label;
 
@@ -636,7 +648,7 @@ const Theater = {
           moonLabel.innerHTML = `${m.name || m.code}<br>${m.chgPct>=0?'+':''}${m.chgPct.toFixed(1)}%`;
           moonLabel.style.color = m.chgPct >= 0 ? '#e0524f' : '#1d9e75';
           // ★ 加白色細框增加可讀性：用text-shadow模擬描邊效果(往四個方向各偏移一點白色陰影)
-          moonLabel.style.textShadow = '0 0 2px #fff, 0 0 2px #fff, 1px 1px 1px #fff, -1px -1px 1px #fff, 1px -1px 1px #fff, -1px 1px 1px #fff';
+          moonLabel.style.textShadow = '0 0 1.2px #fff, 0 0 1.2px #fff';
           labelLayer.appendChild(moonLabel);
           m.labelEl = moonLabel;
         });
