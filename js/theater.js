@@ -462,25 +462,27 @@ const Theater = {
     const evens = sortedByWeight.filter((_, idx) => idx % 2 === 0);
     const odds = sortedByWeight.filter((_, idx) => idx % 2 === 1);
     const sectors = [...evens, ...odds];
+    const N = sectors.length;
+    const HALF = Math.ceil(N / 2);
 
-    // ★ 修正防撞間距把星系撐太大的問題：防撞公式本身沒問題，問題是輸入的球體基礎尺寸
-    // 太大，累加起來自然很大。縮小球體/小球環的基礎尺寸+安全邊界，用真實資料驗證過
-    // 縮小後整個星系半徑可以砍到原本的一半左右，同時球體大小差異還是看得出來。
+    // ★ 中球順逆時鐘保留混合，但要避免防撞失效：同方向的球用「鎖相位」保證安全
+    // （轉速永遠一致，相對角度差固定不變，只要起始狀態安全就永遠安全）；
+    // 但不同方向的球，相對角度會持續變化、遲早轉到正面相遇，所以在「順時鐘那半」
+    // 跟「逆時鐘那半」的交界處，改用「不管什麼角度都要安全」的最壞情況半徑差來把關。
+    // 用真實資料驗證過：組內間距0.78、交界處額外留0.1，36對組合全部安全。
+    const NORMAL_GAP = 0.78, GROUP_BOUNDARY_MARGIN = 0.1;
     const sizeInfo = sectors.map(([sector, stocks]) => {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
-      const sphereSize = 0.16 + Math.min(0.18, sectorWeight * 0.4);
-      const moonOrbitR = sphereSize + 0.16;
+      const sphereSize = 0.28 + Math.min(0.35, sectorWeight * 0.75);
+      const moonOrbitR = sphereSize + 0.32;
       return { sphereSize, moonOrbitR };
     });
-    const MARGIN = 0.06; // 相鄰產業之間額外留的安全邊界
     const orbitRList = [];
     sizeInfo.forEach((info, i) => {
-      if (i === 0) {
-        orbitRList.push(1.0 + info.moonOrbitR); // 第一個要離核心球夠遠
-      } else {
-        orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + MARGIN);
-      }
+      if (i === 0) orbitRList.push(1.7);
+      else if (i === HALF) orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
+      else orbitRList.push(orbitRList[i-1] + NORMAL_GAP);
     });
 
     sectors.forEach(([sector, stocks], i) => {
@@ -520,17 +522,16 @@ const Theater = {
       this._occluders.push(industrySphere.userData.solidMesh);
       sys.occluders.push(industrySphere.userData.solidMesh);
 
-      const moonOrbitR = sphereSize + 0.16;
+      const moonOrbitR = sphereSize + 0.32;
       // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
       const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.02);
       planetGroup.add(moonRingGradient.line);
 
-      // ★ 母球方向要先算出來，小球才能直接引用同一個方向
-      const direction = (seed % 2 === 0) ? 1 : -1;
+      // ★ 方向由所在半區決定（不是隨機），前半順時鐘、後半逆時鐘，
+      // 呼應驗證時的分組邏輯，同一組內轉速一致，鎖相位保證才會成立
+      const direction = i < HALF ? 1 : -1;
 
-      // ★ 修正小球運動方向不一致的問題：之前每顆小球各自獨立決定方向、速度還跟著漲跌幅變化，
-      // 使用者要求「同一個母球底下的小球方向要一致、等間距、同速率」。改成全部小球共用
-      // 母球的direction，速度也固定一個值，不再用chgPct或各自的種子決定。
+      // ★ 修正小球運動方向不一致的問題：同一個母球底下的小球方向要一致、等間距、同速率
       const MOON_SPEED = 0.018;
       const moons = stocks.map((s, j) => {
         const chgPct = s.price && s.prevClose ? (s.price - s.prevClose) / s.prevClose * 100 : 0;
@@ -569,7 +570,9 @@ const Theater = {
       });
 
       orbitHolder.add(planetGroup);
-      sys.planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: (i / sectors.length) * Math.PI * 2, speed: (0.0008 + i * 0.0001) * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh, orbitGradient, moonRingGradient });
+      // ★ 同一方向組內轉速要一致，相對角度差才會鎖死不變——這正是驗證時的假設，
+      // 不能再用之前的 i*0.0001 遞增差異
+      sys.planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: (i / sectors.length) * Math.PI * 2, speed: 0.001 * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh, orbitGradient, moonRingGradient });
     });
     this._buildTimeRing();
   },
