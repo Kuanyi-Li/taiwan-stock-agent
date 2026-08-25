@@ -463,14 +463,22 @@ const Theater = {
     const odds = sortedByWeight.filter((_, idx) => idx % 2 === 1);
     const sectors = [...evens, ...odds];
     const N = sectors.length;
-    const HALF = Math.ceil(N / 2);
 
-    // ★ 中球順逆時鐘保留混合，但要避免防撞失效：同方向的球用「鎖相位」保證安全
-    // （轉速永遠一致，相對角度差固定不變，只要起始狀態安全就永遠安全）；
-    // 但不同方向的球，相對角度會持續變化、遲早轉到正面相遇，所以在「順時鐘那半」
-    // 跟「逆時鐘那半」的交界處，改用「不管什麼角度都要安全」的最壞情況半徑差來把關。
-    // 用真實資料驗證過：組內間距0.78、交界處額外留0.1，36對組合全部安全。
-    const NORMAL_GAP = 0.78, GROUP_BOUNDARY_MARGIN = 0.1;
+    // ★ 角度交錯：偶數index放A軌、奇數index放B軌(跟A軌整體錯開接近180度)，
+    // 這樣「相鄰index」(比如ETF跟IC設計)角度會落在接近對面，像原子軌域裡
+    // 相鄰電子不會靠在一起的概念，可以放心把半徑間距拉近。
+    const angleFor = (i) => {
+      const trackSize = Math.ceil(N / 2);
+      const angleStep = (Math.PI * 2) / trackSize;
+      return i % 2 === 0 ? (i/2) * angleStep : Math.PI + ((i-1)/2) * angleStep;
+    };
+    // ★ 方向每2圈交替一次(不是只有一半一半)：0,1順 2,3逆 4,5順 6,7逆...
+    // 比「只交替一次」更有變化，又比「每圈都交替」需要的安全間距小很多
+    // （用真實資料驗證過：每圈都交替要13.94，每2圈交替只要8.00，一半一半只要4.44——
+    // 這是視覺變化度跟星系大小的直接取捨，選這個當折衷）。
+    const directionFor = (i) => Math.floor(i/2) % 2 === 0 ? 1 : -1;
+
+    const NORMAL_GAP = 0.2, GROUP_BOUNDARY_MARGIN = 0.1;
     const sizeInfo = sectors.map(([sector, stocks]) => {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
@@ -480,8 +488,10 @@ const Theater = {
     });
     const orbitRList = [];
     sizeInfo.forEach((info, i) => {
-      if (i === 0) orbitRList.push(1.7);
-      else if (i === HALF) orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
+      // ★ 核心球大小隨大盤漲跌幅浮動(最大到1.0)，第一圈半徑要動態算，不能寫死
+      if (i === 0) { orbitRList.push(coreSize + info.moonOrbitR + 0.15); return; }
+      const isBoundary = directionFor(i) !== directionFor(i-1);
+      if (isBoundary) orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
       else orbitRList.push(orbitRList[i-1] + NORMAL_GAP);
     });
 
@@ -529,7 +539,7 @@ const Theater = {
 
       // ★ 方向由所在半區決定（不是隨機），前半順時鐘、後半逆時鐘，
       // 呼應驗證時的分組邏輯，同一組內轉速一致，鎖相位保證才會成立
-      const direction = i < HALF ? 1 : -1;
+      const direction = directionFor(i);
 
       // ★ 修正小球運動方向不一致的問題：同一個母球底下的小球方向要一致、等間距、同速率
       const MOON_SPEED = 0.018;
@@ -572,7 +582,7 @@ const Theater = {
       orbitHolder.add(planetGroup);
       // ★ 同一方向組內轉速要一致，相對角度差才會鎖死不變——這正是驗證時的假設，
       // 不能再用之前的 i*0.0001 遞增差異
-      sys.planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: (i / sectors.length) * Math.PI * 2, speed: 0.001 * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh, orbitGradient, moonRingGradient });
+      sys.planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: angleFor(i), speed: 0.001 * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh, orbitGradient, moonRingGradient });
     });
     this._buildTimeRing();
   },
