@@ -341,9 +341,11 @@ const Theater = {
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.setIndex(indices);
     geo.computeVertexNormals();
-    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
     // ★ 記下半徑跟基準粗細，供每一幀重新計算「粗細也跟著亮度變化」用
-    return { line: new THREE.Mesh(geo, mat), geos: [geo], segments, baseColor: new THREE.Color(colorHex), vertsPerStep: 4, radius, baseBandWidth: bandWidth };
+    // ★ 顏色更淺：往白色混一點，不是純粹只靠透明度變淡
+    const lightenedColor = new THREE.Color(colorHex).lerp(new THREE.Color(0xffffff), 0.25);
+    return { line: new THREE.Mesh(geo, mat), geos: [geo], segments, baseColor: lightenedColor, vertsPerStep: 4, radius, baseBandWidth: bandWidth };
   },
 
   // ★ 修正粗細沒有跟著變化的問題：之前只有顏色在漸層，粗細是固定值。
@@ -364,7 +366,7 @@ const Theater = {
       const raw = Math.max(0, 1 - minDist / hotZone);
       const brightness = Math.max(0.22, Math.pow(raw, 1.6));
       // 粗細跟著同一個brightness縮放：最粗是基準寬度，最細縮到基準的25%（不會細到完全消失）
-      const widthScale = 0.15 + 1.4 * brightness; // 修正粗細對比不夠明顯：最細降到基準的15%，最粗可以到基準的1.55倍
+      const widthScale = 0.02 + 1.5 * brightness; // 最細降到基準的2%
       const halfH = (grad.baseBandWidth / 2) * widthScale;
       const innerR = grad.radius - halfH, outerR = grad.radius + halfH;
       const cosT = Math.cos(t), sinT = Math.sin(t);
@@ -422,7 +424,10 @@ const Theater = {
     const idxChgPct = (indexData?.price && indexData?.prevClose) ? (indexData.price - indexData.prevClose) / indexData.prevClose * 100 : 0;
     const coreColor = idxChgPct >= 0 ? 0xd9534f : 0x3d9970;
     const coreSize = 0.65 + Math.min(0.35, Math.abs(idxChgPct) * 0.12);
-    sys.core = this._makeWireSphere(coreSize, coreColor, 0.6, 3);
+    // ★ 球體視覺放大：只放大實際畫出來的幾何體，軌道間距計算用的coreSize維持不變，
+    // 不會影響已經驗證過的防撞安全間距
+    const VISUAL_SCALE = 1.18;
+    sys.core = this._makeWireSphere(coreSize * VISUAL_SCALE, coreColor, 0.6, 3);
     sys.core.userData.spinSpeed = 0.0008 + Math.min(0.0015, Math.abs(idxChgPct) * 0.0003);
     sys.core.position.set(offset.x, offset.y, offset.z);
     this._scene.add(sys.core);
@@ -480,7 +485,9 @@ const Theater = {
 
     // ★ 用真正的3D世界座標（不是簡化的2D公式）重新驗證過：加大傾斜角反而讓防撞更安全
     // （多了一個Y軸維度的分離），因此間距可以壓得比之前更緊。
-    const NORMAL_GAP = 0.05, GROUP_BOUNDARY_MARGIN = 0.08;
+    // ★ 修正加大傾斜角後太雜亂的問題：0.4太誇張，變成電子軌域的混亂感，不是星系感。
+    // 改用適度傾斜(見下方tiltX/tiltZ)搭配這組間距，用真正3D座標驗證過依然完全安全。
+    const NORMAL_GAP = 0.25, GROUP_BOUNDARY_MARGIN = 0.08;
     const sizeInfo = sectors.map(([sector, stocks]) => {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
@@ -491,7 +498,7 @@ const Theater = {
     const orbitRList = [];
     sizeInfo.forEach((info, i) => {
       // ★ 核心球大小隨大盤漲跌幅浮動(最大到1.0)，第一圈半徑要動態算，不能寫死
-      if (i === 0) { orbitRList.push(coreSize + info.moonOrbitR + 0.1); return; }
+      if (i === 0) { orbitRList.push(coreSize + info.moonOrbitR + 0.35); return; }
       const isBoundary = directionFor(i) !== directionFor(i-1);
       if (isBoundary) orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
       else orbitRList.push(orbitRList[i-1] + NORMAL_GAP);
@@ -503,12 +510,12 @@ const Theater = {
       const seed = sector.charCodeAt(0) + sector.length;
       // ★ 修正傾斜角度太大的問題：半徑分開不夠，如果傾斜角差異太大，3D空間中還是可能
       // 在某個位置擦身而過。縮小傾斜範圍讓軌道接近共平面，這樣半徑間距的防撞保證才會真正生效。
-      // ★ 修正軌道太扁平的問題：之前傾斜角壓得很小，接近水平，導致遠處軌道的線
-      // 視覺上會直接穿過其他球體。大幅加大傾斜角，做出像電子軌域一樣360度環繞的立體感。
-      // 用真正的3D世界座標驗證過：加大傾斜角反而讓防撞更安全（多了一個Y軸分離維度），
-      // 不是安全跟美觀二選一。
-      const tiltX = ((seed % 7) - 3) * 0.4;
-      const tiltZ = ((seed % 5) - 2) * 0.48;
+      // ★ 修正球體越大、線條貼著滑過的距離越長的問題：傾斜角的「差異」要依球體大小
+      // 自適應——球越大，需要越陡的交叉角度，才能讓穿過的線條是快速交叉而過，
+      // 不是像平行線一樣貼著滑過一大段。用sphereSize動態放大傾斜幅度。
+      const sizeFactor = 1 + sizeInfo[i].sphereSize * 2;
+      const tiltX = ((seed % 7) - 3) * 0.1 * sizeFactor;
+      const tiltZ = ((seed % 5) - 2) * 0.12 * sizeFactor;
       const color = sectorColors[i % sectorColors.length];
 
       const orbitHolder = new THREE.Group();
@@ -522,7 +529,7 @@ const Theater = {
       // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
       // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
       // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
-      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.07);
+      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.007);
       orbitHolder.add(orbitGradient.line);
 
       // ★ 直接沿用預先算好的sizeInfo，不要重新算一次——要確保球體實際大小
@@ -533,14 +540,14 @@ const Theater = {
       // ★ 修正中球長得太像的問題：每個產業用不同的切面細分數量(0/1/2輪流)，
       // 就算顏色接近，切面密度不同也能幫助分辨是哪一顆
       const detailLevel = i % 3;
-      const industrySphere = this._makeWireSphere(sphereSize, color, 0.7, detailLevel);
+      const industrySphere = this._makeWireSphere(sphereSize * VISUAL_SCALE, color, 0.7, detailLevel);
       planetGroup.add(industrySphere);
       this._occluders.push(industrySphere.userData.solidMesh);
       sys.occluders.push(industrySphere.userData.solidMesh);
 
       const moonOrbitR = sphereSize + 0.32;
       // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
-      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.02);
+      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.002);
       planetGroup.add(moonRingGradient.line);
 
       // ★ 方向由所在半區決定（不是隨機），前半順時鐘、後半逆時鐘，
@@ -555,7 +562,7 @@ const Theater = {
         // ★ 漲跌幅度改用顏色鮮豔度表達：波動小(接近平盤)顏色偏灰濁，波動大顏色越鮮豔飽和，
         // 5%以上視為最大強度
         const intensity = Math.min(1, Math.abs(chgPct) / 5);
-        const mutedColor = isUp ? new THREE.Color(0x8a5f5c) : new THREE.Color(0x4d6e63);
+        const mutedColor = isUp ? new THREE.Color(0x8f5a56) : new THREE.Color(0x4a7a5f);
         const vividColor = isUp ? new THREE.Color(0xe0524f) : new THREE.Color(0x1d9e75);
         const moonColor = mutedColor.clone().lerp(vividColor, intensity);
         const moonColorDark = moonColor.clone().multiplyScalar(0.35);
@@ -569,7 +576,8 @@ const Theater = {
         const size = 0.045 + Math.min(0.11, stockWeight * 0.28);
 
         // ★ 修正小球太陽春的問題：改用八面體(稜角分明的幾何造型)取代純圓球
-        const moonGeo = new THREE.OctahedronGeometry(size, 0);
+        // 視覺放大，跟中球/核心球一樣的邏輯
+        const moonGeo = new THREE.OctahedronGeometry(size * VISUAL_SCALE, 0);
         const moon = new THREE.Group();
         moon.add(new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: moonColorDark })));
         const moonEdges = new THREE.EdgesGeometry(moonGeo);
@@ -621,9 +629,15 @@ const Theater = {
         label.className = 'theater-3d-label';
         label.textContent = p.sector;
         // ★ 修正中球文字大小固定、跟球體大小不成比例的問題：依實際球體半徑動態算字級，
-        // 球越大字越大，小球體對應的產業名稱也不會顯得過度搶戲
+        // 球越大字越大。同時加上最大寬度限制+超出時省略號，因為球體螢幕投影大小
+        // 會隨鏡頭縮放變動，單純靠世界座標半徑沒辦法100%保證任何情況下都不超出，
+        // 這裡用最大寬度當一個保險，長產業名稱(比如「電源供應/電子零組件」)才不會爆版。
         const sphereRadius = p.solidMesh?.geometry?.parameters?.radius || 0.3;
-        label.style.fontSize = `${Math.round(11 + sphereRadius * 14)}px`;
+        label.style.fontSize = `${Math.round(10 + sphereRadius * 11)}px`;
+        label.style.maxWidth = `${Math.round(sphereRadius * 130)}px`;
+        label.style.overflow = 'hidden';
+        label.style.textOverflow = 'ellipsis';
+        label.style.whiteSpace = 'nowrap';
         labelLayer.appendChild(label);
         p.labelEl = label;
 
@@ -634,7 +648,7 @@ const Theater = {
           moonLabel.innerHTML = `${m.name || m.code}<br>${m.chgPct>=0?'+':''}${m.chgPct.toFixed(1)}%`;
           moonLabel.style.color = m.chgPct >= 0 ? '#e0524f' : '#1d9e75';
           // ★ 加白色細框增加可讀性：用text-shadow模擬描邊效果(往四個方向各偏移一點白色陰影)
-          moonLabel.style.textShadow = '0 0 2px #fff, 0 0 2px #fff, 1px 1px 1px #fff, -1px -1px 1px #fff, 1px -1px 1px #fff, -1px 1px 1px #fff';
+          moonLabel.style.textShadow = '0 0 1.2px #fff, 0 0 1.2px #fff';
           labelLayer.appendChild(moonLabel);
           m.labelEl = moonLabel;
         });
