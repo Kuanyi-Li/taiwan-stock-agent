@@ -370,7 +370,7 @@ const Theater = {
       // 常數項幾乎不影響最終最細值（0.22×1.5=0.33已經是主要來源）。
       // 改成先把brightness正規化到0~1再套用比例，這樣常數項才是真正的最細值。
       const normBrightness = (brightness - 0.22) / (1 - 0.22);
-      const widthScale = 0.15 + 2.0 * normBrightness; // 最細=基準的15%，最粗=基準的215%
+      const widthScale = 0.4 + 1.75 * normBrightness; // 最細提高到基準的40%，最粗到215%
       const halfH = (grad.baseBandWidth / 2) * widthScale;
       const innerR = grad.radius - halfH, outerR = grad.radius + halfH;
       const cosT = Math.cos(t), sinT = Math.sin(t);
@@ -555,7 +555,7 @@ const Theater = {
 
       const moonOrbitR = sphereSize + 0.32;
       // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
-      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.006);
+      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.018);
       planetGroup.add(moonRingGradient.line);
 
       // ★ 方向由所在半區決定（不是隨機），前半順時鐘、後半逆時鐘，
@@ -646,16 +646,24 @@ const Theater = {
         labelLayer.appendChild(label);
         p.labelEl = label;
 
-        // ★ 修正小球沒有代號跟漲跌幅的問題：每顆小球加一個緊貼在旁邊的小標籤
+        // ★ 修正小球沒有代號跟漲跌幅的問題+改成名字在上、漲幅在下：
+        // 拆成兩個獨立的標籤元素，各自定位在小球的上方跟下方
         p.moons.forEach(m => {
-          const moonLabel = document.createElement('div');
-          moonLabel.className = 'theater-3d-label theater-3d-label-moon';
-          moonLabel.innerHTML = `${m.name || m.code}<br>${m.chgPct>=0?'+':''}${m.chgPct.toFixed(1)}%`;
-          moonLabel.style.color = m.chgPct >= 0 ? '#e0524f' : '#1d9e75';
-          // ★ 加白色細框增加可讀性：用text-shadow模擬描邊效果(往四個方向各偏移一點白色陰影)
-          moonLabel.style.textShadow = '0 0 1.2px #fff, 0 0 1.2px #fff';
-          labelLayer.appendChild(moonLabel);
-          m.labelEl = moonLabel;
+          const nameLabel = document.createElement('div');
+          nameLabel.className = 'theater-3d-label theater-3d-label-moon';
+          nameLabel.textContent = m.name || m.code;
+          nameLabel.style.color = m.chgPct >= 0 ? '#e0524f' : '#1d9e75';
+          nameLabel.style.textShadow = '0 0 1.2px #fff, 0 0 1.2px #fff';
+          labelLayer.appendChild(nameLabel);
+          m.nameLabelEl = nameLabel;
+
+          const pctLabel = document.createElement('div');
+          pctLabel.className = 'theater-3d-label theater-3d-label-moon';
+          pctLabel.textContent = `${m.chgPct>=0?'+':''}${m.chgPct.toFixed(1)}%`;
+          pctLabel.style.color = m.chgPct >= 0 ? '#e0524f' : '#1d9e75';
+          pctLabel.style.textShadow = '0 0 1.2px #fff, 0 0 1.2px #fff';
+          labelLayer.appendChild(pctLabel);
+          m.pctLabelEl = pctLabel;
         });
       });
     });
@@ -821,7 +829,10 @@ const Theater = {
         if (sys.coreLabelEl) sys.coreLabelEl.style.display = 'none';
         sys.planetGroups.forEach(p => {
           if (p.labelEl) p.labelEl.style.display = 'none';
-          p.moons.forEach(m => { if (m.labelEl) m.labelEl.style.display = 'none'; });
+          p.moons.forEach(m => {
+            if (m.nameLabelEl) m.nameLabelEl.style.display = 'none';
+            if (m.pctLabelEl) m.pctLabelEl.style.display = 'none';
+          });
         });
         return;
       }
@@ -835,17 +846,26 @@ const Theater = {
           const pos = project(p.group, p.solidMesh);
           p.labelEl.style.transform = `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%)`;
           p.labelEl.style.display = (pos.behind || pos.occluded) ? 'none' : 'block';
-          // 每一幀依螢幕投影後的實際大小重新算字級/最大寬度，才會真正跟著滾輪縮放
+          // ★ 修正字級跟著公轉位置亂跳的問題：之前用「當下離鏡頭多遠」算，球體公轉移動時
+          // 忽近忽遠，字級也跟著一直變動，感覺像沒有真的對應球體大小。改成主要看
+          // 「球體本身世界座標大小」（穩定、不會因為公轉位置改變），縮放等級只當一個
+          // 全體一致的整體倍率（zoomDistance越小=鏡頭越近=全部字一起放大），
+          // 這樣同一顆球的字級才會穩定，不同球之間的相對大小也才會真正反映球體大小。
           const sphereRadius = p.solidMesh?.geometry?.parameters?.radius || 0.3;
-          const screenPx = projectedPixelRadius(pos.worldPos, sphereRadius);
-          p.labelEl.style.fontSize = `${Math.max(8, Math.round(screenPx * 0.55))}px`;
-          p.labelEl.style.maxWidth = `${Math.round(screenPx * 1.7)}px`;
+          const zoomFactor = 9.5 / (this._zoomDistance ?? 9.5); // 用預設縮放距離當基準
+          const fontPx = Math.max(8, Math.min(40, Math.round(sphereRadius * 55 * zoomFactor)));
+          p.labelEl.style.fontSize = `${fontPx}px`;
+          p.labelEl.style.maxWidth = `${Math.round(sphereRadius * 260 * zoomFactor)}px`;
         }
         p.moons.forEach(m => {
-          if (!m.labelEl) return;
+          if (!m.nameLabelEl || !m.pctLabelEl) return;
           const mpos = project(m.mesh);
-          m.labelEl.style.transform = `translate(${mpos.x}px, ${mpos.y - 16}px) translate(-50%, -50%)`;
-          m.labelEl.style.display = (mpos.behind || mpos.occluded) ? 'none' : 'block';
+          const visible = !(mpos.behind || mpos.occluded);
+          // ★ 名字在上方、漲幅在下方，不是都堆疊在同一側
+          m.nameLabelEl.style.transform = `translate(${mpos.x}px, ${mpos.y - 14}px) translate(-50%, -50%)`;
+          m.nameLabelEl.style.display = visible ? 'block' : 'none';
+          m.pctLabelEl.style.transform = `translate(${mpos.x}px, ${mpos.y + 14}px) translate(-50%, -50%)`;
+          m.pctLabelEl.style.display = visible ? 'block' : 'none';
         });
       });
     });
