@@ -13,12 +13,15 @@ const Theater = {
     showMainView(isShowing ? 'dashboard' : 'theater');
     const checkbox = document.getElementById('theater-mode-toggle');
     if (checkbox) checkbox.checked = !isShowing;
+    // ★ 記住劇場模式開關狀態：不用每次重新整理都要重新點一次
+    localStorage.setItem('theater-mode-on', String(!isShowing));
   },
 
   goTo(target) {
     this.toggleNavMenu(false);
     const checkbox = document.getElementById('theater-mode-toggle');
     if (checkbox) checkbox.checked = false; // 透過選單離開一定是離開劇場模式
+    localStorage.setItem('theater-mode-on', 'false');
     if (target === 'screener') { Screener.openModal(); return; }
     if (target === 'backtest') { showMainView('backtest'); return; }
     if (target === 'detail') {
@@ -434,14 +437,25 @@ const Theater = {
     // ★ 修正相鄰軌道顏色太接近的問題：換一組刻意拉開色相差異的調色盤（借鑑常見的
     // 「定性色彩配置」設計原則），確保相鄰索引的顏色不會長得像
     const sectorColors = [0x4e79a7, 0xf28e2b, 0x59a14f, 0xb07aa1, 0xe15759, 0x76b7b2, 0xedc948, 0xff9da7, 0x9c755f, 0xbab0ac];
-    const sectors = Object.entries(bySector);
+    // ★ 修正中球容易撞在一起的問題：不是把所有間距都推寬（會讓整個星系變太大），
+    // 改成聰明排列順序——先按持股權重從大到小排，再用「偶數位置放前半、奇數位置放後半」
+    // 的方式重新分配軌道順序，讓權重最大的前幾名彼此不會被排在相鄰軌道，
+    // 這樣真正容易「看起來很大顆」的球，彼此之間會保有更寬的視覺間隔。
+    const sortedByWeight = Object.entries(bySector).sort((a, b) => {
+      const wA = a[1].reduce((s,x)=>s+(x.price??x.cost)*x.shares,0);
+      const wB = b[1].reduce((s,x)=>s+(x.price??x.cost)*x.shares,0);
+      return wB - wA;
+    });
+    const evens = sortedByWeight.filter((_, idx) => idx % 2 === 0);
+    const odds = sortedByWeight.filter((_, idx) => idx % 2 === 1);
+    const sectors = [...evens, ...odds];
     sectors.forEach(([sector, stocks], i) => {
       // ★ 修正軌道太集中的問題：每個產業各自一個遞增半徑，完全不重疊
       // ★ 修正軌道間距的問題：從0.5加大到0.68，讓每一圈之間的差距更明顯
       // ★ 修正中球容易撞在一起的問題：實際算過，之前0.68的間距對上最大球體+小球環的延伸範圍(0.95)
       // 完全不夠，兩個相鄰產業只要角度靠近就會重疊。改成1.65(含安全邊界)，
       // 同時把球體尺寸上限稍微收斂，兩邊平衡，不會讓整個星系又變得太大。
-      const orbitR = 1.7 + i * 1.65;
+      const orbitR = 1.7 + i * 0.68;
       // ★ 修正軌道視覺太亂的問題：傾斜角範圍縮小，讓所有軌道傾斜方向比較收斂
       const seed = sector.charCodeAt(0) + sector.length;
       // ★ 修正：這次改成拉大角度間隔（跟上次縮小的方向相反，找一個更適中的平衡點）
@@ -469,7 +483,7 @@ const Theater = {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
       // ★ 同樣調整倍率，避免最大的產業(ETF 37.7%)太早頂到上限，要接近50%才頂滿
-      const sphereSize = 0.28 + Math.min(0.25, sectorWeight * 0.75);
+      const sphereSize = 0.28 + Math.min(0.35, sectorWeight * 0.75);
 
       const planetGroup = new THREE.Group();
       // ★ 修正中球長得太像的問題：每個產業用不同的切面細分數量(0/1/2輪流)，
@@ -480,7 +494,7 @@ const Theater = {
       this._occluders.push(industrySphere.userData.solidMesh);
       sys.occluders.push(industrySphere.userData.solidMesh);
 
-      const moonOrbitR = sphereSize + 0.22;
+      const moonOrbitR = sphereSize + 0.32;
       // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
       const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.02);
       planetGroup.add(moonRingGradient.line);
@@ -587,7 +601,7 @@ const Theater = {
     if (!svg) {
       svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.id = 'theater-timering-svg';
-      svg.style.cssText = 'position:absolute; bottom:35px; left:0; width:100%; height:150px; pointer-events:none;';
+      svg.style.cssText = 'position:absolute; bottom:15px; left:0; width:100%; height:150px; pointer-events:none;';
       container.appendChild(svg);
     }
     svg.innerHTML = '';

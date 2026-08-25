@@ -4975,5 +4975,10 @@ window.addEventListener('DOMContentLoaded', () => {
   const cashUSD = document.getElementById('cash-usd-input');
   if (cashTWD && g.cashTWD) cashTWD.value = g.cashTWD;
   if (cashUSD && g.cashUSD) cashUSD.value = g.cashUSD;
+  // ★ 記住劇場模式開關狀態：重新整理不用每次重開一次。延遲一點執行，
+  // 讓持股資料先載入完成，不然星系會用空資料建立。
+  if (localStorage.getItem('theater-mode-on') === 'true' && typeof Theater !== 'undefined') {
+    setTimeout(() => { if (!Theater._isActive) Theater.toggle(); }, 2500);
+  }
 });
 window.addEventListener('resize', () => { if (CHART.currentData.length) CHART.draw(); });
