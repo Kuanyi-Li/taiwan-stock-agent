@@ -50,7 +50,7 @@
 
 #theater-panel-asset  { top: 24px; left: 24px; }
 #theater-panel-sector { top: 24px; right: 24px; }
-#theater-panel-flow   { bottom: 50px; left: 24px; }
+#theater-panel-flow   { bottom: 10px; left: 24px; }
 
 #theater-timering-svg { z-index: 2; }
 
