@@ -50,7 +50,7 @@
 
 #theater-panel-asset  { top: 24px; left: 24px; }
 #theater-panel-sector { top: 24px; right: 24px; }
-#theater-panel-flow   { bottom: 220px; left: 24px; }
+#theater-panel-flow   { bottom: 195px; left: 24px; }
 
 #theater-timering-svg { z-index: 2; }
 
@@ -1021,6 +1021,18 @@ body {
 body.theater-active .dashboard-toggle-btn { display: none; }
 body.theater-active .market-switch {
   position: fixed; top: 50%; left: 24px; transform: translateY(-50%); z-index: 4;
-  flex-direction: column; background: rgba(13,17,23,0.85); border: 1px solid rgba(90,143,192,0.4);
-  border-radius: 16px; padding: 8px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: rgba(13,17,23,0.85); border: 1px solid rgba(90,143,192,0.4);
+  border-radius: 20px; padding: 10px;
+}
+/* ★ 重新設計按鈕本身：之前完全沒有專屬樣式、用瀏覽器預設外觀，改成跟鎖定/選單按鈕
+   同一套玻璃感圓角膠囊風格，選中的市場用藍色高亮，沒選中的維持低調透明 */
+body.theater-active .market-switch-btn {
+  background: none; border: none; color: var(--text-2); font-size: 15px; font-weight: 600;
+  padding: 12px 18px; border-radius: 14px; cursor: pointer; white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+}
+body.theater-active .market-switch-btn:hover { background: rgba(90,143,192,0.15); }
+body.theater-active .market-switch-btn.active {
+  background: rgba(90,143,192,0.35); color: var(--text-1);
 }
