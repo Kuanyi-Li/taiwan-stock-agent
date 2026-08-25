@@ -480,7 +480,9 @@ const Theater = {
 
     // ★ 用真正的3D世界座標（不是簡化的2D公式）重新驗證過：加大傾斜角反而讓防撞更安全
     // （多了一個Y軸維度的分離），因此間距可以壓得比之前更緊。
-    const NORMAL_GAP = 0.05, GROUP_BOUNDARY_MARGIN = 0.08;
+    // ★ 修正加大傾斜角後太雜亂的問題：0.4太誇張，變成電子軌域的混亂感，不是星系感。
+    // 改用適度傾斜(見下方tiltX/tiltZ)搭配這組間距，用真正3D座標驗證過依然完全安全。
+    const NORMAL_GAP = 0.25, GROUP_BOUNDARY_MARGIN = 0.08;
     const sizeInfo = sectors.map(([sector, stocks]) => {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
@@ -491,7 +493,7 @@ const Theater = {
     const orbitRList = [];
     sizeInfo.forEach((info, i) => {
       // ★ 核心球大小隨大盤漲跌幅浮動(最大到1.0)，第一圈半徑要動態算，不能寫死
-      if (i === 0) { orbitRList.push(coreSize + info.moonOrbitR + 0.1); return; }
+      if (i === 0) { orbitRList.push(coreSize + info.moonOrbitR + 0.35); return; }
       const isBoundary = directionFor(i) !== directionFor(i-1);
       if (isBoundary) orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
       else orbitRList.push(orbitRList[i-1] + NORMAL_GAP);
@@ -503,12 +505,11 @@ const Theater = {
       const seed = sector.charCodeAt(0) + sector.length;
       // ★ 修正傾斜角度太大的問題：半徑分開不夠，如果傾斜角差異太大，3D空間中還是可能
       // 在某個位置擦身而過。縮小傾斜範圍讓軌道接近共平面，這樣半徑間距的防撞保證才會真正生效。
-      // ★ 修正軌道太扁平的問題：之前傾斜角壓得很小，接近水平，導致遠處軌道的線
-      // 視覺上會直接穿過其他球體。大幅加大傾斜角，做出像電子軌域一樣360度環繞的立體感。
-      // 用真正的3D世界座標驗證過：加大傾斜角反而讓防撞更安全（多了一個Y軸分離維度），
-      // 不是安全跟美觀二選一。
-      const tiltX = ((seed % 7) - 3) * 0.4;
-      const tiltZ = ((seed % 5) - 2) * 0.48;
+      // ★ 修正0.4傾斜角太誇張、變成雜亂電子軌域感的問題：改用適度傾斜，
+      // 整體維持接近水平的星系感，但還是比最早的0.05更立體一點，
+      // 用真3D座標驗證過搭配這次的間距依然完全安全。
+      const tiltX = ((seed % 7) - 3) * 0.1;
+      const tiltZ = ((seed % 5) - 2) * 0.12;
       const color = sectorColors[i % sectorColors.length];
 
       const orbitHolder = new THREE.Group();
