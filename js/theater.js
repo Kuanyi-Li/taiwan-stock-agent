@@ -55,6 +55,11 @@ const Theater = {
       document.body.appendChild(marketSwitch);
     }
     if (!this._scene) this._initScene();
+    // ★ 修正每次重新進入劇場模式，文字標籤會消失/亂掉的bug：這裡才是真正的原因——
+    // 遮擋物陣列(_occluders)之前只有「不存在時才初始化」，每次重進都會累加新的球體，
+    // 但舊的（來自上一次進入、現在已經從場景移除）從沒被清掉，越堆越多殘留參照，
+    // 光線遮擋判定測試到這些過時物件就會出現錯誤結果。改成每次進入都重新歸零。
+    this._occluders = [];
     // ★ 兩個星系都要建立（台股+美股），不是只建當下市場那一個，
     // 這樣切換市場時才能直接讓攝影機飛過去，不用重新建構
     this._buildSystem('TW', this._TW_OFFSET);
@@ -303,25 +308,38 @@ const Theater = {
   // ★ 真正做出粗細：Line的linewidth在大多數瀏覽器/顯卡會被忽略，這是WebGL的已知限制，
   // 不管怎麼調整都不可靠。改用「真正的三角形網格」做一條有實際寬度的細緞帶(跟小球環的
   // RingGeometry是同樣的思路)，寬度是真實幾何尺寸，保證在任何裝置上都看得到粗細。
+  // ★ 修正軌道線是2D平面的問題：之前的緞帶只有XZ平面上的寬度，Y軸厚度是0，
+  // 從側面幾乎看的話還是一條扁平的線。改成真正有立體厚度的小方形管狀截面
+  // （內緣/外緣 x 上緣/下緣，四個頂點一組），從任何角度看都有實際的體積感。
   _makeGradientOrbit(radius, colorHex, segments = 64, bandWidth = 0.035) {
     const positions = [], colors = [], indices = [];
+    const halfH = bandWidth / 2; // 上下厚度跟左右寬度用同一個尺寸，做出方形截面
     for (let a = 0; a <= segments; a++) {
       const t = (a / segments) * Math.PI * 2;
       const innerR = radius - bandWidth / 2, outerR = radius + bandWidth / 2;
-      positions.push(Math.cos(t) * innerR, 0, Math.sin(t) * innerR); // 內緣頂點
-      positions.push(Math.cos(t) * outerR, 0, Math.sin(t) * outerR); // 外緣頂點
-      colors.push(0,0,0, 0,0,0); // 內外緣各一組顏色
+      const cosT = Math.cos(t), sinT = Math.sin(t);
+      // 每個角度4個頂點：內下、外下、內上、外上
+      positions.push(cosT*innerR, -halfH, sinT*innerR);
+      positions.push(cosT*outerR, -halfH, sinT*outerR);
+      positions.push(cosT*innerR,  halfH, sinT*innerR);
+      positions.push(cosT*outerR,  halfH, sinT*outerR);
+      colors.push(0,0,0, 0,0,0, 0,0,0, 0,0,0);
       if (a < segments) {
-        const i0 = a*2, i1 = a*2+1, i2 = (a+1)*2, i3 = (a+1)*2+1;
-        indices.push(i0,i1,i2, i1,i3,i2); // 兩個三角形拼成一段緞帶
+        const b = a*4, n = (a+1)*4; // 這一段跟下一段的起始頂點索引
+        // 底面(b0,b1,n0,n1)、頂面(b2,b3,n2,n3)、內側(b0,b2,n0,n2)、外側(b1,b3,n1,n3)
+        indices.push(b,b+1,n, b+1,n+1,n);       // 底面
+        indices.push(b+2,n+2,b+3, b+3,n+2,n+3); // 頂面
+        indices.push(b,n,b+2, n,n+2,b+2);       // 內側
+        indices.push(b+1,b+3,n+1, b+3,n+3,n+1); // 外側
       }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.setIndex(indices);
+    geo.computeVertexNormals();
     const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, side: THREE.DoubleSide });
-    return { line: new THREE.Mesh(geo, mat), geos: [geo], segments, baseColor: new THREE.Color(colorHex), isRibbon: true };
+    return { line: new THREE.Mesh(geo, mat), geos: [geo], segments, baseColor: new THREE.Color(colorHex), vertsPerStep: 4 };
   },
 
   // ★ 修正變淺的部分太淡幾乎消失的問題：最暗的底線亮度從0.04拉高到0.22，
@@ -339,10 +357,12 @@ const Theater = {
       }
       const raw = Math.max(0, 1 - minDist / hotZone);
       const brightness = Math.max(0.22, Math.pow(raw, 1.6));
-      // ★ 緞帶版每個角度有內外緣兩個頂點(索引a*2、a*2+1)，兩個都要設定同樣亮度
+      // ★ 每個角度現在有4個頂點(方形管狀截面)，全部都要設定同樣亮度
+      const vps = grad.vertsPerStep || 2;
       grad.geos.forEach(geo => {
-        geo.attributes.color.setXYZ(a*2, base.r*brightness, base.g*brightness, base.b*brightness);
-        geo.attributes.color.setXYZ(a*2+1, base.r*brightness, base.g*brightness, base.b*brightness);
+        for (let k = 0; k < vps; k++) {
+          geo.attributes.color.setXYZ(a*vps+k, base.r*brightness, base.g*brightness, base.b*brightness);
+        }
       });
     }
     grad.geos.forEach(geo => { geo.attributes.color.needsUpdate = true; });
@@ -379,7 +399,6 @@ const Theater = {
     }
     const sys = { core: null, planetGroups: [], occluders: [], offset };
     this._systems[market] = sys;
-    if (!this._occluders) this._occluders = [];
 
     const isUS = market === 'US';
     const indexCode = isUS ? '^GSPC' : '^TWII';
@@ -419,12 +438,17 @@ const Theater = {
     sectors.forEach(([sector, stocks], i) => {
       // ★ 修正軌道太集中的問題：每個產業各自一個遞增半徑，完全不重疊
       // ★ 修正軌道間距的問題：從0.5加大到0.68，讓每一圈之間的差距更明顯
-      const orbitR = 1.7 + i * 0.68;
+      // ★ 修正中球容易撞在一起的問題：實際算過，之前0.68的間距對上最大球體+小球環的延伸範圍(0.95)
+      // 完全不夠，兩個相鄰產業只要角度靠近就會重疊。改成1.65(含安全邊界)，
+      // 同時把球體尺寸上限稍微收斂，兩邊平衡，不會讓整個星系又變得太大。
+      const orbitR = 1.7 + i * 1.65;
       // ★ 修正軌道視覺太亂的問題：傾斜角範圍縮小，讓所有軌道傾斜方向比較收斂
       const seed = sector.charCodeAt(0) + sector.length;
       // ★ 修正：這次改成拉大角度間隔（跟上次縮小的方向相反，找一個更適中的平衡點）
-      const tiltX = ((seed % 7) - 3) * 0.14;
-      const tiltZ = ((seed % 5) - 2) * 0.18;
+      // ★ 修正傾斜角度太大的問題：半徑分開不夠，如果傾斜角差異太大，3D空間中還是可能
+      // 在某個位置擦身而過。縮小傾斜範圍讓軌道接近共平面，這樣半徑間距的防撞保證才會真正生效。
+      const tiltX = ((seed % 7) - 3) * 0.05;
+      const tiltZ = ((seed % 5) - 2) * 0.06;
       const color = sectorColors[i % sectorColors.length];
 
       const orbitHolder = new THREE.Group();
@@ -445,7 +469,7 @@ const Theater = {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
       // ★ 同樣調整倍率，避免最大的產業(ETF 37.7%)太早頂到上限，要接近50%才頂滿
-      const sphereSize = 0.28 + Math.min(0.35, sectorWeight * 0.75);
+      const sphereSize = 0.28 + Math.min(0.25, sectorWeight * 0.75);
 
       const planetGroup = new THREE.Group();
       // ★ 修正中球長得太像的問題：每個產業用不同的切面細分數量(0/1/2輪流)，
@@ -456,7 +480,7 @@ const Theater = {
       this._occluders.push(industrySphere.userData.solidMesh);
       sys.occluders.push(industrySphere.userData.solidMesh);
 
-      const moonOrbitR = sphereSize + 0.32;
+      const moonOrbitR = sphereSize + 0.22;
       // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
       const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.02);
       planetGroup.add(moonRingGradient.line);
@@ -563,7 +587,7 @@ const Theater = {
     if (!svg) {
       svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.id = 'theater-timering-svg';
-      svg.style.cssText = 'position:absolute; bottom:60px; left:0; width:100%; height:150px; pointer-events:none;';
+      svg.style.cssText = 'position:absolute; bottom:35px; left:0; width:100%; height:150px; pointer-events:none;';
       container.appendChild(svg);
     }
     svg.innerHTML = '';
