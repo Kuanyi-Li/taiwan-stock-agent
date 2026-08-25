@@ -364,7 +364,7 @@ const Theater = {
       const raw = Math.max(0, 1 - minDist / hotZone);
       const brightness = Math.max(0.22, Math.pow(raw, 1.6));
       // 粗細跟著同一個brightness縮放：最粗是基準寬度，最細縮到基準的25%（不會細到完全消失）
-      const widthScale = 0.15 + 1.4 * brightness; // 修正粗細對比不夠明顯：最細降到基準的15%，最粗可以到基準的1.55倍
+      const widthScale = 0.04 + 1.5 * brightness; // 修正重疊時視覺干擾：最細降到基準的4%(幾乎無感)，最粗維持明顯
       const halfH = (grad.baseBandWidth / 2) * widthScale;
       const innerR = grad.radius - halfH, outerR = grad.radius + halfH;
       const cosT = Math.cos(t), sinT = Math.sin(t);
@@ -505,11 +505,12 @@ const Theater = {
       const seed = sector.charCodeAt(0) + sector.length;
       // ★ 修正傾斜角度太大的問題：半徑分開不夠，如果傾斜角差異太大，3D空間中還是可能
       // 在某個位置擦身而過。縮小傾斜範圍讓軌道接近共平面，這樣半徑間距的防撞保證才會真正生效。
-      // ★ 修正0.4傾斜角太誇張、變成雜亂電子軌域感的問題：改用適度傾斜，
-      // 整體維持接近水平的星系感，但還是比最早的0.05更立體一點，
-      // 用真3D座標驗證過搭配這次的間距依然完全安全。
-      const tiltX = ((seed % 7) - 3) * 0.1;
-      const tiltZ = ((seed % 5) - 2) * 0.12;
+      // ★ 修正球體越大、線條貼著滑過的距離越長的問題：傾斜角的「差異」要依球體大小
+      // 自適應——球越大，需要越陡的交叉角度，才能讓穿過的線條是快速交叉而過，
+      // 不是像平行線一樣貼著滑過一大段。用sphereSize動態放大傾斜幅度。
+      const sizeFactor = 1 + sizeInfo[i].sphereSize * 2;
+      const tiltX = ((seed % 7) - 3) * 0.1 * sizeFactor;
+      const tiltZ = ((seed % 5) - 2) * 0.12 * sizeFactor;
       const color = sectorColors[i % sectorColors.length];
 
       const orbitHolder = new THREE.Group();
