@@ -342,14 +342,17 @@ const Theater = {
     geo.setIndex(indices);
     geo.computeVertexNormals();
     const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, side: THREE.DoubleSide });
-    return { line: new THREE.Mesh(geo, mat), geos: [geo], segments, baseColor: new THREE.Color(colorHex), vertsPerStep: 4 };
+    // ★ 記下半徑跟基準粗細，供每一幀重新計算「粗細也跟著亮度變化」用
+    return { line: new THREE.Mesh(geo, mat), geos: [geo], segments, baseColor: new THREE.Color(colorHex), vertsPerStep: 4, radius, baseBandWidth: bandWidth };
   },
 
-  // ★ 修正變淺的部分太淡幾乎消失的問題：最暗的底線亮度從0.04拉高到0.22，
-  // 確保任何角度都至少留得住一條看得見的細線，不會整段消失不見
+  // ★ 修正粗細沒有跟著變化的問題：之前只有顏色在漸層，粗細是固定值。
+  // 改成粗細也用同一個亮度公式縮放（球體所在位置最粗，往兩側逐漸變細），
+  // 做出「圓錐體」般兩端尖細、中間粗的視覺效果，不只是顏色深淺。
   _updateOrbitGradient(grad, currentAngles) {
     const base = grad.baseColor;
     const hotZone = Math.PI / 2.2;
+    const posAttr = grad.geos[0].attributes.position;
     for (let a = 0; a <= grad.segments; a++) {
       const t = (a / grad.segments) * Math.PI * 2;
       let minDist = Math.PI;
@@ -360,14 +363,24 @@ const Theater = {
       }
       const raw = Math.max(0, 1 - minDist / hotZone);
       const brightness = Math.max(0.22, Math.pow(raw, 1.6));
-      // ★ 每個角度現在有4個頂點(方形管狀截面)，全部都要設定同樣亮度
+      // 粗細跟著同一個brightness縮放：最粗是基準寬度，最細縮到基準的25%（不會細到完全消失）
+      const widthScale = 0.25 + 0.75 * brightness;
+      const halfH = (grad.baseBandWidth / 2) * widthScale;
+      const innerR = grad.radius - halfH, outerR = grad.radius + halfH;
+      const cosT = Math.cos(t), sinT = Math.sin(t);
       const vps = grad.vertsPerStep || 2;
+      posAttr.setXYZ(a*vps,   cosT*innerR, -halfH, sinT*innerR);
+      posAttr.setXYZ(a*vps+1, cosT*outerR, -halfH, sinT*outerR);
+      posAttr.setXYZ(a*vps+2, cosT*innerR,  halfH, sinT*innerR);
+      posAttr.setXYZ(a*vps+3, cosT*outerR,  halfH, sinT*outerR);
+      // ★ 每個角度現在有4個頂點(方形管狀截面)，全部都要設定同樣亮度
       grad.geos.forEach(geo => {
         for (let k = 0; k < vps; k++) {
           geo.attributes.color.setXYZ(a*vps+k, base.r*brightness, base.g*brightness, base.b*brightness);
         }
       });
     }
+    posAttr.needsUpdate = true;
     grad.geos.forEach(geo => { geo.attributes.color.needsUpdate = true; });
   },
 
@@ -449,16 +462,32 @@ const Theater = {
     const evens = sortedByWeight.filter((_, idx) => idx % 2 === 0);
     const odds = sortedByWeight.filter((_, idx) => idx % 2 === 1);
     const sectors = [...evens, ...odds];
+
+    // ★ 真正解決中球+小球軌跡重疊的問題：不能用固定間距公式，因為每個產業的球體大小
+    // 依權重不同差異很大。改成兩階段：先把每個產業實際的球體大小、小球環半徑都算出來，
+    // 再依序累加半徑——第i個的軌道半徑 = 第i-1個的半徑 + 兩者的小球環延伸範圍相加 + 安全邊界，
+    // 這樣保證任何相鄰兩個產業之間的間距剛好足夠、不多不少，包含小球公轉的軌跡也不會撞到。
+    const sizeInfo = sectors.map(([sector, stocks]) => {
+      const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
+      const sectorWeight = sectorVal / totalVal;
+      const sphereSize = 0.28 + Math.min(0.35, sectorWeight * 0.75);
+      const moonOrbitR = sphereSize + 0.32;
+      return { sphereSize, moonOrbitR };
+    });
+    const MARGIN = 0.15; // 相鄰產業之間額外留的安全邊界
+    const orbitRList = [];
+    sizeInfo.forEach((info, i) => {
+      if (i === 0) {
+        orbitRList.push(1.7 + info.moonOrbitR); // 第一個要離核心球夠遠
+      } else {
+        orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + MARGIN);
+      }
+    });
+
     sectors.forEach(([sector, stocks], i) => {
-      // ★ 修正軌道太集中的問題：每個產業各自一個遞增半徑，完全不重疊
-      // ★ 修正軌道間距的問題：從0.5加大到0.68，讓每一圈之間的差距更明顯
-      // ★ 修正中球容易撞在一起的問題：實際算過，之前0.68的間距對上最大球體+小球環的延伸範圍(0.95)
-      // 完全不夠，兩個相鄰產業只要角度靠近就會重疊。改成1.65(含安全邊界)，
-      // 同時把球體尺寸上限稍微收斂，兩邊平衡，不會讓整個星系又變得太大。
-      const orbitR = 1.7 + i * 0.68;
+      const orbitR = orbitRList[i];
       // ★ 修正軌道視覺太亂的問題：傾斜角範圍縮小，讓所有軌道傾斜方向比較收斂
       const seed = sector.charCodeAt(0) + sector.length;
-      // ★ 修正：這次改成拉大角度間隔（跟上次縮小的方向相反，找一個更適中的平衡點）
       // ★ 修正傾斜角度太大的問題：半徑分開不夠，如果傾斜角差異太大，3D空間中還是可能
       // 在某個位置擦身而過。縮小傾斜範圍讓軌道接近共平面，這樣半徑間距的防撞保證才會真正生效。
       const tiltX = ((seed % 7) - 3) * 0.05;
@@ -479,11 +508,9 @@ const Theater = {
       const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.05);
       orbitHolder.add(orbitGradient.line);
 
-      // ★ 中球大小：這個產業佔投組總市值的比例
-      const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
-      const sectorWeight = sectorVal / totalVal;
-      // ★ 同樣調整倍率，避免最大的產業(ETF 37.7%)太早頂到上限，要接近50%才頂滿
-      const sphereSize = 0.28 + Math.min(0.35, sectorWeight * 0.75);
+      // ★ 直接沿用預先算好的sizeInfo，不要重新算一次——要確保球體實際大小
+      // 跟軌道間距計算時用的尺寸完全一致，不然防撞保證會失真
+      const sphereSize = sizeInfo[i].sphereSize;
 
       const planetGroup = new THREE.Group();
       // ★ 修正中球長得太像的問題：每個產業用不同的切面細分數量(0/1/2輪流)，
