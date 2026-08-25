@@ -463,22 +463,21 @@ const Theater = {
     const odds = sortedByWeight.filter((_, idx) => idx % 2 === 1);
     const sectors = [...evens, ...odds];
 
-    // ★ 真正解決中球+小球軌跡重疊的問題：不能用固定間距公式，因為每個產業的球體大小
-    // 依權重不同差異很大。改成兩階段：先把每個產業實際的球體大小、小球環半徑都算出來，
-    // 再依序累加半徑——第i個的軌道半徑 = 第i-1個的半徑 + 兩者的小球環延伸範圍相加 + 安全邊界，
-    // 這樣保證任何相鄰兩個產業之間的間距剛好足夠、不多不少，包含小球公轉的軌跡也不會撞到。
+    // ★ 修正防撞間距把星系撐太大的問題：防撞公式本身沒問題，問題是輸入的球體基礎尺寸
+    // 太大，累加起來自然很大。縮小球體/小球環的基礎尺寸+安全邊界，用真實資料驗證過
+    // 縮小後整個星系半徑可以砍到原本的一半左右，同時球體大小差異還是看得出來。
     const sizeInfo = sectors.map(([sector, stocks]) => {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
-      const sphereSize = 0.28 + Math.min(0.35, sectorWeight * 0.75);
-      const moonOrbitR = sphereSize + 0.32;
+      const sphereSize = 0.16 + Math.min(0.18, sectorWeight * 0.4);
+      const moonOrbitR = sphereSize + 0.16;
       return { sphereSize, moonOrbitR };
     });
-    const MARGIN = 0.15; // 相鄰產業之間額外留的安全邊界
+    const MARGIN = 0.06; // 相鄰產業之間額外留的安全邊界
     const orbitRList = [];
     sizeInfo.forEach((info, i) => {
       if (i === 0) {
-        orbitRList.push(1.7 + info.moonOrbitR); // 第一個要離核心球夠遠
+        orbitRList.push(1.0 + info.moonOrbitR); // 第一個要離核心球夠遠
       } else {
         orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + MARGIN);
       }
@@ -521,7 +520,7 @@ const Theater = {
       this._occluders.push(industrySphere.userData.solidMesh);
       sys.occluders.push(industrySphere.userData.solidMesh);
 
-      const moonOrbitR = sphereSize + 0.32;
+      const moonOrbitR = sphereSize + 0.16;
       // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
       const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.02);
       planetGroup.add(moonRingGradient.line);
