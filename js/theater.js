@@ -366,7 +366,11 @@ const Theater = {
       const raw = Math.max(0, 1 - minDist / hotZone);
       const brightness = Math.max(0.22, Math.pow(raw, 1.6));
       // 粗細跟著同一個brightness縮放：最粗是基準寬度，最細縮到基準的25%（不會細到完全消失）
-      const widthScale = 0.02 + 1.5 * brightness; // 最細降到基準的2%
+      // ★ 修正上次公式的錯誤：brightness本身有0.22的下限，沒有正規化的話，
+      // 常數項幾乎不影響最終最細值（0.22×1.5=0.33已經是主要來源）。
+      // 改成先把brightness正規化到0~1再套用比例，這樣常數項才是真正的最細值。
+      const normBrightness = (brightness - 0.22) / (1 - 0.22);
+      const widthScale = 0.15 + 2.0 * normBrightness; // 最細=基準的15%，最粗=基準的215%
       const halfH = (grad.baseBandWidth / 2) * widthScale;
       const innerR = grad.radius - halfH, outerR = grad.radius + halfH;
       const cosT = Math.cos(t), sinT = Math.sin(t);
@@ -483,11 +487,11 @@ const Theater = {
     // 這是視覺變化度跟星系大小的直接取捨，選這個當折衷）。
     const directionFor = (i) => Math.floor(i/2) % 2 === 0 ? 1 : -1;
 
-    // ★ 用真正的3D世界座標（不是簡化的2D公式）重新驗證過：加大傾斜角反而讓防撞更安全
-    // （多了一個Y軸維度的分離），因此間距可以壓得比之前更緊。
-    // ★ 修正加大傾斜角後太雜亂的問題：0.4太誇張，變成電子軌域的混亂感，不是星系感。
-    // 改用適度傾斜(見下方tiltX/tiltZ)搭配這組間距，用真正3D座標驗證過依然完全安全。
-    const NORMAL_GAP = 0.25, GROUP_BOUNDARY_MARGIN = 0.08;
+    // ★ 真正找到外圈間距太大的原因：間距之前是寫死的常數(NORMAL_GAP)，完全沒有依球體
+    // 大小調整——只有傾斜角做了自適應，間距沒有。外圈球體通常比較小，卻被迫套用
+    // 跟內圈大球一樣的固定間距，難怪感覺特別空。改成間距 = 兩個相鄰球體延伸範圍的
+    // 平均值 × 比例係數，球越小間距自動跟著縮小。用真3D座標驗證過比例0.2依然安全。
+    const GAP_RATIO = 0.2, GROUP_BOUNDARY_MARGIN = 0.08;
     const sizeInfo = sectors.map(([sector, stocks]) => {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
@@ -500,8 +504,12 @@ const Theater = {
       // ★ 核心球大小隨大盤漲跌幅浮動(最大到1.0)，第一圈半徑要動態算，不能寫死
       if (i === 0) { orbitRList.push(coreSize + info.moonOrbitR + 0.35); return; }
       const isBoundary = directionFor(i) !== directionFor(i-1);
-      if (isBoundary) orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
-      else orbitRList.push(orbitRList[i-1] + NORMAL_GAP);
+      if (isBoundary) {
+        orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
+      } else {
+        const adaptiveGap = (sizeInfo[i-1].moonOrbitR + info.moonOrbitR) / 2 * GAP_RATIO;
+        orbitRList.push(orbitRList[i-1] + adaptiveGap);
+      }
     });
 
     sectors.forEach(([sector, stocks], i) => {
@@ -529,7 +537,7 @@ const Theater = {
       // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
       // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
       // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
-      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.007);
+      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.02);
       orbitHolder.add(orbitGradient.line);
 
       // ★ 直接沿用預先算好的sizeInfo，不要重新算一次——要確保球體實際大小
@@ -547,7 +555,7 @@ const Theater = {
 
       const moonOrbitR = sphereSize + 0.32;
       // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
-      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.002);
+      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.006);
       planetGroup.add(moonRingGradient.line);
 
       // ★ 方向由所在半區決定（不是隨機），前半順時鐘、後半逆時鐘，
@@ -628,13 +636,10 @@ const Theater = {
         const label = document.createElement('div');
         label.className = 'theater-3d-label';
         label.textContent = p.sector;
-        // ★ 修正中球文字大小固定、跟球體大小不成比例的問題：依實際球體半徑動態算字級，
-        // 球越大字越大。同時加上最大寬度限制+超出時省略號，因為球體螢幕投影大小
-        // 會隨鏡頭縮放變動，單純靠世界座標半徑沒辦法100%保證任何情況下都不超出，
-        // 這裡用最大寬度當一個保險，長產業名稱(比如「電源供應/電子零組件」)才不會爆版。
-        const sphereRadius = p.solidMesh?.geometry?.parameters?.radius || 0.3;
-        label.style.fontSize = `${Math.round(10 + sphereRadius * 11)}px`;
-        label.style.maxWidth = `${Math.round(sphereRadius * 130)}px`;
+        // ★ 修正字級沒有真正跟著滾輪縮放的問題：之前用「世界座標半徑」算字級，
+        // 但球體在螢幕上的實際大小會隨鏡頭縮放(this._zoomDistance)即時改變，
+        // 兩者沒有真正綁在一起。改成字級/最大寬度都移到_updateLabels()裡，
+        // 每一幀用「螢幕投影後的實際像素大小」重新計算，才會真正跟著滾輪縮放同步。
         label.style.overflow = 'hidden';
         label.style.textOverflow = 'ellipsis';
         label.style.whiteSpace = 'nowrap';
@@ -795,7 +800,19 @@ const Theater = {
       obj3d.getWorldPosition(vec);
       const worldPos = vec.clone();
       vec.project(this._camera);
-      return { x: (vec.x * 0.5 + 0.5) * w, y: (-vec.y * 0.5 + 0.5) * h, behind: vec.z > 1, occluded: isOccluded(worldPos, ownMesh) };
+      return { x: (vec.x * 0.5 + 0.5) * w, y: (-vec.y * 0.5 + 0.5) * h, behind: vec.z > 1, occluded: isOccluded(worldPos, ownMesh), worldPos };
+    };
+
+    // ★ 修正字級沒有真正跟著滾輪縮放的問題：算出球體「螢幕投影後的實際像素半徑」，
+    // 不是用世界座標半徑——這樣不管鏡頭拉近拉遠，字級都會跟著球體實際看起來多大來調整，
+    // 才是真正的「跟著滾輪縮放同步」。
+    const projectedPixelRadius = (worldCenter, worldRadius) => {
+      const edge = worldCenter.clone().add(new THREE.Vector3(worldRadius, 0, 0));
+      const vC = worldCenter.clone().project(this._camera);
+      const vE = edge.project(this._camera);
+      const pxC = { x: (vC.x*0.5+0.5)*w, y: (-vC.y*0.5+0.5)*h };
+      const pxE = { x: (vE.x*0.5+0.5)*w, y: (-vE.y*0.5+0.5)*h };
+      return Math.sqrt((pxE.x-pxC.x)**2 + (pxE.y-pxC.y)**2);
     };
 
     // ★ 遍歷全部星系（台股+美股）分別更新標籤位置/遮擋判定；不可見的星系直接隱藏標籤跳過計算
@@ -818,6 +835,11 @@ const Theater = {
           const pos = project(p.group, p.solidMesh);
           p.labelEl.style.transform = `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%)`;
           p.labelEl.style.display = (pos.behind || pos.occluded) ? 'none' : 'block';
+          // 每一幀依螢幕投影後的實際大小重新算字級/最大寬度，才會真正跟著滾輪縮放
+          const sphereRadius = p.solidMesh?.geometry?.parameters?.radius || 0.3;
+          const screenPx = projectedPixelRadius(pos.worldPos, sphereRadius);
+          p.labelEl.style.fontSize = `${Math.max(8, Math.round(screenPx * 0.55))}px`;
+          p.labelEl.style.maxWidth = `${Math.round(screenPx * 1.7)}px`;
         }
         p.moons.forEach(m => {
           if (!m.labelEl) return;
