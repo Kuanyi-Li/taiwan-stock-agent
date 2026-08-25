@@ -69,28 +69,30 @@ const Theater = {
   },
 
   // ★ 直接定位攝影機到指定市場的星系（不用動畫，onEnter第一次進入時用）
+  // ★ 簡化：只設定「注視目標點」，實際攝影機座標統一交給_animate()裡的公轉公式計算，
+  // 避免兩套邏輯同時搶著設定camera.position互相打架。目標點直接對準核心球球心
+  // （使用者明確要求「攝影機指數大球要在中間」），不再額外偏移。
   _setCameraToMarket(market, animate) {
     const offset = market === 'US' ? this._US_OFFSET : this._TW_OFFSET;
-    const zoomDist = this._zoomDistance ?? 9.5;
-    if (!animate) {
-      this._camera.position.set(offset.x, offset.y + 1.3, offset.z + zoomDist);
-      this._camera.lookAt(offset.x, offset.y - 0.9, offset.z);
-      this._cameraLookAt = { x: offset.x, y: offset.y - 0.9, z: offset.z };
-    }
+    this._cameraLookAt = { x: offset.x, y: offset.y, z: offset.z };
   },
 
-  // ★ 攝影機動畫：從目前星系飛到目標市場的星系，做出「飛向右上方另一個星系」的感覺
+  // ★ 攝影機動畫：從目前星系飛到目標市場的星系，做出「飛向右上方另一個星系」的感覺。
+  // 只需要把「注視目標點」從舊星系球心動畫移動到新星系球心，_animate()裡的公轉公式
+  // 每一幀都會讀取這個目標點重新計算攝影機位置，自然而然就會呈現出飛過去的效果。
   flyToMarket(market) {
     if (market === this._currentMarket) return;
-    const fromOffset = this._currentMarket === 'US' ? this._US_OFFSET : this._TW_OFFSET;
     const toOffset = market === 'US' ? this._US_OFFSET : this._TW_OFFSET;
     this._currentMarket = market;
 
-    const startPos = this._camera.position.clone();
-    const startLookAt = this._cameraLookAt ? new THREE.Vector3(this._cameraLookAt.x, this._cameraLookAt.y, this._cameraLookAt.z) : new THREE.Vector3(fromOffset.x, fromOffset.y - 0.9, fromOffset.z);
-    const zoomDist = this._zoomDistance ?? 9.5;
-    const endPos = new THREE.Vector3(toOffset.x, toOffset.y + 1.3, toOffset.z + zoomDist);
-    const endLookAt = new THREE.Vector3(toOffset.x, toOffset.y - 0.9, toOffset.z);
+    // ★ 修正資產面板數字沒跟著切換的問題：之前只換攝影機，沒有同步APP.activeMarket，
+    // 導致投組四格讀到的DOM還是舊市場的數字。這裡補上同步+重新渲染。
+    APP.activeMarket = market;
+    if (typeof APP.renderPortfolioSummary === 'function') APP.renderPortfolioSummary();
+    this._renderAssetPanel();
+
+    const startLookAt = this._cameraLookAt ? { ...this._cameraLookAt } : { x: 0, y: 0, z: 0 };
+    const endLookAt = { x: toOffset.x, y: toOffset.y, z: toOffset.z };
 
     if (this._flyAnimId) cancelAnimationFrame(this._flyAnimId);
     const duration = 1600; // ms
@@ -100,10 +102,11 @@ const Theater = {
     const step = (now) => {
       const t = Math.min(1, (now - t0) / duration);
       const e = ease(t);
-      this._camera.position.lerpVectors(startPos, endPos, e);
-      const curLookAt = new THREE.Vector3().lerpVectors(startLookAt, endLookAt, e);
-      this._camera.lookAt(curLookAt);
-      this._cameraLookAt = { x: curLookAt.x, y: curLookAt.y, z: curLookAt.z };
+      this._cameraLookAt = {
+        x: startLookAt.x + (endLookAt.x - startLookAt.x) * e,
+        y: startLookAt.y + (endLookAt.y - startLookAt.y) * e,
+        z: startLookAt.z + (endLookAt.z - startLookAt.z) * e,
+      };
       if (t < 1) { this._flyAnimId = requestAnimationFrame(step); }
       else { this._flyAnimId = null; }
     };
@@ -255,33 +258,28 @@ const Theater = {
   // 建立時先全部填暗，實際亮度由_updateOrbitGradient()每一幀依當下角度重新計算。
   // ★ 修正太細的問題：這次用「兩條線共用同一份亮度資料、微幅重疊」的方式模擬粗線，
   // 因為兩條線的顏色是同步計算、緊貼在一起，看起來會是一條粗線而不是分開的兩條。
+  // ★ 放棄疊線模擬粗細的做法：不管偏移多小，還是會被看出是兩條分開的線
+  // （這是WebGL渲染的已知限制，硬解決風險太高）。改回單線，靠拉高不透明度上限
+  // 讓「亮的那段」感覺更扎實醒目，用亮度對比代替真正的粗細。
   _makeGradientOrbit(radius, colorHex, segments = 64) {
-    const makeLine = (scale) => {
-      const positions = [], colors = [];
-      for (let a = 0; a <= segments; a++) {
-        const t = (a / segments) * Math.PI * 2;
-        positions.push(Math.cos(t) * radius * scale, 0, Math.sin(t) * radius * scale);
-        colors.push(0, 0, 0);
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-      const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95 });
-      return { line: new THREE.Line(geo, mat), geo };
-    };
-    const inner = makeLine(1);
-    const outer = makeLine(1.006); // 極微幅放大，緊貼在一起模擬粗線感，不是明顯分開的第二條線
-    const group = new THREE.Group();
-    group.add(inner.line, outer.line);
-    return { line: group, geos: [inner.geo, outer.geo], segments, baseColor: new THREE.Color(colorHex) };
+    const positions = [], colors = [];
+    for (let a = 0; a <= segments; a++) {
+      const t = (a / segments) * Math.PI * 2;
+      positions.push(Math.cos(t) * radius, 0, Math.sin(t) * radius);
+      colors.push(0, 0, 0);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 1 });
+    return { line: new THREE.Line(geo, mat), geos: [geo], segments, baseColor: new THREE.Color(colorHex) };
   },
 
-  // ★ 依「一個或多個目前角度」重新計算這條軌道線每個頂點的亮度：
-  // 改用更陡峭、更集中的衰減曲線（次方函數+縮小熱區角度範圍），讓亮的那一段更集中在
-  // 球體目前所在位置附近，不是像上次那樣攤開在大半圈都還算亮
+  // ★ 修正變淺的部分太淡幾乎消失的問題：最暗的底線亮度從0.04拉高到0.22，
+  // 確保任何角度都至少留得住一條看得見的細線，不會整段消失不見
   _updateOrbitGradient(grad, currentAngles) {
     const base = grad.baseColor;
-    const hotZone = Math.PI / 2.2; // 熱區角度範圍，比之前的整個π小很多，亮的範圍更集中
+    const hotZone = Math.PI / 2.2;
     for (let a = 0; a <= grad.segments; a++) {
       const t = (a / grad.segments) * Math.PI * 2;
       let minDist = Math.PI;
@@ -291,7 +289,7 @@ const Theater = {
         if (d < minDist) minDist = d;
       }
       const raw = Math.max(0, 1 - minDist / hotZone);
-      const brightness = Math.max(0.04, Math.pow(raw, 1.8)); // 次方讓對比更明顯，中心更亮、邊緣衰減更快
+      const brightness = Math.max(0.22, Math.pow(raw, 1.6));
       grad.geos.forEach(geo => geo.attributes.color.setXYZ(a, base.r * brightness, base.g * brightness, base.b * brightness));
     }
     grad.geos.forEach(geo => { geo.attributes.color.needsUpdate = true; });
@@ -511,7 +509,7 @@ const Theater = {
     if (!svg) {
       svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.id = 'theater-timering-svg';
-      svg.style.cssText = 'position:absolute; bottom:20px; left:0; width:100%; height:150px; pointer-events:none;';
+      svg.style.cssText = 'position:absolute; bottom:60px; left:0; width:100%; height:150px; pointer-events:none;';
       container.appendChild(svg);
     }
     svg.innerHTML = '';
@@ -709,9 +707,19 @@ const Theater = {
       });
     });
     if (this._stars) this._stars.rotation.y += 0.00015 * this._speedMul;
-    if (this._scene) {
-      this._scene.rotation.x = this._userRotX ?? 0.06;
-      this._scene.rotation.y = this._userRotY ?? 0;
+    // ★ 修正拖曳旋轉繞錯中心點的問題：之前是「轉整個場景」，但場景永遠繞著世界原點
+    // （台股星系的位置）轉，美股星系位移過，繞錯的點轉就會偏移、看起來歪掉。
+    // 改成「攝影機繞著目前鎖定的星系球心公轉」，不管看哪個星系都會正確繞著它自己轉。
+    // 飛行動畫進行中(_flyAnimId存在)時跳過，避免跟飛行動畫互相打架搶著設定攝影機位置。
+    if (this._cameraLookAt) {
+      const target = this._cameraLookAt;
+      const radius = this._zoomDistance ?? 9.5;
+      const polar = this._userRotX ?? 0.06;
+      const azimuth = this._userRotY ?? 0;
+      this._camera.position.x = target.x + radius * Math.sin(azimuth) * Math.cos(polar);
+      this._camera.position.y = target.y + radius * Math.sin(polar);
+      this._camera.position.z = target.z + radius * Math.cos(azimuth) * Math.cos(polar);
+      this._camera.lookAt(target.x, target.y, target.z);
     }
     this._renderer.render(this._scene, this._camera);
     this._updateLabels();
