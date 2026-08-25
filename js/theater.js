@@ -370,7 +370,7 @@ const Theater = {
       // 常數項幾乎不影響最終最細值（0.22×1.5=0.33已經是主要來源）。
       // 改成先把brightness正規化到0~1再套用比例，這樣常數項才是真正的最細值。
       const normBrightness = (brightness - 0.22) / (1 - 0.22);
-      const widthScale = 0.4 + 1.75 * normBrightness; // 最細提高到基準的40%，最粗到215%
+      const widthScale = 0.6 + 2.2 * normBrightness; // 最細提高到基準的60%，最粗到280%
       const halfH = (grad.baseBandWidth / 2) * widthScale;
       const innerR = grad.radius - halfH, outerR = grad.radius + halfH;
       const cosT = Math.cos(t), sinT = Math.sin(t);
@@ -491,7 +491,7 @@ const Theater = {
     // 大小調整——只有傾斜角做了自適應，間距沒有。外圈球體通常比較小，卻被迫套用
     // 跟內圈大球一樣的固定間距，難怪感覺特別空。改成間距 = 兩個相鄰球體延伸範圍的
     // 平均值 × 比例係數，球越小間距自動跟著縮小。用真3D座標驗證過比例0.2依然安全。
-    const GAP_RATIO = 0.2, GROUP_BOUNDARY_MARGIN = 0.08;
+    const GAP_RATIO = 0.08, GROUP_BOUNDARY_MARGIN = 0.05;
     const sizeInfo = sectors.map(([sector, stocks]) => {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
@@ -522,8 +522,8 @@ const Theater = {
       // 自適應——球越大，需要越陡的交叉角度，才能讓穿過的線條是快速交叉而過，
       // 不是像平行線一樣貼著滑過一大段。用sphereSize動態放大傾斜幅度。
       const sizeFactor = 1 + sizeInfo[i].sphereSize * 2;
-      const tiltX = ((seed % 7) - 3) * 0.1 * sizeFactor;
-      const tiltZ = ((seed % 5) - 2) * 0.12 * sizeFactor;
+      const tiltX = ((seed % 7) - 3) * 0.07 * sizeFactor;
+      const tiltZ = ((seed % 5) - 2) * 0.084 * sizeFactor;
       const color = sectorColors[i % sectorColors.length];
 
       const orbitHolder = new THREE.Group();
@@ -537,7 +537,7 @@ const Theater = {
       // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
       // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
       // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
-      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.02);
+      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.035);
       orbitHolder.add(orbitGradient.line);
 
       // ★ 直接沿用預先算好的sizeInfo，不要重新算一次——要確保球體實際大小
@@ -587,10 +587,15 @@ const Theater = {
         // 視覺放大，跟中球/核心球一樣的邏輯
         const moonGeo = new THREE.OctahedronGeometry(size * VISUAL_SCALE, 0);
         const moon = new THREE.Group();
-        moon.add(new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: moonColorDark })));
+        const moonSolidMesh = new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: moonColorDark }));
+        moon.add(moonSolidMesh);
         const moonEdges = new THREE.EdgesGeometry(moonGeo);
         moon.add(new THREE.LineSegments(moonEdges, new THREE.LineBasicMaterial({ color: moonColor })));
         moon.userData.spinSpeed = 0.01 + Math.random() * 0.015; // 這是小球自轉(展示切面用)，跟公轉方向是兩回事，維持各自不同沒關係
+        // ★ 修正小球沒有遮擋功能的問題：之前只有大中球被列入遮擋物清單，小球完全沒有，
+        // 導致小球後面的文字永遠透視穿過看得到。補上小球自己的實心網格。
+        this._occluders.push(moonSolidMesh);
+        sys.occluders.push(moonSolidMesh);
 
         const angle = (j / stocks.length) * Math.PI * 2; // 已經是等間距分佈
         const speed = MOON_SPEED * direction; // 跟母球同方向、固定速率
@@ -598,7 +603,7 @@ const Theater = {
         const spokeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22 });
         const spoke = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(moonOrbitR,0,0)]), spokeMat);
         planetGroup.add(spoke);
-        return { mesh: moon, spoke, angle, radius: moonOrbitR, speed, code: s.code, name: s.name, chgPct };
+        return { mesh: moon, solidMesh: moonSolidMesh, spoke, angle, radius: moonOrbitR, speed, code: s.code, name: s.name, chgPct };
       });
 
       orbitHolder.add(planetGroup);
@@ -853,13 +858,24 @@ const Theater = {
           // 這樣同一顆球的字級才會穩定，不同球之間的相對大小也才會真正反映球體大小。
           const sphereRadius = p.solidMesh?.geometry?.parameters?.radius || 0.3;
           const zoomFactor = 9.5 / (this._zoomDistance ?? 9.5); // 用預設縮放距離當基準
-          const fontPx = Math.max(8, Math.min(40, Math.round(sphereRadius * 55 * zoomFactor)));
+          const maxWidthPx = sphereRadius * 260 * zoomFactor;
+          const idealFontPx = Math.max(8, Math.min(40, Math.round(sphereRadius * 55 * zoomFactor)));
+          // ★ 修正長產業名稱被省略號截斷的問題：不要截斷，改成依文字長度動態縮小字級，
+          // 讓完整文字剛好塞進球體的可視寬度內。中文字大約跟字級等寬，用文字長度概估寬度，
+          // 算出來的字級如果比「理想字級」小，就用縮小過的，確保完整顯示不被裁切。
+          const textLen = p.sector.length;
+          const estWidthPerChar = 0.95; // 中文字寬度約略等於字級本身
+          const fitFontPx = Math.floor(maxWidthPx / (textLen * estWidthPerChar));
+          const fontPx = Math.max(6, Math.min(idealFontPx, fitFontPx));
           p.labelEl.style.fontSize = `${fontPx}px`;
-          p.labelEl.style.maxWidth = `${Math.round(sphereRadius * 260 * zoomFactor)}px`;
+          p.labelEl.style.maxWidth = `${Math.round(maxWidthPx)}px`;
+          // 字級已經算過會剛好塞進去，這裡不再需要省略號截斷保險
+          p.labelEl.style.overflow = 'visible';
+          p.labelEl.style.textOverflow = 'clip';
         }
         p.moons.forEach(m => {
           if (!m.nameLabelEl || !m.pctLabelEl) return;
-          const mpos = project(m.mesh);
+          const mpos = project(m.mesh, m.solidMesh);
           const visible = !(mpos.behind || mpos.occluded);
           // ★ 名字在上方、漲幅在下方，不是都堆疊在同一側
           m.nameLabelEl.style.transform = `translate(${mpos.x}px, ${mpos.y - 14}px) translate(-50%, -50%)`;
