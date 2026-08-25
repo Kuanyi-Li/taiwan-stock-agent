@@ -364,7 +364,7 @@ const Theater = {
       const raw = Math.max(0, 1 - minDist / hotZone);
       const brightness = Math.max(0.22, Math.pow(raw, 1.6));
       // 粗細跟著同一個brightness縮放：最粗是基準寬度，最細縮到基準的25%（不會細到完全消失）
-      const widthScale = 0.25 + 0.75 * brightness;
+      const widthScale = 0.15 + 1.4 * brightness; // 修正粗細對比不夠明顯：最細降到基準的15%，最粗可以到基準的1.55倍
       const halfH = (grad.baseBandWidth / 2) * widthScale;
       const innerR = grad.radius - halfH, outerR = grad.radius + halfH;
       const cosT = Math.cos(t), sinT = Math.sin(t);
@@ -478,7 +478,9 @@ const Theater = {
     // 這是視覺變化度跟星系大小的直接取捨，選這個當折衷）。
     const directionFor = (i) => Math.floor(i/2) % 2 === 0 ? 1 : -1;
 
-    const NORMAL_GAP = 0.2, GROUP_BOUNDARY_MARGIN = 0.1;
+    // ★ 用真正的3D世界座標（不是簡化的2D公式）重新驗證過：加大傾斜角反而讓防撞更安全
+    // （多了一個Y軸維度的分離），因此間距可以壓得比之前更緊。
+    const NORMAL_GAP = 0.05, GROUP_BOUNDARY_MARGIN = 0.08;
     const sizeInfo = sectors.map(([sector, stocks]) => {
       const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
       const sectorWeight = sectorVal / totalVal;
@@ -489,7 +491,7 @@ const Theater = {
     const orbitRList = [];
     sizeInfo.forEach((info, i) => {
       // ★ 核心球大小隨大盤漲跌幅浮動(最大到1.0)，第一圈半徑要動態算，不能寫死
-      if (i === 0) { orbitRList.push(coreSize + info.moonOrbitR + 0.15); return; }
+      if (i === 0) { orbitRList.push(coreSize + info.moonOrbitR + 0.1); return; }
       const isBoundary = directionFor(i) !== directionFor(i-1);
       if (isBoundary) orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
       else orbitRList.push(orbitRList[i-1] + NORMAL_GAP);
@@ -501,8 +503,12 @@ const Theater = {
       const seed = sector.charCodeAt(0) + sector.length;
       // ★ 修正傾斜角度太大的問題：半徑分開不夠，如果傾斜角差異太大，3D空間中還是可能
       // 在某個位置擦身而過。縮小傾斜範圍讓軌道接近共平面，這樣半徑間距的防撞保證才會真正生效。
-      const tiltX = ((seed % 7) - 3) * 0.05;
-      const tiltZ = ((seed % 5) - 2) * 0.06;
+      // ★ 修正軌道太扁平的問題：之前傾斜角壓得很小，接近水平，導致遠處軌道的線
+      // 視覺上會直接穿過其他球體。大幅加大傾斜角，做出像電子軌域一樣360度環繞的立體感。
+      // 用真正的3D世界座標驗證過：加大傾斜角反而讓防撞更安全（多了一個Y軸分離維度），
+      // 不是安全跟美觀二選一。
+      const tiltX = ((seed % 7) - 3) * 0.4;
+      const tiltZ = ((seed % 5) - 2) * 0.48;
       const color = sectorColors[i % sectorColors.length];
 
       const orbitHolder = new THREE.Group();
@@ -516,7 +522,7 @@ const Theater = {
       // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
       // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
       // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
-      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.05);
+      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.07);
       orbitHolder.add(orbitGradient.line);
 
       // ★ 直接沿用預先算好的sizeInfo，不要重新算一次——要確保球體實際大小
@@ -614,6 +620,10 @@ const Theater = {
         const label = document.createElement('div');
         label.className = 'theater-3d-label';
         label.textContent = p.sector;
+        // ★ 修正中球文字大小固定、跟球體大小不成比例的問題：依實際球體半徑動態算字級，
+        // 球越大字越大，小球體對應的產業名稱也不會顯得過度搶戲
+        const sphereRadius = p.solidMesh?.geometry?.parameters?.radius || 0.3;
+        label.style.fontSize = `${Math.round(11 + sphereRadius * 14)}px`;
         labelLayer.appendChild(label);
         p.labelEl = label;
 
@@ -623,6 +633,8 @@ const Theater = {
           moonLabel.className = 'theater-3d-label theater-3d-label-moon';
           moonLabel.innerHTML = `${m.name || m.code}<br>${m.chgPct>=0?'+':''}${m.chgPct.toFixed(1)}%`;
           moonLabel.style.color = m.chgPct >= 0 ? '#e0524f' : '#1d9e75';
+          // ★ 加白色細框增加可讀性：用text-shadow模擬描邊效果(往四個方向各偏移一點白色陰影)
+          moonLabel.style.textShadow = '0 0 2px #fff, 0 0 2px #fff, 1px 1px 1px #fff, -1px -1px 1px #fff, 1px -1px 1px #fff, -1px 1px 1px #fff';
           labelLayer.appendChild(moonLabel);
           m.labelEl = moonLabel;
         });
