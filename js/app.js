@@ -817,6 +817,8 @@ const SESSION = {
 
 };
 setInterval(() => SESSION.render(), 30000);
+// 不等報價載入完，頁面一打開就先畫出盤勢時鐘與左欄底紋
+document.addEventListener('DOMContentLoaded', () => { SESSION.render(); PORCELAIN.apply('gold'); });
 
 // ── 左欄底紋：青花瓷（海水紋＋如意雲紋＋回紋邊），由下往上淡出 ─────────
 const PORCELAIN = {

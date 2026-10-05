@@ -457,10 +457,10 @@ body {
   display: flex; align-items: flex-start; justify-content: space-between;
   padding: 14px 16px 10px; gap: 12px; flex-wrap: wrap;
 }
-.chart-stock-name { font-size: 15px; font-weight: 700; }
+.chart-stock-name { font-family: var(--font-serif); font-size: 24px; font-weight: 900; letter-spacing: 0.03em; }
 .chart-price-row { display: flex; align-items: center; gap: 8px; margin-top: 2px; flex-wrap: wrap; }
-.chart-price { font-size: 24px; font-weight: 700; font-family: var(--font-mono); }
-.chart-change { font-size: 13px; font-family: var(--font-mono); }
+.chart-price { font-family: var(--font-serif); font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.chart-change { font-size: 14px; font-family: var(--font-mono); }
 /* 修正同樣的層級問題：這排統計數字之前用跟主要訊號(.sig-value)一樣的text-1+粗體，
    互相搶戲。降到text-2、字重降到500，讓真正的決策依據(訊號)保持視覺上的主導地位。 */
 .chart-today-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; font-weight: 500; color: var(--text-2); margin-left: auto; align-items: center; }
@@ -471,8 +471,13 @@ body {
    群組之間的間距明顯大於群組內部的間距，一眼就能看出「這幾個是一類」。 */
 .chart-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 
-.period-tabs { display: flex; gap: 2px; flex-wrap: wrap; background: var(--bg-2); padding: 3px; border-radius: 8px; }
-.period-btn { background: none; border: none; color: var(--text-2); font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.1s; }
+.period-tabs, .range-tabs { display: flex; gap: 0; flex-wrap: wrap; border: 1px solid #2E2E34; }
+.range-btn { background: none; border: none; color: var(--text-2); font-size: 12px; padding: 5px 10px; cursor: pointer; }
+.range-btn:hover:not(:disabled) { color: var(--text-1); }
+.range-btn.active { color: var(--gold); box-shadow: inset 0 -2px 0 var(--gold); }
+.range-btn:disabled { color: #3A3A42; cursor: not-allowed; }
+.range-tabs.disabled { opacity: 0.5; }
+.period-btn { background: none; border: none; color: var(--text-2); font-size: 12px; padding: 5px 10px; border-radius: 0; cursor: pointer; transition: all 0.1s; }
 .period-btn:hover { color: var(--text-1); }
 .period-btn.active { background: var(--gold); color: #000; }
 .chart-type-toggle { display: flex; gap: 2px; background: var(--bg-2); padding: 3px; border-radius: 8px; }
