@@ -881,6 +881,7 @@ const DETAIL = {
     const box = document.getElementById('detail-aside');
     const code = APP.activeSymbol;
     if (!box) return;
+    this.renderLower();
     if (!code) { box.innerHTML = ''; return; }
     const hold = APP.portfolio.find(s => s.code === code);
     const watch = APP.watchlist.find(s => s.code === code);
@@ -946,6 +947,88 @@ const DETAIL = {
         <div class="da-k">我的持倉</div>
         ${posHtml}
       </section>`;
+  },
+  // ── 下方三格（技術儀表／法人籌碼／已實現交易）＋同產業個股（個股頁 3）──
+  renderLower() {
+    const box = document.getElementById('detail-lower');
+    if (!box) return;
+    const code = APP.activeSymbol;
+    if (!code) { box.innerHTML = ''; return; }
+    const isUS = DATA.isUSCode(code);
+    const ind = ANALYSIS._cache?.[code]?.ind || (ANALYSIS.lastSymbol === code ? ANALYSIS.lastInd : null);
+    const f = (v, d = 1) => Number.isFinite(+v) && v != null ? (+v).toFixed(d) : '—';
+
+    // 1) 技術儀表
+    let tech = '<div class="da-empty">分析資料載入中…</div>';
+    if (ind) {
+      const rsi = +ind.rsi, K = +ind.K, D = +ind.D;
+      const rsiTxt = rsi >= 70 ? '過熱' : rsi <= 30 ? '超賣' : '中性';
+      const rsiCol = rsi >= 70 ? 'var(--red)' : rsi <= 30 ? 'var(--green-l)' : 'var(--text-2)';
+      const pos = Number.isFinite(rsi) ? Math.max(0, Math.min(100, rsi)) : 50;
+      const macdUp = ind.hist > 0;
+      tech = `
+        <div class="dl-gauge"><i class="dl-zone lo"></i><i class="dl-zone hi"></i><i class="dl-pin" style="left:${pos}%"></i></div>
+        <div class="dl-gl"><span>0</span><span>30</span><span>70</span><span>100</span></div>
+        <div class="da-row"><span>RSI(14)</span><span class="num" style="color:${rsiCol}">${f(rsi)}<small>${rsiTxt}</small></span></div>
+        <div class="da-row"><span>KD</span><span class="num">${f(K)} / ${f(D)}<small>${ind.kdGolden ? '黃金交叉' : ind.kdDead ? '死亡交叉' : K > D ? 'K>D' : 'K<D'}</small></span></div>
+        <div class="da-row"><span>MACD 柱</span><span class="num ${macdUp ? 'up' : 'dn'}">${macdUp ? '多方' : '空方'}<small>${ind.macdGolden ? '黃金交叉' : ind.macdDead ? '死亡交叉' : f(ind.hist, 2)}</small></span></div>
+        <div class="da-row"><span>ADX 趨勢</span><span class="num">${f(ind.adx)}<small>${ind.adx >= 25 ? '趨勢明確' : '盤整'}</small></span></div>
+        <div class="da-row"><span>均線排列</span><span class="num ${ind.maBull ? 'up' : ''}">${ind.maBull ? '多頭排列' : '未成多頭'}</span></div>
+        <div class="dl-more"><a onclick="document.querySelector('.tab-btn[data-tab=tech]')?.click();document.getElementById('pane-tech')?.scrollIntoView({block:'nearest'})">完整指標 →</a></div>`;
+    }
+
+    // 2) 法人籌碼（近 5 日；台股限定）
+    let inst;
+    if (isUS) inst = '<div class="da-empty">美股無三大法人資料</div>';
+    else {
+      if (!DATA.institutionalCache && !this._instAsked) { this._instAsked = true; DATA.fetchInstitutional().then(() => { if (APP.activeSymbol === code) this.renderLower(); }).catch(() => {}); }
+      const hist = DATA.getInstHistory(code).slice(-5);
+      if (!hist.length) inst = '<div class="da-empty">尚無法人資料（開啟網站後逐日累積）</div>';
+      else {
+        const mx = Math.max(1, ...hist.map(h => Math.abs(h.total)));
+        const lot = n => (n >= 0 ? '+' : '−') + Math.round(Math.abs(n) / 1000).toLocaleString('en-US') + '張';
+        const last = hist[hist.length - 1];
+        inst = `<div class="dl-bars">${hist.map(h => `<div class="dl-bar" title="${h.date}　合計 ${lot(h.total)}"><i class="${h.total >= 0 ? 'up' : 'dn'}" style="height:${Math.max(3, Math.abs(h.total) / mx * 30).toFixed(0)}px;${h.total >= 0 ? 'bottom:50%' : 'top:50%'}"></i><em>${h.date.slice(-5).replace('-', '/')}</em></div>`).join('')}<i class="dl-zero"></i></div>
+          <div class="da-row"><span>外資</span><span class="num ${last.foreign >= 0 ? 'up' : 'dn'}">${lot(last.foreign)}</span></div>
+          <div class="da-row"><span>投信</span><span class="num ${last.trust >= 0 ? 'up' : 'dn'}">${lot(last.trust)}</span></div>
+          <div class="da-row"><span>自營商</span><span class="num ${last.dealer >= 0 ? 'up' : 'dn'}">${lot(last.dealer)}</span></div>`;
+      }
+    }
+
+    // 3) 已實現交易（此檔）
+    const sells = TRADES.get().filter(t => t.code === code && t.action === 'sell' && t.realizedPnl != null);
+    let real;
+    if (!sells.length) real = '<div class="da-empty">這檔還沒有賣出紀錄</div>';
+    else {
+      const tot = sells.reduce((a, t) => a + t.realizedPnl, 0), wins = sells.filter(t => t.realizedPnl > 0).length;
+      const m = n => (n >= 0 ? '+' : '−') + Math.abs(Math.round(n)).toLocaleString('en-US');
+      real = `
+        <div class="da-row"><span>累計已實現</span><span class="num ${tot >= 0 ? 'up' : 'dn'}">${m(tot)}</span></div>
+        <div class="da-row"><span>賣出次數／勝率</span><span class="num">${sells.length} 次<small>${Math.round(wins / sells.length * 100)}%</small></span></div>
+        ${sells.slice(0, 3).map(t => `<div class="da-row dl-tr"><span>${t.date || ''}</span><span class="num ${t.realizedPnl >= 0 ? 'up' : 'dn'}">${m(t.realizedPnl)}</span></div>`).join('')}`;
+    }
+
+    // 4) 同產業個股
+    const sec = getStockSector(code);
+    const nameOf = c => APP.portfolio.find(s => s.code === c)?.name || APP.watchlist.find(s => s.code === c)?.name || RECOMMEND?.CANDIDATES?.find(x => x.code === c)?.name || c;
+    const own = [...APP.portfolio, ...APP.watchlist].filter(s => s.code !== code && getStockSector(s.code) === sec);
+    const ownCodes = new Set(own.map(s => s.code));
+    const ref = Object.keys(SECTOR_MAP).filter(c => c !== code && SECTOR_MAP[c] === sec && !ownCodes.has(c));
+    const chip = (c, clickable) => {
+      const q = DATA.priceStore[c]; const pct = q?.price && q.prevClose ? (q.price - q.prevClose) / q.prevClose * 100 : null;
+      return `<button class="dl-peer ${clickable ? '' : 'ref'}" ${clickable ? `onclick="NAV.pickStock('${c}')"` : 'disabled title="尚未加入持股／自選"'}><b>${nameOf(c)}</b>${nameOf(c) === c ? '' : `<span class="num">${c}</span>`}${pct == null ? '' : `<em class="num ${pct > 0 ? 'up' : pct < 0 ? 'dn' : ''}">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</em>`}</button>`;
+    };
+    const peers = (own.length || ref.length)
+      ? own.map(s => chip(s.code, true)).join('') + ref.slice(0, 8).map(c => chip(c, false)).join('')
+      : '<span class="da-empty">沒有同產業資料</span>';
+
+    box.innerHTML = `
+      <div class="dl-grid">
+        <section class="da-sec"><div class="da-k">技術儀表</div>${tech}</section>
+        <section class="da-sec"><div class="da-k">法人籌碼 <span class="da-mode">近 5 日</span></div>${inst}</section>
+        <section class="da-sec"><div class="da-k">已實現交易</div>${real}</section>
+      </div>
+      <section class="da-sec dl-peers-sec"><div class="da-k">同產業個股 <span class="da-mode">${sec}</span></div><div class="dl-peers">${peers}</div></section>`;
   },
 };
 // 技術分析跑完（或長短線切換）後，右側判斷跟著更新
