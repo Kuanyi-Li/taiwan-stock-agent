@@ -867,7 +867,7 @@ const PORCELAIN = {
   apply(variant) {
     const el = document.getElementById('nav-porcelain');
     if (!el) return;
-    const [c1, c2] = this.COLORS[variant] || this.COLORS.blue;
+    const [c1, c2] = this.COLORS[variant] || this.COLORS.gold;
     const enc = s => `url("data:image/svg+xml;utf8,${encodeURIComponent(s)}")`;
     el.style.backgroundImage = `${enc(this._meander(c1))}, ${enc(this._svg(c1, c2))}`;
   },
@@ -4412,7 +4412,7 @@ const APP = {
     if (logo) logo.classList.toggle('spin', marketOpen);
     SKY.setSpinning(marketOpen);
     SESSION.render();
-    PORCELAIN.apply(localStorage.getItem('nav-porcelain') || 'blue');
+    PORCELAIN.apply('gold');
   },
 
   async refreshPrices(force = false) {
