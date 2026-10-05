@@ -885,12 +885,13 @@ const DATA = {
       '6mo': { interval:'1wk', range:'2y'  },
       '1y':  { interval:'1wk', range:'2y'  },
       '2y':  { interval:'1d',  range:'2y'  },
+      'w5y': { interval:'1wk', range:'5y'  },
     })[period] ?? { interval:'1d', range:'1y' };
   },
 
   _mockCandles(symbol, period) {
     console.warn('[DATA] mock candles for', symbol);
-    const n = { '5m':78,'15m':40,'60m':30,'1d':22,'1wk':30,'1mo':45,'3mo':65,'6mo':130,'1y':250 }[period] ?? 60;
+    const n = { '5m':78,'15m':40,'60m':30,'1d':22,'1wk':30,'1mo':45,'3mo':65,'6mo':130,'1y':250,'2y':500,'w5y':260 }[period] ?? 60;
     const base = this.priceStore[symbol]?.price ?? 100;
     let price = base * 0.92;
     const now = Date.now();

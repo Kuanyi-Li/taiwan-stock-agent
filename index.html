@@ -316,15 +316,19 @@
           </div>
         </div>
         <div class="chart-controls">
-          <div class="period-tabs" id="period-tabs">
+          <div class="period-tabs" id="period-tabs" role="group" aria-label="K棒單位">
             <button class="period-btn" data-period="5m">5分</button>
             <button class="period-btn" data-period="15m">15分</button>
             <button class="period-btn" data-period="60m">1時</button>
-            <button class="period-btn active" data-period="1d">1日</button>
-            <button class="period-btn" data-period="1wk">1週</button>
-            <button class="period-btn" data-period="3mo">3月</button>
-            <button class="period-btn" data-period="6mo">6月</button>
-            <button class="period-btn" data-period="1y">1年</button>
+            <button class="period-btn active" data-period="1d">日</button>
+            <button class="period-btn" data-period="1wk">週</button>
+          </div>
+          <div class="range-tabs" id="range-tabs" role="group" aria-label="顯示範圍">
+            <button class="range-btn active" data-range="3m">3月</button>
+            <button class="range-btn" data-range="6m">6月</button>
+            <button class="range-btn" data-range="1y">1年</button>
+            <button class="range-btn" data-range="2y">2年</button>
+            <button class="range-btn" data-range="5y" disabled>5年</button>
           </div>
           <div class="ma-legend" id="ma-legend"></div>
           <div class="chart-type-toggle">
@@ -390,35 +394,14 @@
     <!-- ── Feature Tabs ── -->
     <div class="card">
       <div class="main-tabs">
-        <button class="main-tab-btn active" data-mtab="signals">買賣訊號</button>
-        <button class="main-tab-btn" data-mtab="ai">下單建議</button>
+        <button class="main-tab-btn active" data-mtab="ai">下單建議</button>
         <button class="main-tab-btn" data-mtab="trades">交易紀錄</button>
         <button class="main-tab-btn" data-mtab="alloc">資金分配</button>
         <button class="main-tab-btn" data-mtab="recommend">長期核心清單</button>
       </div>
 
-      <!-- ── 買賣訊號總覽（直觀，不需點入個股）── -->
-      <div class="main-tab-pane active" id="mtab-signals">
-        <div class="signal-overview-wrap">
-          <div class="sov-title">所有持股即時訊號</div>
-          <div id="signal-overview">
-            <div class="empty-state">新增持股後顯示即時買賣訊號</div>
-          </div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:10px;line-height:1.6;background:var(--bg-2);border-radius:6px;padding:8px 10px">
-            💡 訊號級距：<span style="color:#ff6b6b">緊急出場</span>（跌破支撐/虧損>8%）→
-            <span style="color:var(--red)">強力賣出</span>（獲利>25%/多指標空頭）→
-            <span style="color:var(--amber)">建議減碼</span> →
-            <span style="color:var(--text-3)">持有觀望</span> →
-            <span style="color:var(--green-l)">可考慮加碼</span> →
-            <span style="color:#1D9E75">積極買進</span> →
-            <span style="color:#5DCAA5">強力買進</span>（技術評分≥4）<br>
-            執行完整技術分析後訊號更準確，點選個股後在「下單建議」按「重新分析」。
-          </div>
-        </div>
-      </div>
-
       <!-- ── AI 下單建議 ── -->
-      <div class="main-tab-pane" id="mtab-ai">
+      <div class="main-tab-pane active" id="mtab-ai">
         <div class="ai-header">
           <div class="ai-title">
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1C4.186 1 1.5 3.686 1.5 7s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6z" stroke="#1D9E75" stroke-width="1"/><path d="M5 7.5l2 2 3.5-4" stroke="#1D9E75" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>

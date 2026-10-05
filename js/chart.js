@@ -77,6 +77,16 @@ const CHART = {
   dragStartX: 0,
   dragStartZoom: { start: 0, end: 0 },
 
+  // ── K 線：單位（5分/15分/1時/日/週）＋範圍（3月/6月/1年/2年/5年）──
+  // 單位決定抓哪種K棒；範圍只決定畫面顯示多少根（不重抓資料）
+  UNIT_FETCH: { '5m': '5m', '15m': '15m', '60m': '60m', '1d': '2y', '1wk': 'w5y' },
+  RANGE_BARS: {
+    '1d':  { '3m': 63, '6m': 126, '1y': 250, '2y': 500 },
+    '1wk': { '3m': 13, '6m': 26, '1y': 52, '2y': 104, '5y': 260 },
+  },
+  currentUnit: '1d',
+  _rangeOf: { '1d': '3m', '1wk': '1y' },
+
   init() {
     const tabs = document.getElementById('period-tabs');
     if (tabs) {
@@ -85,8 +95,19 @@ const CHART = {
         if (!btn) return;
         tabs.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        this.currentPeriod = btn.dataset.period;
-        if (APP.activeSymbol) this.load(APP.activeSymbol, this.currentPeriod);
+        if (APP.activeSymbol) this.load(APP.activeSymbol, btn.dataset.period);
+        else { this.currentUnit = btn.dataset.period; this._syncRangeTabs(); }
+      });
+    }
+    const rtabs = document.getElementById('range-tabs');
+    if (rtabs) {
+      rtabs.addEventListener('click', e => {
+        const btn = e.target.closest('.range-btn');
+        if (!btn || btn.disabled) return;
+        this._rangeOf[this.currentUnit] = btn.dataset.range;
+        this._syncRangeTabs();
+        this._resetZoom();
+        if (this.currentData.length) this.draw();
       });
     }
     document.querySelectorAll('.type-btn').forEach(btn => {
@@ -110,7 +131,12 @@ const CHART = {
     short: '3mo',
   },
 
-  async load(symbol, period) {
+  async load(symbol, unit) {
+    // 相容舊的週期代碼（例如之前存的 '1d'）：不在單位表裡的一律當日K
+    if (!this.UNIT_FETCH[unit]) unit = '1d';
+    this.currentUnit = unit;
+    this._syncRangeTabs();
+    const period = this.UNIT_FETCH[unit];
     this.currentPeriod = period;
     this._loadToken = symbol; // ★ 記錄本次載入請求的股票，防止競速覆蓋
     const loadEl = document.getElementById('chart-loading');
@@ -207,15 +233,28 @@ const CHART = {
 
   _resetZoom() {
     const n = this.currentData.length;
-    // ★ 1日週期抓了較長歷史（供MA20/MA60計算），預設顯示最近約60個交易日（近3個月）
-    // 更早的資料仍在 currentData 中，可拖曳/縮放查看，MA也會用得到完整歷史
-    if (this.currentPeriod === '1d' && n > 60) {
-      this.zoomStart = n - 60;
+    // 日K／週K：依選的範圍顯示最近 N 根（更早的資料仍可拖曳查看，均線也會用到完整歷史）
+    const bars = this.RANGE_BARS[this.currentUnit]?.[this._rangeOf[this.currentUnit]];
+    if (bars && n > bars) {
+      this.zoomStart = n - bars;
       this.zoomEnd = n - 1;
     } else {
       this.zoomStart = 0;
       this.zoomEnd = n - 1;
     }
+  },
+
+  // 範圍按鈕：日內K線不適用（整排停用）；日K沒有 5 年
+  _syncRangeTabs() {
+    const rtabs = document.getElementById('range-tabs');
+    if (!rtabs) return;
+    const table = this.RANGE_BARS[this.currentUnit];
+    rtabs.classList.toggle('disabled', !table);
+    rtabs.querySelectorAll('.range-btn').forEach(b => {
+      const ok = !!table && table[b.dataset.range] != null;
+      b.disabled = !ok;
+      b.classList.toggle('active', ok && this._rangeOf[this.currentUnit] === b.dataset.range);
+    });
   },
 
   _visibleData() {
@@ -363,8 +402,8 @@ const CHART = {
   // 趨勢配色：偏多=紅色系、偏空=綠色系（同台股紅漲綠跌慣例），盤整=灰色
   // 深色主題下，強度越高顏色要越亮越飽和（不是越深），否則深色在深底色上反而不顯眼
   _trendColor(trend) {
-    const reds   = ['#c98a89', '#E24B4A', '#ff5c5c']; // 微幅偏多／偏多／強力偏多（由淡到最鮮豔）
-    const greens = ['#7fae9d', '#1D9E75', '#2ee88f']; // 微幅偏空／偏空／強力偏空（由淡到最鮮豔）
+    const reds   = ['#c98a89', '#FF5A4E', '#ff7a6e']; // 微幅偏多／偏多／強力偏多（由淡到最鮮豔）
+    const greens = ['#7fae9d', '#22C17A', '#2ee88f']; // 微幅偏空／偏空／強力偏空（由淡到最鮮豔）
     if (trend.dir === 'flat') return '#9ca3af';
     const idx = Math.min(2, Math.max(0, trend.level - 1));
     return trend.dir === 'up' ? reds[idx] : greens[idx];
@@ -400,7 +439,7 @@ const CHART = {
 
     const isDark = !document.body.classList.contains('light-mode');
     const clr = {
-      up:'#E24B4A', dn:'#1D9E75',
+      up:'#FF5A4E', dn:'#22C17A',
       grid: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
       text: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)',
       ma5:'#EF9F27', ma20:'#378ADD', ma60:'#D4537E',
@@ -524,7 +563,7 @@ const CHART = {
       const costY = yOf(heldStock.cost);
       ctx.beginPath();
       ctx.setLineDash([6, 4]);
-      ctx.strokeStyle = '#eab308'; ctx.lineWidth = 1.3;
+      ctx.strokeStyle = '#C9A55C'; ctx.lineWidth = 1.3;
       ctx.moveTo(PAD.l, costY); ctx.lineTo(PAD.l + chartW, costY);
       ctx.stroke();
       ctx.setLineDash([]);
@@ -532,9 +571,9 @@ const CHART = {
       const costLabel = `均價 ${heldStock.cost.toFixed(heldStock.cost < 10 ? 3 : 2)}`;
       ctx.font = 'bold 11px sans-serif';
       const lw = ctx.measureText(costLabel).width;
-      ctx.fillStyle = 'rgba(13,17,23,0.85)';
+      ctx.fillStyle = 'rgba(0,0,0,0.85)';
       ctx.fillRect(PAD.l + 2, costY - 15, lw + 8, 16);
-      ctx.fillStyle = '#eab308';
+      ctx.fillStyle = '#C9A55C';
       ctx.textAlign = 'left';
       ctx.fillText(costLabel, PAD.l + 6, costY - 3);
     }
@@ -552,7 +591,7 @@ const CHART = {
         if (t.price < minP || t.price > maxP) return;
         const x = xOf(closestI), y = yOf(t.price);
         const isBuy = t.action === 'buy';
-        ctx.fillStyle = isBuy ? '#E24B4A' : '#1D9E75';
+        ctx.fillStyle = isBuy ? '#FF5A4E' : '#22C17A';
         ctx.beginPath();
         if (isBuy) { ctx.moveTo(x, y+7); ctx.lineTo(x-5, y+15); ctx.lineTo(x+5, y+15); }
         else { ctx.moveTo(x, y-7); ctx.lineTo(x-5, y-15); ctx.lineTo(x+5, y-15); }
@@ -569,7 +608,7 @@ const CHART = {
 
       // 信賴區間陰影（顏色隨偏多/偏空/盤整而變）
       const fillAlpha = (isDark ? 0.08 : 0.06) + trend.level * 0.04;
-      const rgbMap = { up:[226,75,74], down:[29,158,117], flat:[156,163,175] };
+      const rgbMap = { up:[255,90,78], down:[34,193,122], flat:[156,163,175] };
       const rgb = rgbMap[trend.dir];
       ctx.beginPath();
       ctx.moveTo(lastX, lastY);
@@ -607,7 +646,7 @@ const CHART = {
       const labelX = xOf(n) + 4, labelY = yOf(lastP.mid);
       ctx.font = 'bold 17px sans-serif';
       const textW = ctx.measureText(labelText).width;
-      ctx.fillStyle = isDark ? 'rgba(13,17,23,0.85)' : 'rgba(255,255,255,0.9)';
+      ctx.fillStyle = isDark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)';
       ctx.fillRect(labelX - 4, labelY - 20, textW + 10, 26);
       ctx.strokeStyle = predColor; ctx.lineWidth = 1;
       ctx.strokeRect(labelX - 4, labelY - 20, textW + 10, 26);
@@ -701,7 +740,7 @@ const CHART = {
       const x = PAD.l + i * (barW + gap);
       const prevClose = i > 0 ? data[i-1].c : d.o;
       const isUp = d.c >= prevClose;
-      ctx.fillStyle = isUp ? 'rgba(226,75,74,0.55)' : 'rgba(29,158,117,0.55)';
+      ctx.fillStyle = isUp ? 'rgba(255,90,78,0.5)' : 'rgba(34,193,122,0.5)';
       // ★ 修正：v=0（例如今天還沒彙總完成）不該被防呆邏輯強制拉出一根假的最低高度長條
       const bh = d.v > 0 ? Math.max(1, (d.v / maxV) * (H - PAD.t - PAD.b)) : 0;
       ctx.fillRect(x, H - PAD.b - bh, barW, bh);
@@ -748,7 +787,7 @@ const CHART = {
           : dt.toLocaleDateString('zh-TW');
         const chg = d.c - d.o;
         const volStr = d.v > 0 ? (d.v >= 10000 ? (d.v/10000).toFixed(1)+'萬' : d.v.toLocaleString()) : '彙總中';
-        tt.innerHTML = `<span>${dateStr}</span> 開${d.o} 高${d.h} 低${d.l} <b>收${d.c}</b> <span style="color:${chg>=0?'#E24B4A':'#1D9E75'}">${chg>=0?'▲':'▼'}${Math.abs(chg).toFixed(2)}</span> 量${volStr}`;
+        tt.innerHTML = `<span>${dateStr}</span> 開${d.o} 高${d.h} 低${d.l} <b>收${d.c}</b> <span style="color:${chg>=0?'#FF5A4E':'#22C17A'}">${chg>=0?'▲':'▼'}${Math.abs(chg).toFixed(2)}</span> 量${volStr}`;
         tt.style.opacity = '1';
       }
     };
@@ -826,7 +865,7 @@ const CHART = {
 
     hists.forEach((h, i) => {
       const x = PAD.l + i * (barW + gap);
-      ctx.fillStyle = h >= 0 ? 'rgba(226,75,74,0.7)' : 'rgba(29,158,117,0.7)';
+      ctx.fillStyle = h >= 0 ? 'rgba(255,90,78,0.7)' : 'rgba(34,193,122,0.7)';
       ctx.fillRect(x, Math.min(yOf(h), mid), barW, Math.max(1, Math.abs(yOf(h) - mid)));
     });
 
@@ -885,7 +924,7 @@ const CHART = {
       arr.forEach((v, i) => { i === 0 ? ctx.moveTo(xOf(i), yOf(v)) : ctx.lineTo(xOf(i), yOf(v)); });
       ctx.stroke();
     };
-    drawLine(Ks, '#E24B4A'); drawLine(Ds, '#378ADD');
+    drawLine(Ks, '#C9A55C'); drawLine(Ds, '#8EA3C8');
   },
 
   _ma(arr, period) {
