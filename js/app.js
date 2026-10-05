@@ -1756,25 +1756,8 @@ const Dashboard = {
   },
 
   // 摘要：建議減碼/觀望/買進各幾檔（只算持股）
-  // 訊號天平三欄清單：點欄位標題展開/收合（預設收合，狀態會記住）
-  _sigOpen() {
-    try { return new Set(JSON.parse(localStorage.getItem('sigbal-open') || '[]')); } catch(e) { return new Set(); }
-  },
-  _applySigCol(key, open) {
-    const btn = document.getElementById(`sigbal-${key}-btn`), list = document.getElementById(`sigbal-${key}`);
-    if (!btn || !list) return;
-    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    btn.querySelector('.sb-caret').textContent = open ? '▾' : '▸';
-    list.hidden = !open;
-  },
-  toggleSigCol(key) {
-    const open = this._sigOpen();
-    if (open.has(key)) open.delete(key); else open.add(key);
-    localStorage.setItem('sigbal-open', JSON.stringify([...open]));
-    this._applySigCol(key, open.has(key));
-  },
-
-  // 訊號天平：持股依建議分三欄，橫桿依兩側持股比重傾斜（改版步驟6）
+  // 訊號天平（精簡版，放在今日星位指標列右側）：只顯示依建議分類的持股比重，
+  // 橫桿依減碼側／買進側比重傾斜；滑鼠移到比例上可看是哪幾檔
   _renderSummary() {
     const box = document.getElementById('sigbal');
     if (!box) return;
@@ -1782,28 +1765,18 @@ const Dashboard = {
     const items = APP.portfolio.map(s => {
       const r = this._rows[s.code] || {};
       const price = r.price ?? s.price ?? s.cost;
-      return { code: s.code, name: s.name || s.code, tier: r.tier, sigLabel: r.sigLabel, val: price * s.shares * fx };
+      return { name: s.name || s.code, tier: r.tier, val: price * s.shares * fx };
     });
     const total = items.reduce((a, x) => a + x.val, 0) || 1;
-    const groups = { sell: [], hold: [], buy: [] };
+    const g = { sell: [], hold: [], buy: [] };
     let pending = 0;
     items.forEach(x => {
       if (x.tier == null) { pending++; return; }
-      x.w = x.val / total * 100;
-      x.label = x.sigLabel || SIGNAL.LEVELS[x.tier]?.label || '';
-      (x.tier <= 2 ? groups.sell : x.tier >= 4 ? groups.buy : groups.hold).push(x);
+      (x.tier <= 2 ? g.sell : x.tier >= 4 ? g.buy : g.hold).push(x);
     });
-    // 同一欄裡，訊號越強越前面；同強度依比重大到小
-    groups.sell.sort((a, b) => a.tier - b.tier || b.w - a.w);
-    groups.buy.sort((a, b) => b.tier - a.tier || b.w - a.w);
-    groups.hold.sort((a, b) => b.w - a.w);
-    const sum = l => l.reduce((a, x) => a + x.w, 0);
-    const sellW = sum(groups.sell), buyW = sum(groups.buy);
-    const d = Math.max(-14, Math.min(14, (sellW - buyW) / 2)); // 減碼側重→左邊往下
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    set('sigbal-sellw', sellW.toFixed(0) + '%');
-    set('sigbal-buyw', buyW.toFixed(0) + '%');
-    set('sigbal-pending', pending ? `${pending} 檔分析中` : '');
+    const w = l => l.reduce((a, x) => a + x.val, 0) / total * 100;
+    const sellW = w(g.sell), holdW = w(g.hold), buyW = w(g.buy);
+    const d = Math.max(-14, Math.min(14, (sellW - buyW) / 2)); // 減碼側重→左邊下沉
     const beam = document.getElementById('sigbal-beam');
     if (beam) {
       beam.setAttribute('y1', (30 + d).toFixed(1)); beam.setAttribute('y2', (30 - d).toFixed(1));
@@ -1811,19 +1784,17 @@ const Dashboard = {
       pl.setAttribute('y1', (30 + d).toFixed(1)); pl.setAttribute('y2', (40 + d).toFixed(1));
       pr.setAttribute('y1', (30 - d).toFixed(1)); pr.setAttribute('y2', (40 - d).toFixed(1));
     }
-    const chip = (x, base) => `<button class="sb-chip" onclick="NAV.pickStock('${x.code}')" title="${x.label}">
-        <span><span class="sb-name">${x.name}</span> <span class="num sb-code">${x.code}</span>${x.label !== base ? ` <em class="sb-tag">${x.label}</em>` : ''}</span>
-        <span class="num sb-w">佔 ${x.w.toFixed(0)}%</span></button>`;
-    const open = this._sigOpen();
-    const col = (key, base) => {
-      const l = groups[key];
-      set(`sigbal-${key}-n`, `${l.length} 檔`);
-      set(`sigbal-${key}-w`, `佔 ${sum(l).toFixed(0)}%`);
-      this._applySigCol(key, open.has(key));
-      const el = document.getElementById(`sigbal-${key}`);
-      if (el) el.innerHTML = l.length ? l.map(x => chip(x, base)).join('') : '<div class="sb-empty">—</div>';
+    const put = (id, label, pct, list) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = `${label} ${pct.toFixed(0)}%`;
+      el.title = list.length ? `${label}（${list.length} 檔）：${list.map(x => x.name).join('、')}` : `${label}：無`;
     };
-    col('sell', '建議減碼'); col('hold', '持有觀望'); col('buy', '可考慮加碼');
+    put('sigbal-sell-r', '減碼', sellW, g.sell);
+    put('sigbal-hold-r', '觀望', holdW, g.hold);
+    put('sigbal-buy-r', '買進', buyW, g.buy);
+    const pe = document.getElementById('sigbal-pending');
+    if (pe) pe.textContent = pending ? `（${pending} 檔分析中）` : '';
     box.style.display = APP.portfolio.length ? '' : 'none';
   },
 
