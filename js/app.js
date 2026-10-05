@@ -3774,7 +3774,7 @@ const APP = {
     }
     // 切換 logo 文字
     const logoSpan = document.querySelector('.logo span');
-    if (logoSpan) logoSpan.textContent = market === 'US' ? '🇺🇸 股票 Agent' : '🇹🇼 股票 Agent';
+    if (logoSpan) logoSpan.textContent = '股票 Agent';
     // 切換大盤指數列
     const twBar = document.getElementById('tw-market-bar');
     const usBar = document.getElementById('us-market-bar');
@@ -3819,6 +3819,9 @@ const APP = {
     if (elUS) { elUS.textContent = label; elUS.className = marketOpen ? 'badge open' : 'badge closed'; }
     const dot = document.getElementById('live-dot');
     if (dot) dot.style.opacity = marketOpen ? '1' : '0.3';
+    // 改版：開盤時 logo 雕刻花紋旋轉，休市停止
+    const logo = document.getElementById('logo-mark');
+    if (logo) logo.classList.toggle('spin', marketOpen);
   },
 
   async refreshPrices(force = false) {
@@ -4404,7 +4407,7 @@ const APP = {
     });
     // 更新 logo 文字
     const logoSpan = document.querySelector('.logo span');
-    if (logoSpan) logoSpan.textContent = this.activeMarket === 'US' ? '🇺🇸 股票 Agent' : '🇹🇼 股票 Agent';
+    if (logoSpan) logoSpan.textContent = '股票 Agent';
     // 初始化大盤列顯示
     const twBar = document.getElementById('tw-market-bar');
     const usBar = document.getElementById('us-market-bar');
