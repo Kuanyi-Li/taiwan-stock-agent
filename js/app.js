@@ -875,6 +875,89 @@ const PORCELAIN = {
   },
 };
 
+// ── DETAIL：個股頁右側「系統判斷」＋「我的持倉」（改版個股頁 2）──────────────
+const DETAIL = {
+  async renderAside() {
+    const box = document.getElementById('detail-aside');
+    const code = APP.activeSymbol;
+    if (!box) return;
+    if (!code) { box.innerHTML = ''; return; }
+    const hold = APP.portfolio.find(s => s.code === code);
+    const watch = APP.watchlist.find(s => s.code === code);
+    const s = hold || watch || { code };
+    const q = DATA.priceStore[code];
+    const price = q?.price ?? s.price;
+    const isUS = DATA.isUSCode(code);
+    const money = n => (n >= 0 ? '+' : '−') + (isUS ? 'US$' : '') + Math.abs(Math.round(n)).toLocaleString('en-US');
+
+    // 系統判斷：7 級訊號＋指針（跟帳冊同一套）
+    const sig = price ? SIGNAL.quickEstimate(hold ? { ...hold, price } : { code, price, cost: price }) : null;
+    const tier = sig?.tier ?? 3;
+    const sigCol = tier <= 2 ? 'var(--green-l)' : tier >= 4 ? 'var(--red)' : 'var(--text-2)';
+    const mode = APP.getStockMode(code) === 'short' ? '短線' : '長線';
+
+    // 15 日預估（用 2 年日線，跟帳冊同一套預測引擎；不受上方 K 線單位影響）
+    let fcHtml = '<span class="num" style="color:var(--text-3)">計算中…</span>';
+    let hist = DATA.histCache[`${code}_2y`]?.data;
+    if (!hist) { try { hist = await DATA.fetchHistory(code, '2y'); } catch(e) { hist = null; } }
+    if (APP.activeSymbol !== code) return; // 等資料時已切到別檔
+    if (hist?.length > 20) {
+      const d = hist.map(x => ({ ...x })); CHART._patchCandleData(d, code);
+      const p = Dashboard._miniPredict(d, 15, code);
+      if (p) fcHtml = `<span class="num ${p.pctChange > 0 ? 'up' : p.pctChange < 0 ? 'dn' : ''}">${p.pctChange >= 0 ? '+' : ''}${p.pctChange.toFixed(1)}%</span><span class="da-sub">${p.trend.short}</span>`;
+    }
+
+    // 我的持倉
+    let posHtml;
+    if (hold && price) {
+      const fx = isUS ? CURRENCY.toTWD(1) : 1;
+      const pnl = (price - hold.cost) * hold.shares, pnlPct = (price - hold.cost) / hold.cost * 100;
+      const total = APP.portfolio.reduce((a, x) => a + (x.price ?? x.cost) * x.shares, 0) || 1;
+      const weight = price * hold.shares / total * 100;
+      const days = hold.date ? Math.floor((Date.now() - new Date(hold.date).getTime()) / 86400000) : null;
+      const annual = days && days > 7 ? ((price / hold.cost) ** (365 / days) - 1) * 100 : null;
+      const mkt = hold.market || APP.activeMarket;
+      const pc = pnl > 0 ? 'up' : pnl < 0 ? 'dn' : '';
+      posHtml = `
+        <div class="da-row"><span>持有</span><span class="num">${sharesDisp(hold.shares, mkt)}</span></div>
+        <div class="da-row"><span>均價</span><span class="num da-link" onclick="openEditCostModal('${code}','${mkt}')" title="點擊修改均價">${(+hold.cost).toFixed(2)}</span></div>
+        <div class="da-row"><span>未實現損益</span><span class="num ${pc}">${money(pnl)}<small>${pnlPct >= 0 ? '+' : '−'}${Math.abs(pnlPct).toFixed(1)}%</small></span></div>
+        ${isUS ? `<div class="da-row"><span>約台幣</span><span class="num ${pc}">${(pnl * fx >= 0 ? '+' : '−')}${Math.abs(Math.round(pnl * fx)).toLocaleString('en-US')}</span></div>` : ''}
+        <div class="da-row"><span>佔投組</span><span class="num">${weight.toFixed(1)}%</span></div>
+        ${days != null ? `<div class="da-row"><span>持有天數</span><span class="num">${days} 天${annual != null ? `<small>年化 ${annual >= 0 ? '+' : ''}${annual.toFixed(0)}%</small>` : ''}</span></div>` : ''}
+        <div class="da-acts">
+          <button class="lg-tool" onclick="openBuyModal('${code}', ${APP.portfolio.indexOf(hold)})">＋ 加碼</button>
+          <button class="lg-tool" onclick="openSellStockModal('${code}', ${APP.portfolio.indexOf(hold)})">－ 賣出</button>
+        </div>`;
+    } else {
+      posHtml = `<div class="da-empty">${watch ? '自選觀察中，尚未持有' : '尚未持有'}</div>
+        <div class="da-acts"><button class="lg-tool gold" onclick="openAddModal()">＋ 新增持股</button></div>`;
+    }
+
+    box.innerHTML = `
+      <section class="da-sec">
+        <div class="da-k">系統判斷 <span class="da-mode">${mode}</span></div>
+        <div class="da-sig" style="color:${sigCol}">${sig ? sig.label : '—'}</div>
+        <div class="da-needle"><i style="left:${(tier / 6 * 100).toFixed(0)}%;border-top-color:${sigCol}"></i></div>
+        <div class="da-scale"><span>減碼</span><span>觀望</span><span>買進</span></div>
+        <div class="da-row da-fc"><span>15 日預估</span><span class="da-fcv">${fcHtml}</span></div>
+      </section>
+      <section class="da-sec">
+        <div class="da-k">我的持倉</div>
+        ${posHtml}
+      </section>`;
+  },
+};
+// 技術分析跑完（或長短線切換）後，右側判斷跟著更新
+(() => {
+  const orig = ANALYSIS.run.bind(ANALYSIS);
+  ANALYSIS.run = function(...args) {
+    const r = orig(...args);
+    Promise.resolve(r).then(() => { if (args[1] === APP.activeSymbol) DETAIL.renderAside(); }).catch(() => {});
+    return r;
+  };
+})();
+
 // ── SKY：總覽「今日星位」（改版步驟5）──────────────────────
 // 雕刻星盤：花瓣數＝持股檔數；盤中旋轉、休市停止；
 // 顏色看今日損益正負（紅/綠/白），花瓣起伏深淺看今日漲跌幅（0%→較平、3%以上→最深）
@@ -4452,6 +4535,7 @@ const APP = {
     this.renderWatchlist();
     this._updateMarketStatus();
     // ★ 右側大圖價格即時更新（不用重新 selectStock）
+    if (this.activeSymbol && document.getElementById('detail-content')?.style.display !== 'none') DETAIL.renderAside();
     if (this.activeSymbol) {
       const q = DATA.priceStore[this.activeSymbol];
       if (q?.price) {
@@ -4860,6 +4944,7 @@ const APP = {
     const activePeriod = document.querySelector('.period-btn.active')?.dataset.period ?? '1d';
     const requestedCode = code;
     await CHART.load(code, activePeriod);
+    DETAIL.renderAside();
 
     if (this.activeSymbol !== requestedCode) return;
 
@@ -4918,6 +5003,7 @@ const APP = {
     this.renderStockList();
     this._renderSignalOverview();
     if (typeof Dashboard !== 'undefined') Dashboard.refreshSignals();
+    if (code === this.activeSymbol && typeof DETAIL !== 'undefined') DETAIL.renderAside();
   },
 
   // 問題4: 開網頁後在背景依序分析所有持股和自選清單
