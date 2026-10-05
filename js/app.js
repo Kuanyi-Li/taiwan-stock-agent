@@ -762,6 +762,117 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 setInterval(() => EVTL.loadExDiv(), 6 * 3600 * 1000);
 
+// ── SESSION：左欄「盤勢時鐘」＋底部雕刻紋飾（改版）──────────────────
+// 直式刻度尺：台股 09:00–13:30；美股依美東 09:30–16:00 換算成台灣時間顯示
+const SESSION = {
+  // 以「分鐘」表示的交易時段（台灣當地時間軸；美股可能跨午夜 → 用連續分鐘，可 > 1440）
+  _range() {
+    const now = new Date();
+    if (APP.activeMarket !== 'US') {
+      const day = now.getDay();
+      return { open: 9 * 60, close: 13 * 60 + 30, nowMin: now.getHours() * 60 + now.getMinutes(), weekday: day >= 1 && day <= 5, label: '台股' };
+    }
+    // 美東時間與台灣時間差（分鐘）
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const diff = Math.round((now - et) / 60000); // 夏令 +720、冬令 +780
+    const etMin = et.getHours() * 60 + et.getMinutes();
+    const etDay = et.getDay();
+    return { open: 570 + diff, close: 960 + diff, nowMin: etMin + diff, weekday: etDay >= 1 && etDay <= 5, label: '美股' };
+  },
+  _fmt(min) { min = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`; },
+  _dur(min) { const h = Math.floor(min / 60), m = min % 60; return h ? `${h} 時 ${m} 分` : `${m} 分`; },
+
+  render() {
+    const el = document.getElementById('session-clock');
+    if (!el) return;
+    const r = this._range();
+    const len = r.close - r.open;
+    const inSession = r.weekday && r.nowMin >= r.open && r.nowMin <= r.close;
+    const H = 200; // 刻度尺高度（px）
+    const y = m => ((m - r.open) / len * H).toFixed(1);
+    let ticks = '';
+    for (let m = r.open; m <= r.close; m += 15) {
+      const major = (m - r.open) % 60 === 0 || m === r.close;
+      ticks += `<i class="sc-tick ${major ? 'major' : ''}" style="top:${y(m)}px"></i>`;
+      if (major) ticks += `<span class="sc-lab num" style="top:${y(m)}px">${this._fmt(m)}</span>`;
+    }
+    let state, prog = 0, pointer = '';
+    if (inSession) {
+      prog = (r.nowMin - r.open) / len;
+      state = `<b>盤中</b>距收盤 ${this._dur(r.close - r.nowMin)}`;
+      pointer = `<i class="sc-ptr" style="top:${(prog * H).toFixed(1)}px"></i><span class="sc-now num" style="top:${(prog * H).toFixed(1)}px">${this._fmt(r.nowMin)}</span>`;
+    } else if (r.weekday && r.nowMin < r.open) {
+      state = `<b>開盤前</b>距開盤 ${this._dur(r.open - r.nowMin)}`;
+    } else {
+      prog = r.weekday && r.nowMin > r.close ? 1 : 0;
+      state = r.weekday && r.nowMin > r.close ? '<b>已收盤</b>' : '<b>休市</b>';
+    }
+    el.innerHTML = `
+      <div class="sc-head"><span>${r.label}盤勢</span><span class="sc-state ${inSession ? 'on' : ''}">${inSession ? '●' : '○'}</span></div>
+      <div class="sc-rule" style="height:${H}px">
+        <i class="sc-axis"></i><i class="sc-fill" style="height:${(prog * H).toFixed(1)}px"></i>${ticks}${pointer}
+      </div>
+      <div class="sc-foot ${inSession ? 'on' : ''}">${state}</div>`;
+  },
+
+};
+setInterval(() => SESSION.render(), 30000);
+
+// ── 左欄底紋：青花瓷（海水紋＋如意雲紋＋回紋邊），由下往上淡出 ─────────
+const PORCELAIN = {
+  COLORS: { blue: ['#2F5FB3', '#5B86D6'], gold: ['#C9A55C', '#E6C98A'] },
+  _svg(c1, c2) {
+    // 單一圖塊 120×120：下半海水紋（同心弧魚鱗）、上半如意雲紋（雙捲渦）
+    const W = 120, H = 120;
+    let s = '';
+    // 海水紋：每列錯半格，同心弧 4 圈；後畫的列用黑底蓋住前一列下緣，形成魚鱗
+    const R = 15;
+    for (let row = 0; row < 5; row++) {
+      const cy = 60 + row * (R * 0.5) + R * 0.5;
+      const off = row % 2 ? R : 0;
+      for (let cx = -R + off; cx <= W + R; cx += R * 2) {
+        s += `<path d="M${cx - R} ${cy} A${R} ${R} 0 0 1 ${cx + R} ${cy} Z" fill="#000"/>`;
+        for (let k = 1; k <= 4; k++) {
+          const r = R * k / 4;
+          s += `<path d="M${(cx - r).toFixed(1)} ${cy} A${r} ${r} 0 0 1 ${(cx + r).toFixed(1)} ${cy}" fill="none" stroke="${k === 4 ? c1 : c2}" stroke-width="${k === 4 ? 1 : 0.6}"/>`;
+        }
+      }
+    }
+    // 如意雲紋：兩個相反方向的捲渦＋連接的雲尾
+    const spiral = (x0, y0, dir, scale) => {
+      let d = '';
+      for (let i = 0; i <= 60; i++) {
+        const t = i / 60 * Math.PI * 3.2, r = (1 - i / 60) * 7 * scale + 0.6;
+        const x = x0 + dir * r * Math.cos(t), y = y0 + r * Math.sin(t);
+        d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+      }
+      return d;
+    };
+    const cloud = (x, y, sc) => {
+      const a = spiral(x - 8 * sc, y, -1, sc), b = spiral(x + 8 * sc, y, 1, sc);
+      const tail = `M${(x - 15 * sc).toFixed(1)} ${(y + 1 * sc).toFixed(1)} Q${x} ${(y + 12 * sc).toFixed(1)} ${(x + 15 * sc).toFixed(1)} ${(y + 1 * sc).toFixed(1)}` +
+                   ` M${(x - 4 * sc).toFixed(1)} ${(y - 6 * sc).toFixed(1)} Q${x} ${(y - 13 * sc).toFixed(1)} ${(x + 4 * sc).toFixed(1)} ${(y - 6 * sc).toFixed(1)}`;
+      return `<path d="${a} ${b}" fill="none" stroke="${c2}" stroke-width="0.8"/><path d="${tail}" fill="none" stroke="${c1}" stroke-width="1"/>`;
+    };
+    s += cloud(30, 22, 1) + cloud(90, 44, 0.85);
+    // 點綴小圈
+    s += `<circle cx="75" cy="14" r="1.4" fill="${c2}"/><circle cx="12" cy="48" r="1.2" fill="${c2}"/>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${s}</svg>`;
+  },
+  // 回紋（雷紋）邊框條
+  _meander(c1) {
+    const p = 'M0 15 H4 V4 H16 V12 H8 V8 H12 M16 15 H20 V4 H32 V12 H24 V8 H28';
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="18" viewBox="0 0 32 18"><path d="M0 1 H32 M0 17 H32" stroke="${c1}" stroke-width="1"/><path d="${p}" fill="none" stroke="${c1}" stroke-width="1.1"/></svg>`;
+  },
+  apply(variant) {
+    const el = document.getElementById('nav-porcelain');
+    if (!el) return;
+    const [c1, c2] = this.COLORS[variant] || this.COLORS.gold;
+    const enc = s => `url("data:image/svg+xml;utf8,${encodeURIComponent(s)}")`;
+    el.style.backgroundImage = `${enc(this._meander(c1))}, ${enc(this._svg(c1, c2))}`;
+  },
+};
+
 // ── SKY：總覽「今日星位」（改版步驟5）──────────────────────
 // 雕刻星盤：花瓣數＝持股檔數；盤中旋轉、休市停止；
 // 顏色看今日損益正負（紅/綠/白），花瓣起伏深淺看今日漲跌幅（0%→較平、3%以上→最深）
@@ -4300,6 +4411,8 @@ const APP = {
     const logo = document.getElementById('logo-mark');
     if (logo) logo.classList.toggle('spin', marketOpen);
     SKY.setSpinning(marketOpen);
+    SESSION.render();
+    PORCELAIN.apply('gold');
   },
 
   async refreshPrices(force = false) {
