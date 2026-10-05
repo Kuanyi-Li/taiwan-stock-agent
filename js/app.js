@@ -646,7 +646,7 @@ function showMainView(view) {
   if (sidebar) sidebar.style.display = hideSidebar ? 'none' : '';
   if (layout) layout.classList.toggle('sidebar-hidden', hideSidebar);
   const dashBtn = document.getElementById('dashboard-toggle-btn');
-  if (dashBtn) dashBtn.textContent = view === 'dashboard' ? '📈 個股' : '🏠 總覽';
+  if (dashBtn) dashBtn.textContent = view === 'dashboard' ? '個股' : '總覽';
   if (view === 'theater' && typeof Theater !== 'undefined') Theater.onEnter();
   if (view !== 'theater' && typeof Theater !== 'undefined') Theater.onExit();
 }
@@ -1339,19 +1339,8 @@ const Dashboard = {
     }
   },
 
-  isCompact() { return localStorage.getItem('dash-compact-mode') === '1'; },
-  toggleCompact() {
-    const now = !this.isCompact();
-    localStorage.setItem('dash-compact-mode', now ? '1' : '0');
-    const btn = document.getElementById('dash-mode-toggle');
-    if (btn) btn.textContent = now ? '🖼️ 完整模式' : '📋 精簡模式';
-    this.render();
-  },
-
   async render() {
-    // ★ 修正：之前畫到一半時再呼叫render會被直接丟掉，快速切換台美股後
-    // 總覽卡片會停在上一個市場。改成記下「待重畫」，目前這輪畫完後立刻補跑一次。
-    // （不中途重建網格，因為上一輪的卡片載入會依索引寫回格子，中途重建會寫錯格）
+    // ★ 畫到一半時再呼叫render不直接丟掉：記下「待重畫」，這輪畫完立刻補跑一次
     if (this._rendering) { this._rerunPending = true; return; }
     this._rendering = true;
     try { await this._renderOnce(); }
@@ -1359,229 +1348,418 @@ const Dashboard = {
     if (this._rerunPending) { this._rerunPending = false; return this.render(); }
   },
 
+  // ═══ 持股帳冊（改版步驟3）═══════════════════════════════
+  // 一行一檔；點 ▸ 展開迷你K線＋今日數據；欄位標題可排序（今日/建議/損益/代號），
+  // 第三次點擊回到自訂順序。排序中若報價或訊號更新，會即時重排。
+  _rows: {},          // code → 這一行目前的計算結果（排序、更新用）
+  _hist: {},          // code → 最近一次抓到的日線（展開K線、走勢小線用）
+
+  // ── 展開狀態（依市場分開記住）──
+  _expKey() { return APP.activeMarket === 'US' ? 'ussa-dash-expanded' : 'twsa-dash-expanded'; },
+  _expanded() {
+    try { return new Set(JSON.parse(localStorage.getItem(this._expKey()) || '[]')); }
+    catch(e) { return new Set(); }
+  },
+  _saveExpanded(set) { localStorage.setItem(this._expKey(), JSON.stringify([...set])); },
+
+  // ── 欄位排序狀態：{ key:'chg'|'sig'|'pnl'|'code', desc:true } 或 null（自訂順序）──
+  _sortState() {
+    try { return JSON.parse(localStorage.getItem('dash-sort-v1') || 'null'); }
+    catch(e) { return null; }
+  },
+  sortBy(key) {
+    const cur = this._sortState();
+    let next;
+    if (!cur || cur.key !== key) next = { key, desc: true };
+    else if (cur.desc) next = { key, desc: false };
+    else next = null; // 第三次：回到自訂順序
+    if (next) localStorage.setItem('dash-sort-v1', JSON.stringify(next));
+    else localStorage.removeItem('dash-sort-v1');
+    this._applySort();
+  },
+  _SORT_LABEL: {
+    chg:  ['今日漲最多在上', '今日跌最多在上'],
+    sig:  ['買進在上', '減碼在上'],
+    pnl:  ['賺最多在上', '虧最多在上'],
+    code: ['代號大到小', '代號小到大'],
+  },
+
+  // 依目前排序狀態，重排兩個表格的列（不重建DOM，展開的K線畫面會保留）
+  _applySort() {
+    const st = this._sortState();
+    const txt = document.getElementById('dash-sort-text');
+    if (txt) txt.textContent = st ? this._SORT_LABEL[st.key][st.desc ? 0 : 1] : '自訂順序';
+    document.querySelectorAll('#ledger-hold th[data-sort]').forEach(th => {
+      const on = st && th.dataset.sort === st.key;
+      th.classList.toggle('sorted', !!on);
+      th.setAttribute('aria-sort', on ? (st.desc ? 'descending' : 'ascending') : 'none');
+      const ar = th.querySelector('.ar');
+      if (ar) ar.textContent = on ? (st.desc ? '▼' : '▲') : '↕';
+    });
+    const manual = this.getOrder();
+    const manualIdx = code => { const i = manual.indexOf(code); return i === -1 ? 1e6 : i; };
+    ['ledger-hold', 'ledger-watch'].forEach(tid => {
+      const tbody = document.querySelector(`#${tid} tbody`);
+      if (!tbody) return;
+      const trs = [...tbody.querySelectorAll('tr.lg-row')];
+      if (!trs.length) return;
+      const val = tr => {
+        const r = this._rows[tr.dataset.code] || {};
+        return { chg: r.chgPct, sig: r.tier, pnl: r.pnl, code: tr.dataset.code }[st?.key];
+      };
+      const useKey = st && !(st.key === 'pnl' && tid === 'ledger-watch'); // 自選沒有損益，維持自訂順序
+      trs.sort((a, b) => {
+        if (useKey) {
+          const x = val(a), y = val(b);
+          const xm = x == null || Number.isNaN(x), ym = y == null || Number.isNaN(y);
+          if (xm !== ym) return xm ? 1 : -1; // 還沒有資料的排最後
+          if (!xm) {
+            const c = typeof x === 'string' ? x.localeCompare(y) : x - y;
+            if (c) return st.desc ? -c : c;
+          }
+        }
+        return manualIdx(a.dataset.code) - manualIdx(b.dataset.code) || (+a.dataset.i - +b.dataset.i);
+      });
+      trs.forEach(tr => {
+        const x = document.getElementById(`lgx-${this._idOf(tr.dataset.code)}`);
+        tbody.appendChild(tr);
+        if (x) tbody.appendChild(x);
+      });
+    });
+  },
+
+  toggleExpandAll() {
+    const codes = [...document.querySelectorAll('tr.lg-row')].map(tr => tr.dataset.code);
+    const set = this._expanded();
+    const allOpen = codes.length && codes.every(c => set.has(c));
+    codes.forEach(c => this._setExpanded(c, !allOpen, set));
+    this._saveExpanded(set);
+    this._updateExpandBtn();
+  },
+  toggleRow(code) {
+    const set = this._expanded();
+    this._setExpanded(code, !set.has(code), set);
+    this._saveExpanded(set);
+    this._updateExpandBtn();
+  },
+  _setExpanded(code, open, set) {
+    const id = this._idOf(code);
+    const x = document.getElementById(`lgx-${id}`);
+    const btn = document.querySelector(`#lg-${id} .lg-exp`);
+    if (open) set.add(code); else set.delete(code);
+    if (btn) { btn.textContent = open ? '▾' : '▸'; btn.setAttribute('aria-expanded', open ? 'true' : 'false'); }
+    if (!x) return;
+    x.style.display = open ? '' : 'none';
+    if (open) requestAnimationFrame(() => this._drawExpanded(code));
+  },
+  _updateExpandBtn() {
+    const btn = document.getElementById('dash-expand-btn');
+    if (!btn) return;
+    const codes = [...document.querySelectorAll('tr.lg-row')].map(tr => tr.dataset.code);
+    const set = this._expanded();
+    btn.textContent = codes.length && codes.every(c => set.has(c)) ? '全部收合' : '全部展開';
+  },
+
   async _renderOnce() {
-    const grid = document.getElementById('dashboard-grid');
-    if (!grid) return;
-    const compact = this.isCompact();
-    grid.classList.toggle('compact-grid', compact);
-    const btn = document.getElementById('dash-mode-toggle');
-    if (btn) btn.textContent = compact ? '🖼️ 完整模式' : '📋 精簡模式';
+    const holdBody = document.querySelector('#ledger-hold tbody');
+    const watchBody = document.querySelector('#ledger-watch tbody');
+    if (!holdBody || !watchBody) return;
     if (typeof CHART !== 'undefined') CHART._renderMALegend();
 
-    // 卡片清單：大盤指數（多個）+ 持股 + 自選（依目前市場）
     const isUS = APP.activeMarket === 'US';
-    const indexCards = isUS
-      ? [
-          { code:'^GSPC', name:'S&P 500', isIndex:true },
-          { code:'^IXIC', name:'那斯達克', isIndex:true },
-          { code:'^DJI',  name:'道瓊工業', isIndex:true },
-          { code:'^SOX',  name:'費城半導體', isIndex:true },
-        ]
-      : [
-          { code:'^TWII', name:'加權指數', isIndex:true },
-        ];
-    // ★ 台股模式不顯示費半卡片，但背景仍抓資料維持半導體股預測連動修正
-    if (!isUS) {
-      DATA.fetchHistory('^SOX', '1d').catch(() => {});
-    }
-    const stockCardsRaw = [
-      ...APP.portfolio.map(s => ({ code:s.code, name:s.name, isIndex:false, isWatch:false })),
-      ...APP.watchlist
-        .filter(w => !APP.portfolio.some(s => s.code === w.code))
-        .map(w => ({ code:w.code, name:w.name, isIndex:false, isWatch:true })),
-    ];
-    // ★ 依使用者自訂排序（若有），未列入排序的新股票排在後面
+    const indexCodes = isUS
+      ? [['^GSPC','S&P 500'], ['^IXIC','那斯達克'], ['^DJI','道瓊工業'], ['^SOX','費城半導體']]
+      : [['^TWII','加權指數']];
+    // ★ 台股模式不顯示費半，但背景仍抓資料維持半導體股預測連動修正
+    if (!isUS) DATA.fetchHistory('^SOX', '1d').catch(() => {});
+    this._renderIndexStrip(indexCodes);
+
     const order = this.getOrder();
-    const stockCards = order.length
-      ? [...stockCardsRaw].sort((a, b) => {
+    const byOrder = list => order.length
+      ? [...list].sort((a, b) => {
           const ia = order.indexOf(a.code), ib = order.indexOf(b.code);
           if (ia === -1 && ib === -1) return 0;
           if (ia === -1) return 1;
           if (ib === -1) return -1;
           return ia - ib;
         })
-      : stockCardsRaw;
-    const cards = [...indexCards, ...stockCards];
+      : list;
+    const holds = byOrder(APP.portfolio.map((s, i) => ({ code: s.code, name: s.name, i, isWatch: false })));
+    const watches = byOrder(APP.watchlist
+      .map((w, i) => ({ code: w.code, name: w.name, i, isWatch: true }))
+      .filter(w => !APP.portfolio.some(s => s.code === w.code)));
 
-    if (stockCards.length === 0) {
-      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">尚無持股或自選股，請先新增</div>`;
-      const sumEl = document.getElementById('dashboard-summary');
-      if (sumEl) sumEl.innerHTML = '';
-      return;
-    }
+    const hc = document.getElementById('dash-hold-count');
+    if (hc) hc.textContent = `${holds.length} 檔`;
+    const wc = document.getElementById('dash-watch-count');
+    if (wc) wc.textContent = `${watches.length} 檔`;
 
-    // 先畫出卡片骨架，資料抓回來後逐一補上
-    grid.innerHTML = cards.map((c, i) => this._cardSkeleton(c, i, compact)).join('');
+    this._rows = {};
+    const expanded = this._expanded();
+    holdBody.innerHTML = holds.length
+      ? holds.map(c => this._rowSkeleton(c, expanded.has(c.code))).join('')
+      : `<tr><td colspan="11" class="lg-empty">還沒有持股，按右上角「＋ 新增持股」開始追蹤</td></tr>`;
+    watchBody.innerHTML = watches.length
+      ? watches.map(c => this._rowSkeleton(c, expanded.has(c.code))).join('')
+      : `<tr><td colspan="11" class="lg-empty">自選清單是空的，按「＋ 新增自選」加入觀察標的</td></tr>`;
+    this._applySort();
+    this._updateExpandBtn();
 
-    // ★ 12張卡以內：動態計算每列卡片數，讓整個網格剛好填滿容器高度、不需捲動
-    // 超過12張：卡片大小固定，改成滾輪捲動顯示，不再繼續自適應縮小
-    const total = cards.length;
-    const maxCols = compact ? 6 : 3;
-    const cols = Math.min(maxCols, total);
-    const overLimit = total > 12;
-    grid.classList.toggle('scrollable', overLimit);
-    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    if (overLimit) {
-      grid.style.gridTemplateRows = ''; // 交給 grid-auto-rows（CSS）決定固定高度
-    } else {
-      const rows = Math.ceil(total / cols);
-      grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-    }
-
-    // ★ 並行觸發所有卡片載入：價格立即顯示（同步），K線/預測線背景抓取
-    // 實際的網路請求節流交給共用佇列（DATA._enqueue）處理，不再額外死等
-    this._sigTiers = {}; // 收集訊號分級供摘要列統計
-    await Promise.all(cards.map((c, i) => this._loadCard(c, i, compact)));
-    this._renderSummary(cards);
-    // 卡片自己算好的指標已寫回全域快取，順便刷新側邊欄讓訊號同步更新
+    await Promise.all([...holds, ...watches].map(c => this._loadRow(c)));
+    this._renderSummary();
+    this._applySort();
+    // 帳冊算好的指標已寫回全域快取，順便刷新側邊欄讓訊號同步更新
     APP.renderStockList();
     APP._renderSignalOverview();
   },
 
-  // 頂部摘要列：整體買/賣/觀望張數統計
-  _renderSummary(cards) {
+  // ── 大盤指數列 ──
+  _indexCodes: [],
+  async _renderIndexStrip(list) {
+    const el = document.getElementById('dash-index-strip');
+    if (!el) return;
+    this._indexCodes = list.map(x => x[0]);
+    el.innerHTML = list.map(([code, name]) =>
+      `<span class="lg-idx" id="lgi-${this._idOf(code)}"><span class="lg-idx-name">${name}</span> <span class="lg-idx-v">—</span> <span class="lg-idx-c"></span></span>`).join('');
+    await Promise.all(list.map(async ([code]) => {
+      try {
+        const live = DATA.priceStore[code];
+        if (!live?.price || live.prevClose == null) {
+          const d = await DATA.fetchHistory(code, '1d');
+          if (d?.length >= 2) this._setIndex(code, d[d.length - 1].c, d[d.length - 2].c);
+        }
+        this._updateIndex(code);
+      } catch(e) { /* 指數抓不到就維持「—」 */ }
+    }));
+  },
+  _setIndex(code, price, prev) {
+    const el = document.getElementById(`lgi-${this._idOf(code)}`);
+    if (!el || !price) return;
+    const chg = price - prev, pct = prev ? chg / prev * 100 : 0;
+    el.querySelector('.lg-idx-v').textContent = price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const c = el.querySelector('.lg-idx-c');
+    c.className = 'lg-idx-c ' + chgColorClass(chg);
+    c.textContent = `${chg > 0 ? '▲' : chg < 0 ? '▼' : ''} ${Math.abs(pct).toFixed(2)}%`;
+  },
+  _updateIndex(code) {
+    const q = DATA.priceStore[code];
+    if (q?.price && q.prevClose != null) this._setIndex(code, q.price, q.prevClose);
+  },
+
+  // 摘要：建議減碼/觀望/買進各幾檔（只算持股）
+  _renderSummary() {
     const sumEl = document.getElementById('dashboard-summary');
     if (!sumEl) return;
     let buy = 0, sell = 0, hold = 0;
-    Object.values(this._sigTiers || {}).forEach(tier => {
-      if (tier >= 4) buy++;
-      else if (tier <= 2) sell++;
-      else hold++;
+    APP.portfolio.forEach(s => {
+      const r = this._rows[s.code];
+      if (!r || r.tier == null) return;
+      if (r.tier >= 4) buy++; else if (r.tier <= 2) sell++; else hold++;
     });
-    const total = buy + sell + hold;
-    if (!total) { sumEl.innerHTML = ''; return; }
-    sumEl.innerHTML = `
-      <span class="sum-chip" style="color:#E24B4A">🟥 ${buy} 檔建議買進</span>
-      <span class="sum-chip" style="color:var(--text-3)">⬜ ${hold} 檔持有觀望</span>
-      <span class="sum-chip" style="color:#1D9E75">🟩 ${sell} 檔建議減碼/出場</span>`;
+    sumEl.innerHTML = (buy + sell + hold)
+      ? `<span class="dn-color">減碼 ${sell}</span><span>觀望 ${hold}</span><span class="up-color">買進 ${buy}</span>`
+      : '';
   },
 
   _idOf(code) { return code.replace(/[^a-zA-Z0-9]/g, '_'); },
 
-  _cardSkeleton(c, i, compact) {
+  _rowSkeleton(c, open) {
     const id = this._idOf(c.code);
-    const canvasHtml = compact ? '' : `<canvas class="dash-card-canvas" id="dash-canvas-${id}"></canvas>`;
+    const s = c.isWatch ? null : APP.portfolio[c.i];
+    const mkt = s?.market || APP.activeMarket;
+    const mode = APP.getStockMode(c.code);
+    const alertOn = PriceAlert.has(c.code);
+    const bell = `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 8.5V5.5a3 3 0 0 1 6 0v3l1 1H2z M5 10.5h2" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>`;
+    const actions = c.isWatch
+      ? `<button class="lg-act ${alertOn ? 'on' : ''}" title="到價提醒" aria-label="到價提醒" onclick="PriceAlert.openModal('${c.code}','${mkt}')">${bell}</button>
+         <button class="lg-act" title="移除自選" aria-label="移除自選" onclick="APP.removeWatch(${c.i});Dashboard.render()">✕</button>`
+      : `<button class="lg-act" title="加碼" aria-label="加碼" onclick="openBuyModal('${c.code}', ${c.i})">＋</button>
+         <button class="lg-act" title="賣出" aria-label="賣出" onclick="openSellStockModal('${c.code}', ${c.i})">－</button>
+         <button class="lg-act" title="編輯名稱" aria-label="編輯名稱" onclick="editStockName('${c.code}', ${c.i})">✎</button>
+         <button class="lg-act ${alertOn ? 'on' : ''}" title="到價提醒" aria-label="到價提醒" onclick="PriceAlert.openModal('${c.code}','${mkt}')">${bell}</button>
+         <button class="lg-act" title="移除" aria-label="移除" onclick="APP.removeStock(${c.i})">✕</button>`;
+    const holdCells = c.isWatch
+      ? `<td></td><td></td>`
+      : `<td><div class="num lg-shares">${sharesDisp(s.shares, mkt)}</div>
+             <div class="num lg-cost" title="點擊手動修改均價" onclick="openEditCostModal('${c.code}','${mkt}')">均 ${(+s.cost).toFixed(2)}</div></td>
+         <td><div class="num lg-pnl">—</div><div class="num lg-pnlpct"></div></td>`;
     return `
-      <div class="dash-card ${c.isIndex ? 'dash-card-index' : ''} ${compact ? 'compact' : ''}" id="dash-card-${id}" onclick="Dashboard._onCardClick('${c.code}', ${c.isWatch ? "'watch'" : "'portfolio'"})">
-        <div class="dash-card-head">
-          <span class="dash-card-code" id="dash-code-${id}">${c.code}</span>
-          <span class="dash-card-name" id="dash-name-${id}">${c.name}</span>
-        </div>
-        <div class="dash-card-price-row">
-          <div class="dash-price-left">
-            <span class="dash-card-price" id="dash-price-${id}">—</span>
-            <span class="dash-card-chg" id="dash-chg-${id}"></span>
-          </div>
-          ${compact ? '' : `<div class="dash-card-stats" id="dash-stats-${id}"></div>`}
-        </div>
-        ${canvasHtml}
-        <div class="dash-card-badge-row" id="dash-badge-${id}">
-          <span class="dash-badge-loading">載入中...</span>
-        </div>
-      </div>`;
+      <tr class="lg-row ${c.isWatch ? 'is-watch' : ''}" id="lg-${id}" data-code="${c.code}" data-i="${c.i}" data-watch="${c.isWatch ? 1 : 0}">
+        <td class="lg-stick"><button class="lg-exp" aria-expanded="${open}" aria-label="展開 ${c.name}" onclick="Dashboard.toggleRow('${c.code}')">${open ? '▾' : '▸'}</button></td>
+        <td class="lg-stick2 lg-l lg-open" onclick="Dashboard._onCardClick('${c.code}', '${c.isWatch ? 'watch' : 'portfolio'}')">
+          <span class="num lg-code">${c.code}</span><span class="lg-name">${c.name}</span></td>
+        <td class="num lg-price">—</td>
+        <td class="num lg-chg"></td>
+        <td class="lg-spark-cell"><svg class="lg-spark" width="100" height="30" viewBox="0 0 120 32" aria-hidden="true"></svg></td>
+        <td><div class="lg-range" title="現價在近20日高低區間的位置"><i class="lg-range-pos" style="left:50%;display:none"></i></div></td>
+        ${holdCells}
+        <td><div class="lg-sig"><span class="lg-sig-label">載入中...</span><span class="lg-needle"><i style="left:50%"></i></span></div>
+            <div class="lg-modes">
+              <button class="mode-btn ${mode === 'long' ? 'active-long' : ''}" onclick="APP.setStockMode('${c.code}','long')" title="長線分析（6月日線）">長線</button>
+              <button class="mode-btn ${mode === 'short' ? 'active-short' : ''}" onclick="APP.setStockMode('${c.code}','short')" title="短線分析（1月日線）">短線</button>
+            </div></td>
+        <td class="num lg-fc">—</td>
+        <td><div class="lg-acts">${actions}</div></td>
+      </tr>
+      <tr class="lg-xrow" id="lgx-${id}" style="${open ? '' : 'display:none'}">
+        <td colspan="11"><div class="lg-xpanel">
+          <div class="lg-xchart"><canvas class="lg-canvas" id="dash-canvas-${id}"></canvas></div>
+          <div class="lg-xstats"><div class="lg-xstats-title serif">今日數據</div><div id="dash-stats-${id}"></div>
+            <a href="#" class="lg-xlink" onclick="event.preventDefault();Dashboard._onCardClick('${c.code}', '${c.isWatch ? 'watch' : 'portfolio'}')">開啟完整個股頁 →</a></div>
+        </div></td>
+      </tr>`;
   },
 
-  async _loadCard(c, i, compact) {
-    const id = this._idOf(c.code);
-    const priceEl = document.getElementById(`dash-price-${id}`);
-    const chgEl = document.getElementById(`dash-chg-${id}`);
-    const codeEl = document.getElementById(`dash-code-${id}`);
-    const nameEl = document.getElementById(`dash-name-${id}`);
-    const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
-
-    // ★ 第一階段（同步、立即）：用已經批次抓好的報價先顯示價格，不等K線資料
-    const renderPrice = (price, prevClose) => {
-      const chg = price - prevClose;
-      const chgPct = prevClose ? chg / prevClose * 100 : 0;
-      const colorClass = chgColorClass(chg);
-      if (priceEl) { priceEl.textContent = (isUSStock ? 'US$' : '') + price.toFixed(2); priceEl.className = 'dash-card-price ' + colorClass; }
-      if (codeEl) codeEl.className = 'dash-card-code ' + colorClass;
-      if (nameEl) nameEl.className = 'dash-card-name ' + colorClass;
-      if (chgEl) {
-        const isUp = chg >= 0;
-        chgEl.className = 'dash-card-chg ' + (isUp ? 'up-color' : 'dn-color');
-        chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
-      }
-      return { chg, chgPct };
-    };
-
-    const live0 = DATA.priceStore[c.code];
-    if (live0?.price) renderPrice(live0.price, live0.prevClose ?? live0.price);
-
+  async _loadRow(c) {
+    const r = this._rows[c.code] = { code: c.code, isWatch: c.isWatch, i: c.i };
+    // 第一階段：用已經批次抓好的報價先顯示價格
+    this._updateRowPrice(c.code);
     try {
-      // ★ 第二階段（非同步）：抓完整1年日線（跟個股詳細頁的長線資料一樣），確保預測線100%一致
-      // 精簡模式優先用已有報價，避免不必要的歷史資料抓取
-      let price, prevClose, data = null;
-      const live = DATA.priceStore[c.code];
-      if (compact && live?.price) {
-        price = live.price;
-        prevClose = live.prevClose ?? price;
-      } else {
-        data = await DATA.fetchHistory(c.code, '1d');
-        if (!data || data.length < 3) throw new Error('no data');
-        const last = data[data.length - 1];
-        const prev = data.length >= 2 ? data[data.length - 2].c : last.c;
-        price = live?.price && live.source !== 'twse-prev' ? live.price : last.c;
-        prevClose = live?.prevClose ?? prev;
+      const data = await DATA.fetchHistory(c.code, '1d');
+      if (!data || data.length < 3) throw new Error('no data');
+      this._hist[c.code] = data;
+      // ★ 帳冊算完的指標直接寫回全域快取，訊號第一次渲染就有正確結果
+      if (!ANALYSIS._cache[c.code]) {
+        try { ANALYSIS._cache[c.code] = { ind: ANALYSIS._calcIndicators(data), candles: data }; }
+        catch(e) { /* 靜默失敗，quickEstimate 會fallback */ }
       }
-      const { chg } = renderPrice(price, prevClose);
-
-      // ★ 關鍵修正：卡片自己算完的指標直接寫回全域快取，
-      // 這樣訊號徽章第一次渲染就有正確結果，不用等背景分析、也不會卡在「分析中」
-      if (!compact && data && !c.isIndex && !ANALYSIS._cache[c.code]) {
-        try {
-          const ind = ANALYSIS._calcIndicators(data);
-          ANALYSIS._cache[c.code] = { ind, candles: data };
-        } catch(e) { /* 靜默失敗，quickEstimate 會fallback */ }
-      }
-
-      // ★ 今日統計小字：成交量、最高、最低、勾選的均線、本益比
-      if (!compact && data) {
-        this._renderCardStats(id, data, isUSStock, c.code);
-      }
-
-      let prediction = null;
-      if (!compact) {
-        const canvas = document.getElementById(`dash-canvas-${id}`);
-        if (canvas && data) prediction = this._drawMiniChart(canvas, data, c.code);
-      }
-
-      const trendBadge = prediction
-        ? (() => {
-            const tc = CHART._trendColor(prediction.trend);
-            const bgAlpha = prediction.trend.dir === 'flat' ? 0.12 : (0.10 + prediction.trend.level * 0.05);
-            const rgbMap = { up:[226,75,74], down:[29,158,117], flat:[156,163,175] };
-            const rgb = rgbMap[prediction.trend.dir];
-            return `<span class="dash-trend-badge" style="color:${tc};background:rgba(${rgb[0]},${rgb[1]},${rgb[2]},${bgAlpha});border:1px solid ${tc}">${prediction.trend.short} ${prediction.pctChange>=0?'+':''}${prediction.pctChange.toFixed(1)}%</span>`;
-          })()
-        : '';
-
-      // 訊號徽章（指數只顯示趨勢分級，不顯示買賣訊號）
-      const badgeEl = document.getElementById(`dash-badge-${id}`);
-      if (badgeEl) {
-        if (c.isIndex) {
-          badgeEl.innerHTML = trendBadge;
-        } else {
-          const s = APP.portfolio.find(x => x.code === c.code) || { code: c.code, price, cost: price };
-          const sig = SIGNAL.quickEstimate({ ...s, price });
-          const tier = sig?.tier ?? 3;
-          this._sigTiers[c.code] = tier; // 供摘要列統計
-          let priceHtml = '';
-          if (tier <= 2) {
-            // 賣出家族：顯示建議賣出參考價（現價附近）
-            priceHtml = `<span class="dash-badge-price">參考 ${isUSStock?'US$':''}${price.toFixed(2)}</span>`;
-          } else if (tier >= 4) {
-            // 買進家族：顯示建議進場價（現價回檔3%）
-            const entry = price * 0.97;
-            priceHtml = `<span class="dash-badge-price">進場 ${isUSStock?'US$':''}${entry.toFixed(2)}</span>`;
-          }
-          badgeEl.innerHTML = `<span class="dash-badge ${sig.cls}">${sig.short} ${sig.label}</span>${priceHtml}${trendBadge}`;
-        }
-      }
+      this._updateRowPrice(c.code);
+      this._updateForecast(c.code);
+      if (this._expanded().has(c.code)) this._drawExpanded(c.code);
     } catch(e) {
-      const badgeEl = document.getElementById(`dash-badge-${id}`);
-      if (badgeEl) badgeEl.innerHTML = `<span class="dash-badge-error">資料載入失敗</span>`;
+      const tr = document.getElementById(`lg-${this._idOf(c.code)}`);
+      const lab = tr?.querySelector('.lg-sig-label');
+      if (lab) { lab.textContent = '資料載入失敗'; lab.style.color = 'var(--text-3)'; }
+      r.failed = true;
     }
+  },
+
+  // 現價/今日/走勢/區間/損益/建議：報價一更新就重算（不重抓資料）
+  _updateRowPrice(code) {
+    const r = this._rows[code];
+    const tr = document.getElementById(`lg-${this._idOf(code)}`);
+    if (!r || !tr) return;
+    const s = r.isWatch ? APP.watchlist[r.i] : APP.portfolio[r.i];
+    const live = DATA.priceStore[code];
+    const hist = this._hist[code];
+    let price = live?.price, prev = live?.prevClose;
+    if (hist?.length) {
+      const last = hist[hist.length - 1];
+      if (!price || live?.source === 'twse-prev') price = last.c;
+      if (prev == null) prev = hist.length >= 2 ? hist[hist.length - 2].c : last.c;
+    }
+    if (!price) price = s?.price;
+    if (!price) return;
+    if (prev == null) prev = s?.prevClose ?? price;
+    const chg = price - prev, chgPct = prev ? chg / prev * 100 : 0;
+    r.price = price; r.chgPct = chgPct;
+    const cc = chgColorClass(chg);
+    tr.querySelector('.lg-price').textContent = price.toFixed(2);
+    const chgEl = tr.querySelector('.lg-chg');
+    chgEl.className = 'num lg-chg ' + cc;
+    chgEl.textContent = `${chg > 0 ? '▲' : chg < 0 ? '▼' : ''} ${Math.abs(chgPct).toFixed(2)}%`;
+    tr.querySelector('.lg-name').className = 'lg-name ' + cc;
+
+    // 走勢小線＋20日區間（用日線，最後一根換成即時價）
+    if (hist?.length) {
+      const closes = hist.slice(-20).map(d => d.c);
+      closes[closes.length - 1] = price;
+      const hi = Math.max(...closes), lo = Math.min(...closes), span = (hi - lo) || 1;
+      const pts = closes.map((v, i) => [(i * (117.8 / (closes.length - 1))).toFixed(1), (28 - (v - lo) / span * 24).toFixed(1)]);
+      const col = chg > 0 ? 'var(--red)' : chg < 0 ? 'var(--green-l)' : 'var(--text-3)';
+      const fill = chg > 0 ? 'rgba(255,90,78,0.12)' : chg < 0 ? 'rgba(34,193,122,0.12)' : 'rgba(142,142,150,0.10)';
+      const line = 'M' + pts.map(p => p.join(' ')).join(' L');
+      const last = pts[pts.length - 1];
+      tr.querySelector('.lg-spark').innerHTML =
+        `<path d="M0 32 L${pts.map(p => p.join(' ')).join(' L')} L117.8 32 Z" fill="${fill}"/>` +
+        `<path d="${line}" fill="none" stroke="${col}" stroke-width="1.3" stroke-linejoin="round"/>` +
+        `<circle cx="${last[0]}" cy="${last[1]}" r="2.2" fill="${col}"/>`;
+      const h20 = hist.slice(-20), rh = Math.max(...h20.map(d => d.h), price), rl = Math.min(...h20.map(d => d.l), price);
+      const pos = rh > rl ? (price - rl) / (rh - rl) * 100 : 50;
+      const pin = tr.querySelector('.lg-range-pos');
+      pin.style.display = ''; pin.style.left = pos.toFixed(0) + '%';
+      tr.querySelector('.lg-range').title = `近20日 低 ${rl.toFixed(2)} ／ 高 ${rh.toFixed(2)}，現價在 ${pos.toFixed(0)}% 位置`;
+    }
+
+    // 損益（持股才有）
+    if (!r.isWatch && s) {
+      const isUS = (s.market || APP.activeMarket) === 'US';
+      const pnl = (price - s.cost) * s.shares;
+      const pnlPct = s.cost ? (price - s.cost) / s.cost * 100 : 0;
+      r.pnl = pnl * (isUS ? CURRENCY.toTWD(1) : 1); // 排序用台幣
+      const pc = pnl > 0 ? 'up-color' : pnl < 0 ? 'dn-color' : '';
+      const fmt = n => (n >= 0 ? '+' : '−') + (isUS ? 'US$' : '') + Math.abs(Math.round(n)).toLocaleString('en-US');
+      const pEl = tr.querySelector('.lg-pnl'), ppEl = tr.querySelector('.lg-pnlpct');
+      pEl.className = 'num lg-pnl ' + pc; pEl.textContent = fmt(pnl);
+      ppEl.className = 'num lg-pnlpct ' + pc;
+      ppEl.textContent = `${pnlPct >= 0 ? '+' : '−'}${Math.abs(pnlPct).toFixed(1)}%` +
+        (isUS ? ` ≈${r.pnl >= 0 ? '+' : '−'}${Math.abs(Math.round(r.pnl)).toLocaleString('en-US')}元` : '');
+    }
+    this._updateSignal(code);
+  },
+
+  // 建議（7級訊號）→ 文字＋指針；排序用 tier
+  _updateSignal(code) {
+    const r = this._rows[code];
+    const tr = document.getElementById(`lg-${this._idOf(code)}`);
+    if (!r || !tr || !r.price || r.failed) return;
+    const s = r.isWatch ? null : APP.portfolio[r.i];
+    const sig = SIGNAL.quickEstimate(s ? { ...s, price: r.price } : { code, price: r.price, cost: r.price });
+    const tier = sig?.tier ?? 3;
+    r.tier = tier;
+    const col = tier <= 2 ? 'var(--green-l)' : tier >= 4 ? 'var(--red)' : 'var(--text-2)';
+    const lab = tr.querySelector('.lg-sig-label');
+    lab.textContent = sig.label; lab.style.color = col;
+    const nd = tr.querySelector('.lg-needle i');
+    nd.style.left = (tier / 6 * 100).toFixed(0) + '%';
+    nd.style.borderTopColor = col;
+  },
+
+  // 15日預估（跟個股頁同一套預測引擎）
+  _updateForecast(code) {
+    const hist = this._hist[code];
+    const tr = document.getElementById(`lg-${this._idOf(code)}`);
+    if (!hist || !tr) return;
+    const dataCopy = hist.map(d => ({ ...d }));
+    CHART._patchCandleData(dataCopy, code);
+    const p = this._miniPredict(dataCopy, 15, code);
+    const el = tr.querySelector('.lg-fc');
+    if (!p) { el.textContent = '—'; return; }
+    el.className = 'num lg-fc ' + chgColorClass(p.pctChange);
+    el.textContent = `${p.pctChange >= 0 ? '+' : ''}${p.pctChange.toFixed(1)}%`;
+    el.title = `${p.trend.short}（15 日預估）`;
+  },
+
+  // 展開面板：迷你K線＋今日數據
+  _drawExpanded(code) {
+    const hist = this._hist[code];
+    const id = this._idOf(code);
+    const canvas = document.getElementById(`dash-canvas-${id}`);
+    if (!hist || !canvas || canvas.offsetParent === null) return;
+    // 展開面板寬度固定為可視寬度（表格可左右捲動時，面板不跟著跑出畫面）
+    const wrap = canvas.closest('.lg-wrap'), panel = canvas.closest('.lg-xpanel');
+    if (wrap && panel) panel.style.width = wrap.clientWidth + 'px';
+    const dataCopy = hist.map(d => ({ ...d }));
+    CHART._patchCandleData(dataCopy, code);
+    this._drawMiniChart(canvas, dataCopy, code);
+    this._renderCardStats(id, dataCopy, DATA.isUSCode(code), code);
+  },
+
+  // 長線/短線切換或背景分析完成後：重算所有列的建議，排序中就即時重排
+  refreshSignals() {
+    const dv = document.getElementById('dashboard-content');
+    if (!dv || dv.style.display === 'none') return;
+    Object.keys(this._rows).forEach(code => {
+      this._updateSignal(code);
+      const tr = document.getElementById(`lg-${this._idOf(code)}`);
+      const mode = APP.getStockMode(code);
+      tr?.querySelectorAll('.lg-modes .mode-btn').forEach((b, k) => {
+        b.className = 'mode-btn ' + (k === 0 ? (mode === 'long' ? 'active-long' : '') : (mode === 'short' ? 'active-short' : ''));
+      });
+    });
+    this._renderSummary();
+    const st = this._sortState();
+    if (st?.key === 'sig') this._applySort();
   },
 
   // 輕量預測：直接呼叫 CHART 的共用預測引擎，與個股詳細頁完全同一套邏輯與參數
@@ -1615,7 +1793,7 @@ const Dashboard = {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
 
-    const DISPLAY_N = 24; // 畫面只顯示最近24根蠟燭（跟主圖預設1日週期一致視覺密度）
+    const DISPLAY_N = 40; // 帳冊展開面板較寬，顯示最近40根蠟燭
     const data = fullData.slice(-DISPLAY_N);
     const n = data.length;
     if (!n) return;
@@ -1659,7 +1837,7 @@ const Dashboard = {
 
     // ── 格線（水平3條 + 垂直分段），淡色不搶眼 ──
     const isDark = true; // 淺色模式已移除，固定深色
-    const gridColor = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)';
+    const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.12)';
     ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
     ctx.setLineDash([2, 3]);
     // 水平格線：上/中/下三條
@@ -1678,7 +1856,7 @@ const Dashboard = {
     data.forEach((d, i) => {
       const prevClose = i > 0 ? data[i-1].c : d.o;
       const isUp = d.c >= prevClose;
-      const color = isUp ? '#E24B4A' : '#1D9E75';
+      const color = isUp ? '#FF5A4E' : '#22C17A';
       const x = xOf(i);
       ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1;
       // 影線
@@ -1712,10 +1890,17 @@ const Dashboard = {
       const costY = yOf(heldStock.cost);
       ctx.beginPath();
       ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = '#eab308'; ctx.lineWidth = 1;
+      ctx.strokeStyle = '#C9A55C'; ctx.lineWidth = 1;
       ctx.moveTo(0, costY); ctx.lineTo(W, costY);
       ctx.stroke();
       ctx.setLineDash([]);
+      // 均價標籤（左側，金色）
+      ctx.font = '11px "IBM Plex Sans", sans-serif';
+      const costTxt = `均價 ${(+heldStock.cost).toFixed(2)}`;
+      const ctw = ctx.measureText(costTxt).width;
+      const cty = costY > 14 ? costY - 3 : costY + 12;
+      ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(2, cty - 10, ctw + 6, 13);
+      ctx.fillStyle = '#C9A55C'; ctx.textAlign = 'left'; ctx.fillText(costTxt, 5, cty);
     }
 
     // 預測延伸（區間 + 中線虛線 + 偏多偏空分級標籤，紅漲綠跌配色與主圖一致）
@@ -1723,7 +1908,7 @@ const Dashboard = {
       const lastX = xOf(n-1) + barW/2, lastY = yOf(data[n-1].c);
       const trend = prediction.trend;
       const trendColor = CHART._trendColor(trend);
-      const rgbMap = { up:[226,75,74], down:[29,158,117], flat:[156,163,175] };
+      const rgbMap = { up:[255,90,78], down:[34,193,122], flat:[156,163,175] };
       const rgb = rgbMap[trend.dir];
       ctx.beginPath();
       ctx.moveTo(lastX, lastY);
@@ -1746,7 +1931,7 @@ const Dashboard = {
       ctx.font = 'bold 14px sans-serif';
       const tw = ctx.measureText(labelText).width;
       const lx = Math.max(2, xOf(n) - 2), ly = 3;
-      ctx.fillStyle = 'rgba(13,17,23,0.8)';
+      ctx.fillStyle = 'rgba(0,0,0,0.8)';
       ctx.fillRect(lx - 2, ly, tw + 8, 17);
       ctx.fillStyle = trendColor;
       ctx.textAlign = 'left';
@@ -1759,7 +1944,7 @@ const Dashboard = {
     data.forEach((d, i) => {
       const prevClose = i > 0 ? data[i-1].c : d.o;
       const isUp = d.c >= prevClose;
-      ctx.fillStyle = isUp ? 'rgba(226,75,74,0.5)' : 'rgba(29,158,117,0.5)';
+      ctx.fillStyle = isUp ? 'rgba(255,90,78,0.45)' : 'rgba(34,193,122,0.45)';
       const bh = d.v > 0 ? Math.max(1, (d.v / maxV) * volH) : 0;
       ctx.fillRect(xOf(i), volTop + volH - bh, barW, bh);
     });
@@ -1775,115 +1960,56 @@ const Dashboard = {
     setTimeout(() => CHART.draw(), 80);
   },
 
-  // 輕量更新：只更新價格文字/徽章，不重抓K線、不重繪canvas（節省資源）
+  // 輕量更新：報價刷新時更新每一行的數字（不重抓K線），排序中就即時重排
   updateLivePrices() {
     const dv = document.getElementById('dashboard-content');
     if (!dv || dv.style.display === 'none') return;
-    const isUS = APP.activeMarket === 'US';
-    // ★ 大盤指數卡片也要一起更新，之前漏掉導致指數卡片價格凍結不動
-    const indexCodes = isUS ? ['^GSPC','^IXIC','^DJI','^SOX'] : ['^TWII'];
-    const stockCards = [
-      ...indexCodes.map(code => ({ code, isIndex: true })),
-      ...APP.portfolio.map(s => ({ code:s.code, isWatch:false })),
-      ...APP.watchlist.filter(w => !APP.portfolio.some(s => s.code === w.code)).map(w => ({ code:w.code, isWatch:true })),
-    ];
-    stockCards.forEach(c => {
-      const id = this._idOf(c.code);
-      const q = DATA.priceStore[c.code];
-      if (!q?.price) return;
-      const priceEl = document.getElementById(`dash-price-${id}`);
-      const chgEl = document.getElementById(`dash-chg-${id}`);
-      const codeEl = document.getElementById(`dash-code-${id}`);
-      const nameEl = document.getElementById(`dash-name-${id}`);
-      const isUSStock = c.isIndex ? false : DATA.isUSCode(c.code);
-      if (priceEl) priceEl.textContent = (isUSStock ? 'US$' : '') + q.price.toFixed(2);
-      if (q.prevClose != null) {
-        const chg = q.price - q.prevClose;
-        const chgPct = chg / q.prevClose * 100;
-        const isUp = chg >= 0;
-        const colorClass = chgColorClass(chg);
-        if (priceEl) priceEl.className = 'dash-card-price ' + colorClass;
-        if (codeEl) codeEl.className = 'dash-card-code ' + colorClass;
-        if (nameEl) nameEl.className = 'dash-card-name ' + colorClass;
-        if (chgEl) {
-          chgEl.className = 'dash-card-chg ' + (isUp ? 'up-color' : 'dn-color');
-          chgEl.textContent = `${isUp?'▲':'▼'}${Math.abs(chg).toFixed(2)} (${Math.abs(chgPct).toFixed(2)}%)`;
-        }
-      }
-    });
+    (this._indexCodes || []).forEach(code => this._updateIndex(code));
+    Object.keys(this._rows).forEach(code => this._updateRowPrice(code));
+    this._renderSummary();
+    if (this._sortState()) this._applySort();
   },
 
-  // ── 定期重繪迷你K線（用已快取的歷史資料+最新報價，不額外發request）──
-  // 跟 updateLivePrices() 分開頻率：文字每次刷新都更新，K線圖較耗運算，較低頻重繪即可
+  // ── 定期更新：15日預估＋展開中的迷你K線（用快取資料＋最新報價，不額外發request）──
   refreshMiniCharts() {
     const dv = document.getElementById('dashboard-content');
     if (!dv || dv.style.display === 'none') return;
-    if (this.isCompact()) return; // 精簡模式沒有K線圖，不用處理
-    const isUS = APP.activeMarket === 'US';
-    const indexCodes = isUS ? ['^GSPC','^IXIC','^DJI','^SOX'] : ['^TWII'];
-    const stockCards = [
-      ...indexCodes,
-      ...APP.portfolio.map(s => s.code),
-      ...APP.watchlist.filter(w => !APP.portfolio.some(s => s.code === w.code)).map(w => w.code),
-    ];
-    stockCards.forEach(code => {
+    const expanded = this._expanded();
+    Object.keys(this._rows).forEach(code => {
       const cached = DATA.histCache[`${code}_1d`]?.data;
-      if (!cached || cached.length < 3) return; // 還沒有快取資料，跳過（下次render時會補）
-      const canvas = document.getElementById(`dash-canvas-${this._idOf(code)}`);
-      if (!canvas) return;
-      // 複製一份避免修改到共用快取，patch最後一根K線成最新報價後重繪
-      const dataCopy = cached.map(d => ({ ...d }));
-      CHART._patchCandleData(dataCopy, code);
-      const prediction = this._drawMiniChart(canvas, dataCopy, code);
-      // 趨勢徽章也一併更新（避免文字停留在舊的預測結果）
-      const badgeEl = document.getElementById(`dash-badge-${this._idOf(code)}`);
-      if (badgeEl && prediction) {
-        const trendBadgeEl = badgeEl.querySelector('.dash-trend-badge');
-        if (trendBadgeEl) {
-          const tc = CHART._trendColor(prediction.trend);
-          trendBadgeEl.style.color = tc;
-          trendBadgeEl.textContent = `${prediction.trend.short} ${prediction.pctChange>=0?'+':''}${prediction.pctChange.toFixed(1)}%`;
-        }
-      }
+      if (cached && cached.length >= 3) this._hist[code] = cached;
+      this._updateForecast(code);
+      if (expanded.has(code)) this._drawExpanded(code);
     });
   },
 
-  // ── 今日統計小字（成交量、最高、最低、勾選的均線）──────
+  // ── 今日數據（成交量、最高、最低、勾選的均線、本益比）──────
   async _renderCardStats(id, data, isUSStock, code) {
     const el = document.getElementById(`dash-stats-${id}`);
     if (!el || !data?.length) return;
     const last = data[data.length - 1];
     const closes = data.map(d => d.c);
+    const dp = isUSStock ? 2 : 1;
     const selectedMAs = (typeof CHART !== 'undefined' ? CHART.selectedMAs : null) || [5, 20, 60];
-    const maParts = selectedMAs.map(period => {
-      if (closes.length < period) return null;
-      const slice = closes.slice(-period);
-      const avg = slice.reduce((a,b) => a+b, 0) / period;
-      return `MA${period} ${avg.toFixed(isUSStock?2:1)}`;
-    }).filter(Boolean);
-    // ★ 指數（例如加權指數）Yahoo 沒有提供成交量資料，顯示「—」而不是誤導性的「0」
-    // ★ 修正：只有「今天」這一根可能因為交易所還沒彙總完成而是0，不代表整體沒有成交量資料
-    // （之前誤判成「這檔完全沒有成交量資料」，但實際上過去的資料都是真的，只有當天可能還沒彙總好）
-    const volDisplay = !last.v ? '彙總中' : (last.v >= 10000 ? (last.v/10000).toFixed(1)+'萬' : last.v.toLocaleString());
-    const parts = [
-      `量 ${volDisplay}`,
-      `高 ${last.h.toFixed(isUSStock?2:1)}`,
-      `低 ${last.l.toFixed(isUSStock?2:1)}`,
-      ...maParts,
+    // ★ 只有「今天」這一根可能因為交易所還沒彙總完成而是0，不代表整體沒有成交量資料
+    const volDisplay = !last.v ? '彙總中' : (last.v >= 10000 ? (last.v / 10000).toFixed(1) + '萬' : last.v.toLocaleString());
+    const rows = [
+      ['成交量', volDisplay],
+      ['最高／最低', `${last.h.toFixed(dp)} ／ ${last.l.toFixed(dp)}`],
+      ...selectedMAs.filter(p => closes.length >= p).map(p => {
+        const avg = closes.slice(-p).reduce((a, b) => a + b, 0) / p;
+        return [`MA${p}`, avg.toFixed(dp)];
+      }),
     ];
-    el.innerHTML = parts.map(p => `<span class="dash-stat-item">${p}</span>`).join('');
-
-    // ★ 本益比等基本面數字（只有台股上市股票有，非同步補上，不擋主要渲染）
+    const html = rows.map(([k, v]) => `<div class="lg-stat"><span>${k}</span><span class="num">${v}</span></div>`).join('');
+    el.innerHTML = html;
+    // ★ 本益比是一天更新一次的快照（只有台股上市股票有），非同步補上並標示「快照」
     if (!isUSStock && code && !code.startsWith('^')) {
       try {
         const peData = await DATA.fetchPERatios();
         const pe = peData[code];
         if (pe?.pe != null) {
-          // ★ 修正即時 vs 快照資料無區分的問題：PE是一天只更新一次的快照資料，
-          // 跟同一排的量/高/低（盤中會隨即時報價更新）性質不同，畫面上卻長得一模一樣，
-          // 容易誤以為PE也是即時跳動的。加上淡化樣式+小圖示+tooltip說明。
-          const peSpan = `<span class="dash-stat-item stat-snapshot" title="本益比為今日快照資料，非即時更新，一天更新一次">📅PE ${pe.pe.toFixed(1)}</span>`;
-          el.innerHTML += peSpan;
+          el.innerHTML = html + `<div class="lg-stat" title="本益比為今日快照資料，非即時更新，一天更新一次"><span>本益比 <em class="lg-snap">快照</em></span><span class="num">${pe.pe.toFixed(1)}</span></div>`;
         }
       } catch(e) { /* 靜默失敗，不影響其他資訊顯示 */ }
     }
@@ -3903,6 +4029,8 @@ const APP = {
     this.renderPortfolioSummary();
     this.renderStockList();
     this.renderWatchlist();
+    const dv = document.getElementById('dashboard-content');
+    if (dv && dv.style.display !== 'none' && typeof Dashboard !== 'undefined') Dashboard.render();
     PIE.render();
     const miniSection = document.getElementById('mini-pie-section');
     if (miniSection) miniSection.style.display = APP.portfolio.length > 1 ? 'block' : 'none';
@@ -4317,6 +4445,7 @@ const APP = {
     // 更新按鈕狀態
     this.renderStockList();
     this._renderSignalOverview();
+    if (typeof Dashboard !== 'undefined') Dashboard.refreshSignals();
   },
 
   // 問題4: 開網頁後在背景依序分析所有持股和自選清單

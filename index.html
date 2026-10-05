@@ -27,7 +27,7 @@
       <button class="market-switch-btn" data-market="US">美股</button>
     </div>
     <button class="dashboard-toggle-btn" id="dashboard-toggle-btn" onclick="Dashboard.toggle()" title="總覽所有持股">總覽</button>
-    <button class="dashboard-toggle-btn" onclick="Dashboard.openReorderModal()" title="調整總覽卡片排序">排序</button>
+    <button class="dashboard-toggle-btn" onclick="Dashboard.openReorderModal()" title="調整帳冊自訂順序">排序</button>
     <button class="dashboard-toggle-btn" id="perf-toggle-btn" onclick="Performance.toggle()" title="績效分析">績效</button>
     <button class="dashboard-toggle-btn" id="cal-toggle-btn" onclick="TradeCalendar.toggle()" title="交易與除權息日曆">日曆</button>
     <button class="dashboard-toggle-btn" onclick="Screener.openModal()" title="全市場選股篩選器">選股</button>
@@ -135,14 +135,56 @@
 
     <!-- ── 總覽（Dashboard）── -->
     <div class="dashboard-content" id="dashboard-content">
-      <div class="dashboard-header">
-        <div class="dashboard-summary" id="dashboard-summary"></div>
-        <div class="ma-legend ma-legend-compact" id="dash-ma-legend"></div>
-        <button class="dash-mode-toggle" id="dash-mode-toggle" onclick="Dashboard.toggleCompact()">📋 精簡模式</button>
-      </div>
-      <div class="dashboard-grid" id="dashboard-grid">
-        <div class="empty-state" style="grid-column:1/-1">載入中...</div>
-      </div>
+      <div class="lg-index-strip" id="dash-index-strip" aria-label="大盤指數"></div>
+
+      <section class="lg-section" aria-labelledby="lg-hold-title">
+        <div class="lg-head">
+          <h2 id="lg-hold-title" class="lg-title">持股</h2>
+          <span class="lg-note num" id="dash-hold-count"></span>
+          <span class="lg-note lg-summary" id="dashboard-summary"></span>
+          <span class="lg-note">排序：<b id="dash-sort-text">自訂順序</b></span>
+          <div class="lg-tools">
+            <div class="ma-legend ma-legend-compact" id="dash-ma-legend" title="展開面板的K線要顯示哪些均線"></div>
+            <button class="lg-tool" id="dash-expand-btn" onclick="Dashboard.toggleExpandAll()">全部展開</button>
+            <button class="lg-tool" onclick="Dashboard.openReorderModal()">自訂順序</button>
+            <button class="lg-tool gold" onclick="openAddModal()">＋ 新增持股</button>
+          </div>
+        </div>
+        <div class="lg-wrap">
+          <table class="ledger" id="ledger-hold">
+            <thead><tr>
+              <th class="lg-stick" style="width:22px"></th>
+              <th class="lg-stick2 lg-l lg-sortable" data-sort="code" onclick="Dashboard.sortBy('code')" aria-sort="none">代號／名稱<span class="ar">↕</span></th>
+              <th>現價</th>
+              <th class="lg-sortable" data-sort="chg" onclick="Dashboard.sortBy('chg')" aria-sort="none">今日<span class="ar">↕</span></th>
+              <th>近 20 日</th>
+              <th>20 日區間</th>
+              <th>持股／均價</th>
+              <th class="lg-sortable" data-sort="pnl" onclick="Dashboard.sortBy('pnl')" aria-sort="none">損益<span class="ar">↕</span></th>
+              <th class="lg-sortable" data-sort="sig" onclick="Dashboard.sortBy('sig')" aria-sort="none">建議<span class="ar">↕</span></th>
+              <th>15 日預估</th>
+              <th>操作</th>
+            </tr></thead>
+            <tbody><tr><td colspan="11" class="lg-empty">載入中...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="lg-section" aria-labelledby="lg-watch-title">
+        <div class="lg-head">
+          <h2 id="lg-watch-title" class="lg-title">自選觀察</h2>
+          <span class="lg-note num" id="dash-watch-count"></span>
+          <div class="lg-tools"><button class="lg-tool" onclick="openWatchlistModal()">＋ 新增自選</button></div>
+        </div>
+        <div class="lg-wrap">
+          <table class="ledger" id="ledger-watch">
+            <thead><tr>
+              <th class="lg-stick" style="width:22px"></th><th class="lg-stick2 lg-l">代號／名稱</th><th>現價</th><th>今日</th><th>近 20 日</th><th>20 日區間</th><th></th><th></th><th>建議</th><th>15 日預估</th><th>操作</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
     </div>
 
     <!-- ── 績效分析（Performance）── -->
