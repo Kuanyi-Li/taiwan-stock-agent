@@ -115,7 +115,7 @@
             <div class="ov-metric"><div class="ov-k">報酬率</div><div class="ov-v num" id="total-roi">—</div><div class="ov-s neutral" id="stock-count">— 檔持股</div></div>
             <div class="ov-metric"><div class="ov-k">今日 vs <span id="sky-bench-name">大盤</span></div><div class="ov-v num" id="sky-vs">—</div><div class="ov-s" id="sky-vs-note"></div></div>
             <div class="sb-mini" id="sigbal" aria-label="訊號天平：依建議分類的持股比重">
-              <div class="ov-k">訊號天平 <span id="sigbal-pending"></span></div>
+              
               <div class="sb-scale" aria-hidden="true">
                 <svg viewBox="0 0 1000 72" preserveAspectRatio="none">
                   <line id="sigbal-beam" x1="150" y1="30" x2="850" y2="30" stroke="#C9A55C" stroke-width="2" vector-effect="non-scaling-stroke"/>
@@ -129,14 +129,27 @@
                 <span id="sigbal-hold-r">觀望 —</span>
                 <span class="up" id="sigbal-buy-r">買進 —</span>
               </div>
+              <div class="sb-pending" id="sigbal-pending"></div>
             </div>
           </div>
-          <div class="ov-events">
-            <div id="macro-events-section"><div class="ov-k">近期重大事件</div><div id="macro-events-list"></div></div>
-            <div id="exdiv-section" style="display:none"><div class="ov-k">即將除權息</div><div id="exdiv-list"></div></div>
-          </div>
+          <!-- 舊的事件清單由下方「事件時間軸」取代；保留元素避免舊程式找不到 -->
+          <div style="display:none"><div id="macro-events-section"><div id="macro-events-list"></div></div><div id="exdiv-section"><div id="exdiv-list"></div></div></div>
         </div>
       </section>
+
+      <div class="ov-row">
+        <section class="ov-panel" aria-labelledby="alloc-title">
+          <div class="lg-head"><h2 id="alloc-title" class="lg-title">產業配置</h2><span class="lg-note" id="alloc-note"></span></div>
+          <div class="al-bar" id="alloc-bar"></div>
+          <div class="al-scale num"><span>0</span><span style="left:30%">30%</span><span style="left:50%">50%</span><span style="right:0">100%</span></div>
+          <div class="al-list" id="alloc-list"></div>
+        </section>
+        <section class="ov-panel" aria-labelledby="evtl-title">
+          <div class="lg-head"><h2 id="evtl-title" class="lg-title">事件時間軸</h2><span class="lg-note" id="evtl-count"></span>
+            <span class="lg-note ev-legend"><i class="ev-dia macro"></i>總經　<i class="ev-dia exdiv"></i>除權息</span></div>
+          <div class="evtl" id="evtl"></div>
+        </section>
+      </div>
       <div class="lg-index-strip" id="dash-index-strip" aria-label="大盤指數"></div>
 
       <section class="lg-section" aria-labelledby="lg-hold-title">

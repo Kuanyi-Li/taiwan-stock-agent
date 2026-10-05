@@ -653,6 +653,106 @@ function showMainView(view) {
   if (view !== 'theater' && typeof Theater !== 'undefined') Theater.onExit();
 }
 
+// ── ALLOC：總覽「產業配置」（改版步驟7）──────────────────
+// 一條依產業比重切段的橫條（斜線雕刻紋），最大產業用金色；30% 處畫集中度警戒線
+const ALLOC = {
+  _PATTERNS: ['p-gold', 'p-a', 'p-b', 'p-c', 'p-d', 'p-e', 'p-f'],
+  render() {
+    const bar = document.getElementById('alloc-bar'), list = document.getElementById('alloc-list');
+    if (!bar || !list) return;
+    const isUS = APP.activeMarket === 'US';
+    const fx = isUS ? CURRENCY.toTWD(1) : 1;
+    const groups = {};
+    let total = 0;
+    APP.portfolio.forEach(s => {
+      const v = (s.price ?? s.cost) * s.shares * fx;
+      const sec = getStockSector(s.code);
+      (groups[sec] = groups[sec] || { name: sec, val: 0, stocks: [] });
+      groups[sec].val += v; groups[sec].stocks.push(s.name || s.code);
+      total += v;
+    });
+    const secs = Object.values(groups).sort((a, b) => b.val - a.val);
+    const note = document.getElementById('alloc-note');
+    if (!total || !secs.length) {
+      bar.innerHTML = ''; list.innerHTML = '<div class="sb-empty">尚無持股</div>';
+      if (note) note.textContent = '';
+      return;
+    }
+    secs.forEach((g, i) => { g.pct = g.val / total * 100; g.pat = this._PATTERNS[Math.min(i, this._PATTERNS.length - 1)]; });
+    bar.innerHTML = secs.map(g =>
+      `<i class="al-seg ${g.pat}" style="width:${g.pct.toFixed(2)}%" title="${g.name} ${g.pct.toFixed(1)}%：${g.stocks.join('、')}"></i>`).join('') +
+      `<i class="al-limit" style="left:30%" title="單一產業 30% 集中度警戒線"></i>`;
+    list.innerHTML = secs.map(g => `
+      <div class="al-row ${g.pct >= 30 ? 'warn' : ''}">
+        <i class="al-sw ${g.pat}"></i>
+        <span class="al-name">${g.name}</span>
+        <span class="al-stocks">${g.stocks.join('、')}</span>
+        <span class="num al-pct">${g.pct.toFixed(1)}%</span>
+      </div>`).join('');
+    if (note) {
+      const top = secs[0];
+      note.textContent = `最大單一產業 ${top.name} ${top.pct.toFixed(0)}%` + (top.pct >= 30 ? '　超過 30% 警戒線' : '');
+      note.className = 'lg-note' + (top.pct >= 30 ? ' al-warn' : '');
+    }
+  },
+};
+
+// ── EVTL：總覽「事件時間軸」（改版步驟7）──────────────────
+// 未來 60 天的總經事件（FOMC／CPI／非農…）與持股除權息，畫在一條刻度尺上（菱形＝事件）
+const EVTL = {
+  SPAN: 60,
+  _exdiv: [],
+  async loadExDiv() {
+    try {
+      const codes = new Set(APP.portfolio.map(s => s.code));
+      const all = await ExDividend.getUpcomingForPortfolio();
+      this._exdiv = all.filter(e => codes.has(e.code));
+    } catch(e) { this._exdiv = []; }
+    this.render();
+  },
+  render() {
+    const el = document.getElementById('evtl');
+    if (!el) return;
+    const span = this.SPAN;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const days = d => Math.round((new Date(d + 'T00:00:00') - today) / 86400000);
+    const macro = MacroEvents.getUpcoming(span).map(e => ({ d: e.daysUntil, label: e.label, kind: 'macro', date: e.date }));
+    const name = c => APP.portfolio.find(s => s.code === c)?.name || c;
+    const ex = this._exdiv.map(e => ({ d: days(e.date), label: `${name(e.code)} 除權息${e.estimated ? '（估）' : ''}`, kind: 'exdiv', date: e.date }))
+      .filter(e => e.d >= 0 && e.d <= span);
+    const evs = [...macro, ...ex].sort((a, b) => a.d - b.d);
+    // 刻度：每 5 天一小格、每 30 天一大格
+    let ticks = '';
+    for (let d = 0; d <= span; d += 5) ticks += `<i class="ev-tick ${d % 30 === 0 ? 'major' : ''}" style="left:${d / span * 100}%"></i>`;
+    const mlab = [0, 30, 60].map(d => {
+      const dt = new Date(today.getTime() + d * 86400000);
+      return `<span class="ev-mlab num" style="left:${d / span * 100}%;transform:translateX(${d === 0 ? '0' : d === span ? '-100%' : '-50%'})">${d === 0 ? '今天' : `${dt.getMonth() + 1}/${dt.getDate()}`}</span>`;
+    }).join('');
+    // 標籤分 4 條車道（上1、下1、上2、下2）依序放，左右會撞到就換下一條；都放不下就只留菱形（滑鼠移上去看）
+    const W = el.clientWidth || 500;
+    const lanes = [[], [], [], []];
+    const textW = t => [...t].reduce((a, ch) => a + (ch.charCodeAt(0) > 255 ? 12 : 7), 0) + 10;
+    const marks = evs.map(e => {
+      const x = e.d / span * 100, px = x / 100 * W;
+      const w = Math.max(textW(e.label), 56);
+      const align = x < 12 ? 0 : x > 88 ? 1 : 0.5; // 0=靠左 0.5=置中 1=靠右
+      const l = px - w * align, r = l + w;
+      const lane = lanes.findIndex(L => L.every(([a, b]) => r < a || l > b));
+      const dia = `<i class="ev-dia ${e.kind}" style="left:${x}%" title="${e.date} ${e.label}"></i>`;
+      if (lane === -1) return dia;
+      lanes[lane].push([l, r]);
+      const pos = ['up l1', 'dn l1', 'up l2', 'dn l2'][lane];
+      const lead = lane === 2 ? `<i class="ev-lead" style="left:${x}%;top:62px;height:44px"></i>`
+                 : lane === 3 ? `<i class="ev-lead" style="left:${x}%;top:118px;height:48px"></i>` : '';
+      return dia + lead + `<span class="ev-lab ${pos}" style="left:${x}%;transform:translateX(${-align * 100}%)"><b>${e.label}</b><em class="num">${e.d === 0 ? '今天' : e.d + ' 天後'}</em></span>`;
+    }).join('');
+    el.innerHTML = `<div class="ev-track"><i class="ev-axis"></i>${ticks}${mlab}${marks}</div>` +
+      (evs.length ? '' : '<div class="sb-empty">未來 60 天沒有重大事件</div>');
+    const legend = document.getElementById('evtl-count');
+    if (legend) legend.textContent = evs.length ? `未來 ${span} 天 ${evs.length} 件` : '';
+  },
+};
+
 // ── SKY：總覽「今日星位」（改版步驟5）──────────────────────
 // 雕刻星盤：花瓣數＝持股檔數；盤中旋轉、休市停止；
 // 顏色看今日損益正負（紅/綠/白），花瓣起伏深淺看今日漲跌幅（0%→較平、3%以上→最深）
@@ -1681,6 +1781,8 @@ const Dashboard = {
     // ★ 台股模式不顯示費半，但背景仍抓資料維持半導體股預測連動修正
     if (!isUS) DATA.fetchHistory('^SOX', '1d').catch(() => {});
     this._renderIndexStrip(indexCodes);
+    ALLOC.render();
+    EVTL.loadExDiv();
 
     const order = this.getOrder();
     const byOrder = list => order.length
@@ -1794,7 +1896,7 @@ const Dashboard = {
     put('sigbal-hold-r', '觀望', holdW, g.hold);
     put('sigbal-buy-r', '買進', buyW, g.buy);
     const pe = document.getElementById('sigbal-pending');
-    if (pe) pe.textContent = pending ? `（${pending} 檔分析中）` : '';
+    if (pe) pe.textContent = pending ? `${pending} 檔分析中` : '';
     box.style.display = APP.portfolio.length ? '' : 'none';
   },
 
@@ -3884,6 +3986,7 @@ const MacroEvents = {
   },
 
   render() {
+    if (typeof EVTL !== 'undefined') EVTL.render();
     const el = document.getElementById('macro-events-list');
     if (!el) return;
     const upcoming = this.getUpcoming(14);
@@ -4390,6 +4493,7 @@ const APP = {
     setSignedText('total-roi', roi, v => v.toFixed(2)+'%', true);
     setText('stock-count', this.portfolio.length+' 檔持股', '');
     SKY.update(dayPnlUSD, dayPct, shouldShowDayPnl);
+    ALLOC.render();
   },
 
   renderStockList() {
