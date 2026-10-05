@@ -721,37 +721,46 @@ const EVTL = {
     const ex = this._exdiv.map(e => ({ d: days(e.date), label: `${name(e.code)} 除權息${e.estimated ? '（估）' : ''}`, kind: 'exdiv', date: e.date }))
       .filter(e => e.d >= 0 && e.d <= span);
     const evs = [...macro, ...ex].sort((a, b) => a.d - b.d);
-    // 刻度：每 5 天一小格、每 30 天一大格
+    // 上方：刻度尺＋菱形（只畫位置，名稱在下方清單；滑鼠移到菱形上也看得到）
     let ticks = '';
     for (let d = 0; d <= span; d += 5) ticks += `<i class="ev-tick ${d % 30 === 0 ? 'major' : ''}" style="left:${d / span * 100}%"></i>`;
     const mlab = [0, 30, 60].map(d => {
       const dt = new Date(today.getTime() + d * 86400000);
       return `<span class="ev-mlab num" style="left:${d / span * 100}%;transform:translateX(${d === 0 ? '0' : d === span ? '-100%' : '-50%'})">${d === 0 ? '今天' : `${dt.getMonth() + 1}/${dt.getDate()}`}</span>`;
     }).join('');
-    // 標籤分 4 條車道（上1、下1、上2、下2）依序放，左右會撞到就換下一條；都放不下就只留菱形（滑鼠移上去看）
-    const W = el.clientWidth || 500;
-    const lanes = [[], [], [], []];
-    const textW = t => [...t].reduce((a, ch) => a + (ch.charCodeAt(0) > 255 ? 12 : 7), 0) + 10;
-    const marks = evs.map(e => {
-      const x = e.d / span * 100, px = x / 100 * W;
-      const w = Math.max(textW(e.label), 56);
-      const align = x < 12 ? 0 : x > 88 ? 1 : 0.5; // 0=靠左 0.5=置中 1=靠右
-      const l = px - w * align, r = l + w;
-      const lane = lanes.findIndex(L => L.every(([a, b]) => r < a || l > b));
-      const dia = `<i class="ev-dia ${e.kind}" style="left:${x}%" title="${e.date} ${e.label}"></i>`;
-      if (lane === -1) return dia;
-      lanes[lane].push([l, r]);
-      const pos = ['up l1', 'dn l1', 'up l2', 'dn l2'][lane];
-      const lead = lane === 2 ? `<i class="ev-lead" style="left:${x}%;top:62px;height:44px"></i>`
-                 : lane === 3 ? `<i class="ev-lead" style="left:${x}%;top:118px;height:48px"></i>` : '';
-      return dia + lead + `<span class="ev-lab ${pos}" style="left:${x}%;transform:translateX(${-align * 100}%)"><b>${e.label}</b><em class="num">${e.d === 0 ? '今天' : e.d + ' 天後'}</em></span>`;
+    // 同一天的事件疊高一點，不會完全蓋住
+    const stack = {};
+    const dias = evs.map(e => {
+      const k = stack[e.d] = (stack[e.d] || 0) + 1;
+      return `<i class="ev-dia ${e.kind} ${e.d <= 3 ? 'soon' : ''}" style="left:${e.d / span * 100}%;margin-top:${-(k - 1) * 11}px" title="${e.date} ${e.label}"></i>`;
     }).join('');
-    el.innerHTML = `<div class="ev-track"><i class="ev-axis"></i>${ticks}${mlab}${marks}</div>` +
-      (evs.length ? '' : '<div class="sb-empty">未來 60 天沒有重大事件</div>');
+    // 下方：清單（跟左邊產業配置同樣的列表樣式）
+    const WK = '日一二三四五六';
+    const MAX = 6;
+    const rows = evs.slice(0, MAX).map(e => {
+      const dt = new Date(e.date + 'T00:00:00');
+      return `<div class="ev-row ${e.d <= 3 ? 'soon' : ''}">
+        <i class="ev-dia ${e.kind}"></i>
+        <span class="num ev-date">${dt.getMonth() + 1}/${dt.getDate()}（${WK[dt.getDay()]}）</span>
+        <span class="ev-name">${e.label}</span>
+        <span class="num ev-left">${e.d === 0 ? '今天' : e.d + ' 天後'}</span>
+      </div>`;
+    }).join('');
+    const more = evs.length > MAX ? `<div class="ev-more">還有 ${evs.length - MAX} 件（滑鼠移到上方菱形查看）</div>` : '';
+    el.innerHTML = `<div class="ev-track"><i class="ev-axis"></i>${ticks}${dias}${mlab}</div>` +
+      (evs.length ? `<div class="ev-list">${rows}${more}</div>` : '<div class="sb-empty">未來 60 天沒有重大事件</div>');
     const legend = document.getElementById('evtl-count');
     if (legend) legend.textContent = evs.length ? `未來 ${span} 天 ${evs.length} 件` : '';
+    this._renderedDay = today.getTime();
   },
 };
+
+// 網站一直開著時：跨日就重畫時間軸（倒數天數、今天的位置）、每 6 小時重抓除權息
+setInterval(() => {
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  if (EVTL._renderedDay && EVTL._renderedDay !== t.getTime()) EVTL.loadExDiv();
+}, 10 * 60 * 1000);
+setInterval(() => EVTL.loadExDiv(), 6 * 3600 * 1000);
 
 // ── SKY：總覽「今日星位」（改版步驟5）──────────────────────
 // 雕刻星盤：花瓣數＝持股檔數；盤中旋轉、休市停止；
