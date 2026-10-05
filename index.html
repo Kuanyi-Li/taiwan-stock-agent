@@ -114,31 +114,27 @@
             <div class="ov-metric"><div class="ov-k">未實現損益</div><div class="ov-v num" id="total-pnl">—</div><div class="ov-s" id="total-pnl-pct">—</div></div>
             <div class="ov-metric"><div class="ov-k">報酬率</div><div class="ov-v num" id="total-roi">—</div><div class="ov-s neutral" id="stock-count">— 檔持股</div></div>
             <div class="ov-metric"><div class="ov-k">今日 vs <span id="sky-bench-name">大盤</span></div><div class="ov-v num" id="sky-vs">—</div><div class="ov-s" id="sky-vs-note"></div></div>
+            <div class="sb-mini" id="sigbal" aria-label="訊號天平：依建議分類的持股比重">
+              <div class="ov-k">訊號天平 <span id="sigbal-pending"></span></div>
+              <div class="sb-scale" aria-hidden="true">
+                <svg viewBox="0 0 1000 72" preserveAspectRatio="none">
+                  <line id="sigbal-beam" x1="150" y1="30" x2="850" y2="30" stroke="#C9A55C" stroke-width="2" vector-effect="non-scaling-stroke"/>
+                  <line id="sigbal-panl" x1="150" y1="30" x2="150" y2="40" stroke="#22C17A" stroke-width="2" vector-effect="non-scaling-stroke"/>
+                  <line id="sigbal-panr" x1="850" y1="30" x2="850" y2="40" stroke="#FF5A4E" stroke-width="2" vector-effect="non-scaling-stroke"/>
+                </svg>
+                <i class="sb-fulcrum"></i><i class="sb-base"></i>
+              </div>
+              <div class="sb-ratios num">
+                <span class="dn" id="sigbal-sell-r">減碼 —</span>
+                <span id="sigbal-hold-r">觀望 —</span>
+                <span class="up" id="sigbal-buy-r">買進 —</span>
+              </div>
+            </div>
           </div>
           <div class="ov-events">
             <div id="macro-events-section"><div class="ov-k">近期重大事件</div><div id="macro-events-list"></div></div>
             <div id="exdiv-section" style="display:none"><div class="ov-k">即將除權息</div><div id="exdiv-list"></div></div>
           </div>
-        </div>
-      </section>
-      <section class="sigbal" id="sigbal" aria-labelledby="sigbal-title">
-        <div class="lg-head">
-          <h2 id="sigbal-title" class="lg-title">訊號天平</h2>
-          <span class="lg-note">橫桿依兩側持股比重傾斜　減碼側 <b class="num" id="sigbal-sellw">—</b>　買進側 <b class="num" id="sigbal-buyw">—</b></span>
-          <span class="lg-note" id="sigbal-pending"></span>
-        </div>
-        <div class="sb-scale" aria-hidden="true">
-          <svg viewBox="0 0 1000 72" preserveAspectRatio="none">
-            <line id="sigbal-beam" x1="220" y1="30" x2="780" y2="30" stroke="#C9A55C" stroke-width="2" vector-effect="non-scaling-stroke"/>
-            <line id="sigbal-panl" x1="220" y1="30" x2="220" y2="40" stroke="#22C17A" stroke-width="2" vector-effect="non-scaling-stroke"/>
-            <line id="sigbal-panr" x1="780" y1="30" x2="780" y2="40" stroke="#FF5A4E" stroke-width="2" vector-effect="non-scaling-stroke"/>
-          </svg>
-          <i class="sb-fulcrum"></i><i class="sb-base"></i>
-        </div>
-        <div class="sb-cols">
-          <div class="sb-col"><button class="sb-colhead dn" id="sigbal-sell-btn" aria-expanded="false" aria-controls="sigbal-sell" onclick="Dashboard.toggleSigCol('sell')"><span><i class="sb-caret">▸</i>建議減碼</span><span class="num"><span id="sigbal-sell-n"></span>　<span id="sigbal-sell-w" class="sb-colw"></span></span></button><div id="sigbal-sell" class="sb-list" hidden></div></div>
-          <div class="sb-col"><button class="sb-colhead" id="sigbal-hold-btn" aria-expanded="false" aria-controls="sigbal-hold" onclick="Dashboard.toggleSigCol('hold')"><span><i class="sb-caret">▸</i>持有觀望</span><span class="num"><span id="sigbal-hold-n"></span>　<span id="sigbal-hold-w" class="sb-colw"></span></span></button><div id="sigbal-hold" class="sb-list" hidden></div></div>
-          <div class="sb-col"><button class="sb-colhead up" id="sigbal-buy-btn" aria-expanded="false" aria-controls="sigbal-buy" onclick="Dashboard.toggleSigCol('buy')"><span><i class="sb-caret">▸</i>建議買進</span><span class="num"><span id="sigbal-buy-n"></span>　<span id="sigbal-buy-w" class="sb-colw"></span></span></button><div id="sigbal-buy" class="sb-list" hidden></div></div>
         </div>
       </section>
       <div class="lg-index-strip" id="dash-index-strip" aria-label="大盤指數"></div>
