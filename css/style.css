@@ -603,7 +603,7 @@ body {
 
 /* 建議動作大區塊 */
 .signals-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
-.signal-block { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 12px; }
+.signal-block { background: var(--bg-2); border: 1px solid var(--border); border-top: 1px solid var(--gold); border-radius: var(--radius-sm); padding: 12px; }
 .signal-block.signal-action-big {
   grid-column: 1 / -1;  /* 佔滿全寬 */
   background: var(--bg-3);
@@ -615,7 +615,7 @@ body {
 .signal-action-big .sig-value { font-size: 26px; }
 .sig-desc { font-size: 11px; color: var(--text-2); line-height: 1.4; }
 .signal-action .sig-value { color: var(--text-1); } /* JS 動態設定顏色 */
-.signal-entry .sig-value { color: var(--green-l); }
+.signal-entry .sig-value { color: var(--gold-l); }
 .signal-tp .sig-value { color: var(--red); }
 .signal-sl .sig-value { color: var(--red-l); }
 
@@ -628,7 +628,7 @@ body {
 .ptag.neutral{ background: var(--bg-3); color: var(--text-3); border: 1px solid var(--border); }
 .pattern-meter .meter-label { font-size: 11px; color: var(--text-3); margin-bottom: 5px; }
 .meter-bar-wrap { height: 6px; background: var(--bg-3); border-radius: 99px; overflow: hidden; margin-bottom: 6px; border: 1px solid var(--border); }
-.meter-bar { height: 100%; border-radius: 99px; transition: width 0.6s ease, background 0.3s ease; background: var(--amber); min-width: 4px; }
+.meter-bar { height: 100%; border-radius: 99px; transition: width 0.6s ease, background 0.3s ease; background: var(--gold); min-width: 4px; }
 .meter-value { font-size: 11px; color: var(--text-2); font-family: var(--font-mono); }
 .ai-reasoning { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px; display: flex; gap: 8px; margin-bottom: 14px; }
 .reasoning-text { font-size: 12px; color: var(--text-2); line-height: 1.6; }
@@ -1320,3 +1320,30 @@ body.theater-active .market-switch-btn.active {
   .detail-aside { flex-basis: auto; border-left: none; border-top: 1px solid var(--border-md); flex-direction: row; flex-wrap: wrap; }
   .detail-aside .da-sec { flex: 1 1 240px; }
 }
+
+/* ── 個股頁 3：下方三格＋同產業 ── */
+.detail-lower { margin: 16px 0; display: flex; flex-direction: column; gap: 16px; }
+.detail-lower:empty { display: none; }
+.dl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.detail-lower .da-sec { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; }
+.dl-gauge { position: relative; height: 6px; background: var(--bg-3); border-radius: 1px; margin: 4px 0 4px; }
+.dl-zone { position: absolute; top: 0; bottom: 0; }
+.dl-zone.lo { left: 0; width: 30%; background: rgba(34,193,122,0.35); }
+.dl-zone.hi { right: 0; width: 30%; background: rgba(255,90,78,0.35); }
+.dl-pin { position: absolute; top: -4px; width: 2px; height: 14px; background: var(--gold-l); transform: translateX(-1px); }
+.dl-gl { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); margin-bottom: 6px; font-family: var(--font-mono); }
+.dl-more { padding-top: 8px; font-size: 12px; } .dl-more a { color: var(--gold); cursor: pointer; }
+.dl-bars { position: relative; display: flex; gap: 6px; height: 82px; margin-bottom: 8px; }
+.dl-bar { position: relative; flex: 1; }
+.dl-bar i { position: absolute; left: 22%; right: 22%; border-radius: 1px; }
+.dl-bar i.up { background: var(--red); } .dl-bar i.dn { background: var(--green-l); }
+.dl-bar em { position: absolute; bottom: -2px; left: 0; right: 0; text-align: center; font-style: normal; font-size: 9px; color: var(--text-3); font-family: var(--font-mono); }
+.dl-zero { position: absolute; left: 0; right: 0; top: 35px; height: 1px; background: var(--border-md); }
+.dl-bar { height: 70px; }
+.dl-tr span:first-child { font-family: var(--font-mono); font-size: 12px; }
+.dl-peers { display: flex; flex-wrap: wrap; gap: 8px; }
+.dl-peer { display: flex; align-items: baseline; gap: 8px; background: var(--bg-2); border: 1px solid var(--border-md); border-radius: var(--radius-sm); padding: 6px 12px; color: var(--text-1); cursor: pointer; font-size: 13px; }
+.dl-peer:hover:not(:disabled) { border-color: var(--gold); }
+.dl-peer.ref { cursor: default; color: var(--text-3); border-style: dashed; }
+.dl-peer span { font-size: 11px; color: var(--text-3); } .dl-peer em { font-style: normal; font-size: 12px; }
+@media (max-width: 900px) { .dl-grid { grid-template-columns: 1fr; } }
