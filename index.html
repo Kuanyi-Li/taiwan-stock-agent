@@ -121,13 +121,32 @@
           </div>
         </div>
       </section>
+      <section class="sigbal" id="sigbal" aria-labelledby="sigbal-title">
+        <div class="lg-head">
+          <h2 id="sigbal-title" class="lg-title">訊號天平</h2>
+          <span class="lg-note">橫桿依兩側持股比重傾斜　減碼側 <b class="num" id="sigbal-sellw">—</b>　買進側 <b class="num" id="sigbal-buyw">—</b></span>
+          <span class="lg-note" id="sigbal-pending"></span>
+        </div>
+        <div class="sb-scale" aria-hidden="true">
+          <svg viewBox="0 0 1000 72" preserveAspectRatio="none">
+            <line id="sigbal-beam" x1="220" y1="30" x2="780" y2="30" stroke="#C9A55C" stroke-width="2" vector-effect="non-scaling-stroke"/>
+            <line id="sigbal-panl" x1="220" y1="30" x2="220" y2="40" stroke="#22C17A" stroke-width="2" vector-effect="non-scaling-stroke"/>
+            <line id="sigbal-panr" x1="780" y1="30" x2="780" y2="40" stroke="#FF5A4E" stroke-width="2" vector-effect="non-scaling-stroke"/>
+          </svg>
+          <i class="sb-fulcrum"></i><i class="sb-base"></i>
+        </div>
+        <div class="sb-cols">
+          <div class="sb-col"><div class="sb-colhead dn"><span>建議減碼</span><span class="num" id="sigbal-sell-n"></span></div><div id="sigbal-sell" class="sb-list"></div></div>
+          <div class="sb-col"><div class="sb-colhead"><span>持有觀望</span><span class="num" id="sigbal-hold-n"></span></div><div id="sigbal-hold" class="sb-list"></div></div>
+          <div class="sb-col"><div class="sb-colhead up"><span>建議買進</span><span class="num" id="sigbal-buy-n"></span></div><div id="sigbal-buy" class="sb-list"></div></div>
+        </div>
+      </section>
       <div class="lg-index-strip" id="dash-index-strip" aria-label="大盤指數"></div>
 
       <section class="lg-section" aria-labelledby="lg-hold-title">
         <div class="lg-head">
           <h2 id="lg-hold-title" class="lg-title">持股</h2>
           <span class="lg-note num" id="dash-hold-count"></span>
-          <span class="lg-note lg-summary" id="dashboard-summary"></span>
           <span class="lg-note">排序：<b id="dash-sort-text">自訂順序</b><button class="lg-sort-reset" id="dash-sort-reset" onclick="Dashboard.resetSort()" title="回到你的自訂順序" style="display:none">✕ 回到自訂順序</button></span>
           <div class="lg-tools">
             <div class="ma-legend ma-legend-compact" id="dash-ma-legend" title="展開面板的K線要顯示哪些均線"></div>
