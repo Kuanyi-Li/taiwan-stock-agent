@@ -1395,3 +1395,20 @@ body.theater-active .market-switch-btn.active {
 .info-item { background: none; border: none; border-bottom: 1px solid var(--border); padding: 14px 4px; }
 .info-label { font-size: 12px; } .info-value { font-size: 19px; margin-top: 3px; font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
 @media (max-width: 900px) { .trade-stats-grid { grid-template-columns: repeat(2, 1fr); } .info-grid { grid-template-columns: repeat(2, 1fr); } }
+.bench-note { font-size: 12px; font-weight: 400; color: var(--text-3); margin-top: 4px; }
+
+/* ── 績效頁（改版）── */
+.perf-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.perf-h1 { font-size: 26px; margin: 0; font-weight: 900; letter-spacing: .04em; }
+.perf-card { background: var(--bg-0); border: 1px solid var(--border-md); border-radius: 0; padding: 20px 22px; }
+.perf-card-title { font-family: var(--font-serif); font-size: 17px; font-weight: 700; padding-bottom: 10px; border-bottom: 1px solid var(--gold); margin-bottom: 14px; letter-spacing: 0; }
+.perf-period-tabs { display: inline-flex; border: 1px solid #2E2E34; gap: 0; margin-bottom: 10px; }
+.perf-period-btn { border: none; border-radius: 0; background: none; color: var(--text-3); font-weight: 400; font-size: 13px; padding: 7px 14px; min-height: 34px; }
+.perf-period-btn.active { background: var(--gold); color: #000; font-weight: 600; }
+.perf-legend { display: flex; gap: 20px; font-size: 12px; color: var(--text-2); margin-bottom: 8px; align-items: center; }
+.perf-legend i { display: inline-block; width: 20px; height: 0; border-top: 2px solid var(--gold); vertical-align: middle; margin-right: 6px; }
+.perf-legend i.lg-dash { border-top: 2px dashed #8E8E96; }
+.perf-stat-row, .perf-trade-item { border-bottom-color: var(--border); }
+.perf-stat-num { font-family: var(--font-sans); font-variant-numeric: tabular-nums; font-weight: 600; }
+.perf-sector-track { border-radius: 0; background: var(--bg-3); height: 8px; } .perf-sector-fill { border-radius: 0; }
+.perf-sector-pct { font-family: var(--font-sans); font-variant-numeric: tabular-nums; font-weight: 500; }
