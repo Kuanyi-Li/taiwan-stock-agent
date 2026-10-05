@@ -653,6 +653,143 @@ function showMainView(view) {
   if (view !== 'theater' && typeof Theater !== 'undefined') Theater.onExit();
 }
 
+// ── SKY：總覽「今日星位」（改版步驟5）──────────────────────
+// 雕刻星盤：花瓣數＝持股檔數；盤中旋轉、休市停止；
+// 顏色看今日損益正負（紅/綠/白），花瓣起伏深淺看今日漲跌幅（0%→較平、3%以上→最深）
+// 漲跌分布條：每檔持股依今日漲跌幅排在 −10%～+10% 的刻度上，點的大小＝持股比重
+const SKY = {
+  _key: '',
+
+  // 外擺線（epitrochoid）疊層：證券雕刻紋
+  _layers(n, layers, pts, scale, amp) {
+    const out = [], R = 70, r = R / n;
+    for (let k = 0; k < layers; k++) {
+      const d = r * (1.5 + 0.28 * k) * amp, rot = k * Math.PI / (n * layers), sc = scale / (R + r + d);
+      let p = '';
+      for (let i = 0; i <= pts; i++) {
+        const t = i / pts * Math.PI * 2;
+        const x = (R + r) * Math.cos(t) - d * Math.cos((R + r) / r * t);
+        const y = (R + r) * Math.sin(t) - d * Math.sin((R + r) / r * t);
+        p += (i ? 'L' : 'M') + ((x * Math.cos(rot) - y * Math.sin(rot)) * sc).toFixed(2) + ' ' + ((x * Math.sin(rot) + y * Math.cos(rot)) * sc).toFixed(2);
+      }
+      out.push(p);
+    }
+    return out;
+  },
+
+  // 由 APP.renderPortfolioSummary 呼叫：今日損益（原幣）與 %
+  update(dayPnl, dayPct, show) {
+    const outer = document.getElementById('sky-outer');
+    if (!outer) return;
+    const n = Math.max(3, Math.min(30, APP.portfolio.length || 6));
+    const sign = !show ? 0 : dayPnl > 0 ? 1 : dayPnl < 0 ? -1 : 0;
+    const amp = 0.75 + Math.min(1, Math.abs(show ? dayPct : 0) / 3) * 0.6;
+    const tint = sign > 0 ? '#FF5A4E' : sign < 0 ? '#22C17A' : '#ECECEC';
+    const key = `${n}|${amp.toFixed(2)}|${tint}`;
+    if (key !== this._key) {
+      this._key = key;
+      const G = '#C9A55C';
+      const ro = this._layers(n, 6, 1100, 126, amp);
+      const st = [[G, 0.6, 0.95], [tint, 0.5, 0.7], [G, 0.55, 0.75], [tint, 0.45, 0.5], [G, 0.5, 0.55], [tint, 0.4, 0.35]];
+      outer.innerHTML = ro.map((d, i) => `<path d="${d}" fill="none" stroke="${st[i][0]}" stroke-width="${st[i][1]}" opacity="${st[i][2]}"/>`).join('');
+      const inn = this._layers(n * 2, 3, 1100, 100, amp);
+      const st2 = [[G, 0.45, 0.9], [tint, 0.4, 0.55], [G, 0.4, 0.6]];
+      document.getElementById('sky-inner').innerHTML = inn.map((d, i) => `<path d="${d}" fill="none" stroke="${st2[i][0]}" stroke-width="${st2[i][1]}" opacity="${st2[i][2]}"/>`).join('');
+      const bz = document.getElementById('sky-bezel');
+      if (bz && !bz.getAttribute('d')) {
+        let p = '';
+        for (let i = 0; i < 120; i++) {
+          const a = i / 120 * Math.PI * 2, r2 = i % 10 === 0 ? 142 : 147;
+          p += `M${(Math.cos(a) * 152).toFixed(1)} ${(Math.sin(a) * 152).toFixed(1)}L${(Math.cos(a) * r2).toFixed(1)} ${(Math.sin(a) * r2).toFixed(1)}`;
+        }
+        bz.setAttribute('d', p);
+      }
+    }
+    const d = new Date();
+    const micro = `股票 AGENT　持股 ${APP.portfolio.length} 檔　${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}　`;
+    const mt = document.getElementById('sky-micro');
+    if (mt) mt.textContent = micro.repeat(4);
+    this._dayPct = show ? dayPct : null;
+    this.renderSwarm();
+  },
+
+  // 盤中旋轉、休市停止（由 _updateMarketStatus 呼叫）
+  setSpinning(on) {
+    document.getElementById('sky-rot-outer')?.classList.toggle('spin', on);
+    document.getElementById('sky-rot-inner')?.classList.toggle('spinr', on);
+  },
+
+  _benchPct() {
+    const code = APP.activeMarket === 'US' ? '^GSPC' : '^TWII';
+    const q = DATA.priceStore[code];
+    if (q?.price && q.prevClose) return (q.price - q.prevClose) / q.prevClose * 100;
+    const h = DATA.histCache?.[`${code}_1d`]?.data;
+    if (h?.length >= 2) return (h[h.length - 1].c - h[h.length - 2].c) / h[h.length - 2].c * 100;
+    return null;
+  },
+
+  renderSwarm() {
+    const el = document.getElementById('sky-swarm');
+    if (!el) return;
+    const isUS = APP.activeMarket === 'US';
+    const fx = isUS ? CURRENCY.toTWD(1) : 1;
+    const items = APP.portfolio.map(s => {
+      const price = s.price ?? s.cost, prev = s.prevClose ?? price;
+      return { name: s.name || s.code, code: s.code, pct: prev ? (price - prev) / prev * 100 : 0, val: price * s.shares * fx };
+    });
+    const total = items.reduce((a, x) => a + x.val, 0) || 1;
+    const W = el.clientWidth || 600;
+    const lim = 10, X = p => (Math.max(-lim, Math.min(lim, p)) + lim) / (2 * lim) * 100;
+    // 依漲跌幅由小到大放進「車道」，同一車道內左右要隔開（點＋名稱約 80px）
+    const gap = 84 / W * 2 * lim, lanes = [], LANE = 34, BASE = 50;
+    const dots = [...items].sort((a, b) => a.pct - b.pct).map(x => {
+      const p = Math.max(-lim, Math.min(lim, x.pct));
+      let lane = lanes.findIndex(last => p - last >= gap);
+      if (lane === -1) { lanes.push(p); lane = lanes.length - 1; } else lanes[lane] = p;
+      const size = Math.round(12 + Math.sqrt(x.val / total * 100) * 3.2);
+      const c = x.pct > 0 ? '#FF5A4E' : x.pct < 0 ? '#22C17A' : '#8E8E96';
+      return `<button class="sky-dot" style="left:${X(p).toFixed(2)}%;bottom:${BASE + lane * LANE}px;--s:${size}px" title="${x.name} ${x.pct >= 0 ? '+' : ''}${x.pct.toFixed(2)}%" onclick="NAV.pickStock('${x.code}')">
+        <svg width="${size}" height="${size}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="#000" stroke="${c}" stroke-width="1.2"/><circle cx="10" cy="10" r="5.5" fill="none" stroke="${c}" stroke-width="0.6" stroke-dasharray="1 1.4"/><circle cx="10" cy="10" r="2" fill="${c}"/></svg>
+        <span>${x.name}</span></button>`;
+    });
+    const H = BASE + Math.max(1, lanes.length) * LANE + 22;
+    let ruler = '';
+    for (let v = -lim; v <= lim; v++) {
+      const major = v % 5 === 0;
+      ruler += `<i class="sky-tick" style="left:${X(v)}%;height:${major ? 10 : 5}px;background:${major ? '#ECECEC' : '#5A5A62'}"></i>`;
+    }
+    const lab = isUS
+      ? [[-10, '−10%', '0%'], [-5, '−5%', '-50%'], [0, '0', '-50%'], [5, '+5%', '-50%'], [10, '+10%', '-100%']]
+      : [[-10, '跌停 −10%', '0%'], [-5, '−5%', '-50%'], [0, '0', '-50%'], [5, '+5%', '-50%'], [10, '漲停 +10%', '-100%']];
+    const labels = lab.map(([v, t, sh]) => `<span class="sky-lab num ${v < 0 ? 'dn' : v > 0 ? 'up' : ''}" style="left:${X(v)}%;transform:translateX(${sh})">${t}</span>`).join('');
+    const bp = this._benchPct(), bname = isUS ? 'S&P 500' : '加權';
+    const bench = bp == null ? '' :
+      `<i class="sky-bench" style="left:${X(bp).toFixed(2)}%;height:${H - 36 - 14}px"></i>
+       <i class="sky-bench-tri" style="left:${X(bp).toFixed(2)}%;bottom:${H - 14}px"></i>
+       <span class="sky-bench-lab" style="left:${X(bp).toFixed(2)}%;bottom:${H - 26}px">${bname} <span class="num">${bp >= 0 ? '+' : ''}${bp.toFixed(2)}%</span></span>`;
+    el.style.height = (H + 6) + 'px';
+    el.innerHTML = `<i class="sky-axis"></i>${ruler}${labels}${bench}${dots.join('')}`;
+    // 今日 vs 大盤
+    const nm = document.getElementById('sky-bench-name');
+    if (nm) nm.textContent = bname;
+    const vs = document.getElementById('sky-vs'), note = document.getElementById('sky-vs-note');
+    if (vs && note) {
+      const mine = this._dayPct;
+      if (mine == null || bp == null) { vs.textContent = '—'; vs.className = 'ov-v num'; note.textContent = ''; }
+      else {
+        vs.textContent = `${mine >= 0 ? '+' : ''}${mine.toFixed(2)}%`;
+        vs.className = 'ov-v num ' + (mine > 0 ? 'up' : mine < 0 ? 'dn' : '');
+        const diff = mine - bp;
+        note.textContent = `${diff >= 0 ? '領先' : '落後'} ${Math.abs(diff).toFixed(2)} 點`;
+        note.className = 'ov-s ' + (diff >= 0 ? 'up' : 'dn');
+      }
+    }
+  },
+};
+
+let _skyResizeT = null;
+window.addEventListener('resize', () => { clearTimeout(_skyResizeT); _skyResizeT = setTimeout(() => SKY.renderSwarm(), 200); });
+
 // ── NAV：左側頁面導覽（改版步驟4）──────────────────────
 const NAV = {
   _visible(id) { const el = document.getElementById(id); return el && el.style.display !== 'none'; },
@@ -1602,6 +1739,7 @@ const Dashboard = {
         this._updateIndex(code);
       } catch(e) { /* 指數抓不到就維持「—」 */ }
     }));
+    SKY.renderSwarm(); // 大盤漲跌幅到了，更新星位的大盤標記
   },
   _setIndex(code, price, prev) {
     const el = document.getElementById(`lgi-${this._idOf(code)}`);
@@ -4021,6 +4159,7 @@ const APP = {
     // 改版：開盤時 logo 雕刻花紋旋轉，休市停止
     const logo = document.getElementById('logo-mark');
     if (logo) logo.classList.toggle('spin', marketOpen);
+    SKY.setSpinning(marketOpen);
   },
 
   async refreshPrices(force = false) {
@@ -4173,7 +4312,9 @@ const APP = {
     const pnlUSD = totalVal - totalCost; // 原幣損益
     const pnlTWD = pnlUSD * fx;          // 換算台幣損益
     const roi = totalCost > 0 ? pnlUSD / totalCost * 100 : 0;
-    const dayPct = totalCost > 0 ? dayPnlUSD / totalCost * 100 : 0;
+    // 今日報酬率＝今日損益÷昨日收盤市值（改版：原本除以總成本，跟大盤漲跌幅不能直接比較）
+    const prevVal = totalVal - dayPnlUSD;
+    const dayPct = prevVal > 0 ? dayPnlUSD / prevVal * 100 : 0;
 
     // 格式化：原幣顯示
     const fmtOrig = n => {
@@ -4220,6 +4361,7 @@ const APP = {
     }
     setSignedText('total-roi', roi, v => v.toFixed(2)+'%', true);
     setText('stock-count', this.portfolio.length+' 檔持股', '');
+    SKY.update(dayPnlUSD, dayPct, shouldShowDayPnl);
   },
 
   renderStockList() {

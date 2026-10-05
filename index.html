@@ -74,14 +74,51 @@
 
     <!-- ── 總覽（Dashboard）── -->
     <div class="dashboard-content" id="dashboard-content">
-      <section class="ov-summary" aria-label="投資組合">
-        <div class="ov-metric"><div class="ov-k">總市值</div><div class="ov-v num neutral" id="total-value">—</div><div class="ov-s" id="total-cost">成本 —</div></div>
-        <div class="ov-metric"><div class="ov-k">未實現損益</div><div class="ov-v num" id="total-pnl">—</div><div class="ov-s" id="total-pnl-pct">—</div></div>
-        <div class="ov-metric"><div class="ov-k">今日損益</div><div class="ov-v num" id="day-pnl">—</div><div class="ov-s" id="day-pnl-pct">—</div></div>
-        <div class="ov-metric"><div class="ov-k">報酬率</div><div class="ov-v num" id="total-roi">—</div><div class="ov-s neutral" id="stock-count">— 檔持股</div></div>
-        <div class="ov-events">
-          <div id="macro-events-section"><div class="ov-k">近期重大事件</div><div id="macro-events-list"></div></div>
-          <div id="exdiv-section" style="display:none"><div class="ov-k">即將除權息</div><div id="exdiv-list"></div></div>
+      <section class="sky" aria-labelledby="sky-title">
+        <span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>
+        <div class="sky-rosette" id="sky-rosette">
+          <svg class="sky-layer" viewBox="-160 -160 320 320" aria-hidden="true">
+            <circle r="157" fill="none" stroke="#C9A55C" stroke-width="0.8"/>
+            <circle r="153" fill="none" stroke="#C9A55C" stroke-width="0.4" opacity="0.6"/>
+            <path id="sky-bezel" fill="none" stroke="#C9A55C" stroke-width="0.7"/>
+            <circle r="139" fill="none" stroke="#C9A55C" stroke-width="0.4" opacity="0.6"/>
+          </svg>
+          <div class="sky-rot" id="sky-rot-outer">
+            <svg class="sky-layer" viewBox="-160 -160 320 320" aria-hidden="true">
+              <path id="sky-micro-path" d="M0 -131 A131 131 0 1 1 -0.1 -131" fill="none"/>
+              <text font-size="6.4" fill="#C9A55C" letter-spacing="1.6" font-family="IBM Plex Sans, Noto Sans TC, sans-serif" opacity="0.85"><textPath href="#sky-micro-path" id="sky-micro"></textPath></text>
+              <g id="sky-outer"></g>
+            </svg>
+          </div>
+          <div class="sky-rot" id="sky-rot-inner">
+            <svg class="sky-layer" viewBox="-160 -160 320 320" aria-hidden="true"><g id="sky-inner"></g></svg>
+          </div>
+          <svg class="sky-layer" viewBox="-160 -160 320 320" aria-hidden="true">
+            <circle r="70" fill="#000" stroke="#C9A55C" stroke-width="0.8"/>
+            <circle r="65" fill="none" stroke="#C9A55C" stroke-width="0.4" stroke-dasharray="0.8 2.2" opacity="0.8"/>
+          </svg>
+          <div class="sky-center">
+            <div class="sky-center-k" id="sky-title">今日損益</div>
+            <div class="sky-center-v num" id="day-pnl">—</div>
+            <div class="sky-center-s num" id="day-pnl-pct">—</div>
+          </div>
+        </div>
+        <div class="sky-body">
+          <div class="sky-head">
+            <h2 class="lg-title">今日星位</h2>
+            <span class="lg-note">橫軸：今日漲跌幅　點的大小：持股比重</span>
+          </div>
+          <div class="sky-swarm" id="sky-swarm" aria-label="持股今日漲跌分布"></div>
+          <div class="sky-metrics">
+            <div class="ov-metric"><div class="ov-k">總市值</div><div class="ov-v num neutral" id="total-value">—</div><div class="ov-s" id="total-cost">成本 —</div></div>
+            <div class="ov-metric"><div class="ov-k">未實現損益</div><div class="ov-v num" id="total-pnl">—</div><div class="ov-s" id="total-pnl-pct">—</div></div>
+            <div class="ov-metric"><div class="ov-k">報酬率</div><div class="ov-v num" id="total-roi">—</div><div class="ov-s neutral" id="stock-count">— 檔持股</div></div>
+            <div class="ov-metric"><div class="ov-k">今日 vs <span id="sky-bench-name">大盤</span></div><div class="ov-v num" id="sky-vs">—</div><div class="ov-s" id="sky-vs-note"></div></div>
+          </div>
+          <div class="ov-events">
+            <div id="macro-events-section"><div class="ov-k">近期重大事件</div><div id="macro-events-list"></div></div>
+            <div id="exdiv-section" style="display:none"><div class="ov-k">即將除權息</div><div id="exdiv-list"></div></div>
+          </div>
         </div>
       </section>
       <div class="lg-index-strip" id="dash-index-strip" aria-label="大盤指數"></div>

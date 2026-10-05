@@ -1161,3 +1161,42 @@ body.theater-active .market-switch-btn.active {
   .ov-events { margin-left: 0; max-width: none; }
   .ov-v { font-size: 18px; }
 }
+
+/* ═══ 今日星位（改版步驟5）═══ */
+.sky { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 24px 40px; padding: 26px 30px 22px; margin: 4px 0 22px; border: 1px solid var(--border-md);
+  background-color: #000; background-image: radial-gradient(rgba(255,255,255,0.09) 1px, transparent 1.2px); background-size: 16px 16px; }
+.sky .crop { position: absolute; width: 14px; height: 14px; border: 0 solid var(--gold); }
+.sky .crop.tl { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+.sky .crop.tr { top: -1px; right: -1px; border-top-width: 1px; border-right-width: 1px; }
+.sky .crop.bl { bottom: -1px; left: -1px; border-bottom-width: 1px; border-left-width: 1px; }
+.sky .crop.br { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+.sky-rosette { flex: none; position: relative; width: 300px; height: 300px; }
+.sky-layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.sky-rot { position: absolute; inset: 0; }
+.sky-rot.spin { animation: logo-spin 60s linear infinite; }
+.sky-rot.spinr { animation: logo-spin 90s linear infinite reverse; }
+@media (prefers-reduced-motion: reduce) { .sky-rot.spin, .sky-rot.spinr { animation: none; } }
+.sky-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; }
+.sky-center-k { font-size: 12px; color: var(--text-3); }
+.sky-center-v { font-family: var(--font-serif); font-size: 26px; font-weight: 900; line-height: 1.2; max-width: 128px; overflow-wrap: anywhere; }
+.sky-center-s { font-size: 12px; }
+.sky-body { flex: 1 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.sky-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; }
+.sky-swarm { position: relative; height: 140px; margin: 0 6px; }
+.sky-axis { position: absolute; left: 0; right: 0; bottom: 36px; height: 1px; background: #8E8E96; }
+.sky-tick { position: absolute; bottom: 36px; width: 1px; }
+.sky-lab { position: absolute; bottom: 12px; font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.sky-bench { position: absolute; bottom: 36px; width: 1px; background: var(--gold); }
+.sky-bench-tri { position: absolute; width: 0; height: 0; margin-left: -5px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--gold); }
+.sky-bench-lab { position: absolute; margin-left: 8px; font-size: 12px; color: var(--gold); white-space: nowrap; }
+.sky-dot { position: absolute; display: flex; align-items: center; gap: 6px; transform: translateX(calc(var(--s) / -2)); background: none; border: none; padding: 0; cursor: pointer; color: #D9D9DE; font: inherit; }
+.sky-dot svg { flex: none; display: block; }
+.sky-dot span { font-family: var(--font-serif); font-size: 12px; white-space: nowrap; }
+.sky-dot:hover span { color: var(--gold); }
+.sky-metrics { display: flex; flex-wrap: wrap; gap: 10px 36px; padding-top: 14px; border-top: 1px solid var(--border-md); }
+.sky .ov-events { margin-left: 0; max-width: none; padding-top: 10px; border-top: 1px solid var(--border); }
+@media (max-width: 680px) {
+  .sky { padding: 18px 14px; gap: 16px; }
+  .sky-rosette { width: 240px; height: 240px; margin: 0 auto; }
+  .sky-center-v { font-size: 22px; }
+}
