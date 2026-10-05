@@ -136,9 +136,9 @@
           <i class="sb-fulcrum"></i><i class="sb-base"></i>
         </div>
         <div class="sb-cols">
-          <div class="sb-col"><div class="sb-colhead dn"><span>建議減碼</span><span class="num" id="sigbal-sell-n"></span></div><div id="sigbal-sell" class="sb-list"></div></div>
-          <div class="sb-col"><div class="sb-colhead"><span>持有觀望</span><span class="num" id="sigbal-hold-n"></span></div><div id="sigbal-hold" class="sb-list"></div></div>
-          <div class="sb-col"><div class="sb-colhead up"><span>建議買進</span><span class="num" id="sigbal-buy-n"></span></div><div id="sigbal-buy" class="sb-list"></div></div>
+          <div class="sb-col"><button class="sb-colhead dn" id="sigbal-sell-btn" aria-expanded="false" aria-controls="sigbal-sell" onclick="Dashboard.toggleSigCol('sell')"><span><i class="sb-caret">▸</i>建議減碼</span><span class="num"><span id="sigbal-sell-n"></span>　<span id="sigbal-sell-w" class="sb-colw"></span></span></button><div id="sigbal-sell" class="sb-list" hidden></div></div>
+          <div class="sb-col"><button class="sb-colhead" id="sigbal-hold-btn" aria-expanded="false" aria-controls="sigbal-hold" onclick="Dashboard.toggleSigCol('hold')"><span><i class="sb-caret">▸</i>持有觀望</span><span class="num"><span id="sigbal-hold-n"></span>　<span id="sigbal-hold-w" class="sb-colw"></span></span></button><div id="sigbal-hold" class="sb-list" hidden></div></div>
+          <div class="sb-col"><button class="sb-colhead up" id="sigbal-buy-btn" aria-expanded="false" aria-controls="sigbal-buy" onclick="Dashboard.toggleSigCol('buy')"><span><i class="sb-caret">▸</i>建議買進</span><span class="num"><span id="sigbal-buy-n"></span>　<span id="sigbal-buy-w" class="sb-colw"></span></span></button><div id="sigbal-buy" class="sb-list" hidden></div></div>
         </div>
       </section>
       <div class="lg-index-strip" id="dash-index-strip" aria-label="大盤指數"></div>

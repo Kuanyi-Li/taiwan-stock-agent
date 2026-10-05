@@ -1756,6 +1756,24 @@ const Dashboard = {
   },
 
   // 摘要：建議減碼/觀望/買進各幾檔（只算持股）
+  // 訊號天平三欄清單：點欄位標題展開/收合（預設收合，狀態會記住）
+  _sigOpen() {
+    try { return new Set(JSON.parse(localStorage.getItem('sigbal-open') || '[]')); } catch(e) { return new Set(); }
+  },
+  _applySigCol(key, open) {
+    const btn = document.getElementById(`sigbal-${key}-btn`), list = document.getElementById(`sigbal-${key}`);
+    if (!btn || !list) return;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.querySelector('.sb-caret').textContent = open ? '▾' : '▸';
+    list.hidden = !open;
+  },
+  toggleSigCol(key) {
+    const open = this._sigOpen();
+    if (open.has(key)) open.delete(key); else open.add(key);
+    localStorage.setItem('sigbal-open', JSON.stringify([...open]));
+    this._applySigCol(key, open.has(key));
+  },
+
   // 訊號天平：持股依建議分三欄，橫桿依兩側持股比重傾斜（改版步驟6）
   _renderSummary() {
     const box = document.getElementById('sigbal');
@@ -1796,9 +1814,12 @@ const Dashboard = {
     const chip = (x, base) => `<button class="sb-chip" onclick="NAV.pickStock('${x.code}')" title="${x.label}">
         <span><span class="sb-name">${x.name}</span> <span class="num sb-code">${x.code}</span>${x.label !== base ? ` <em class="sb-tag">${x.label}</em>` : ''}</span>
         <span class="num sb-w">佔 ${x.w.toFixed(0)}%</span></button>`;
+    const open = this._sigOpen();
     const col = (key, base) => {
       const l = groups[key];
       set(`sigbal-${key}-n`, `${l.length} 檔`);
+      set(`sigbal-${key}-w`, `佔 ${sum(l).toFixed(0)}%`);
+      this._applySigCol(key, open.has(key));
       const el = document.getElementById(`sigbal-${key}`);
       if (el) el.innerHTML = l.length ? l.map(x => chip(x, base)).join('') : '<div class="sb-empty">—</div>';
     };
