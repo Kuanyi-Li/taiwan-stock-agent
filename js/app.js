@@ -641,15 +641,79 @@ function showMainView(view) {
   if (cal) cal.style.display = view === 'calendar' ? '' : 'none';
   if (bt) bt.style.display = view === 'backtest' ? '' : 'none';
   if (theater) theater.style.display = view === 'theater' ? '' : 'none';
-  // 績效、日曆、回測、劇場頁面內容較豐富，隱藏側邊欄讓版面更寬敞
-  const hideSidebar = view === 'performance' || view === 'calendar' || view === 'backtest' || view === 'theater';
+  // 改版：側邊欄改成頁面導覽，只有劇場模式（全螢幕3D）才隱藏
+  const hideSidebar = view === 'theater';
+  document.querySelectorAll('#pnav .navlink').forEach(a => {
+    if (a.dataset.view === view) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
   if (sidebar) sidebar.style.display = hideSidebar ? 'none' : '';
   if (layout) layout.classList.toggle('sidebar-hidden', hideSidebar);
-  const dashBtn = document.getElementById('dashboard-toggle-btn');
-  if (dashBtn) dashBtn.textContent = view === 'dashboard' ? '個股' : '總覽';
   if (view === 'theater' && typeof Theater !== 'undefined') Theater.onEnter();
   if (view !== 'theater' && typeof Theater !== 'undefined') Theater.onExit();
 }
+
+// ── NAV：左側頁面導覽（改版步驟4）──────────────────────
+const NAV = {
+  _visible(id) { const el = document.getElementById(id); return el && el.style.display !== 'none'; },
+  go(view) {
+    if (view === 'dashboard') {
+      if (!this._visible('dashboard-content')) { showMainView('dashboard'); Dashboard.render(); }
+    } else if (view === 'detail') {
+      if (!this._visible('detail-content')) showMainView('detail');
+      const list = this._stockList();
+      if (!APP.activeSymbol) {
+        // 打開上次看的那一檔；沒有的話打開帳冊第一檔
+        const last = localStorage.getItem(this._lastKey());
+        const pick = list.find(x => x.code === last) || list[0];
+        if (pick) APP.selectStock(pick.code, pick.idx, pick.source);
+      }
+      this.refreshSwitch();
+      setTimeout(() => CHART.draw(), 80);
+    } else if (view === 'performance') {
+      if (!this._visible('performance-content')) Performance.toggle();
+    } else if (view === 'calendar') {
+      if (!this._visible('calendar-page-content')) TradeCalendar.toggle();
+    } else if (view === 'backtest') {
+      if (!this._visible('backtest-content')) Backtest.toggle();
+    } else if (view === 'screener') {
+      Screener.openModal();
+    } else if (view === 'theater') {
+      if (!this._visible('theater-content')) Theater.toggle();
+    }
+  },
+  _lastKey() { return APP.activeMarket === 'US' ? 'ussa-last-stock' : 'twsa-last-stock'; },
+  // 個股切換清單：持股＋自選，依帳冊自訂順序
+  _stockList() {
+    const order = typeof Dashboard !== 'undefined' ? Dashboard.getOrder() : [];
+    const rank = c => { const i = order.indexOf(c); return i === -1 ? 1e6 : i; };
+    const hold = APP.portfolio.map((s, idx) => ({ code: s.code, name: s.name, idx, source: 'portfolio' }));
+    const watch = APP.watchlist.map((s, idx) => ({ code: s.code, name: s.name, idx, source: 'watch' }))
+      .filter(w => !APP.portfolio.some(s => s.code === w.code));
+    const byRank = (a, b) => rank(a.code) - rank(b.code);
+    return [...hold.sort(byRank), ...watch.sort(byRank)];
+  },
+  refreshSwitch() {
+    const sel = document.getElementById('detail-switch-select');
+    if (!sel) return;
+    const list = this._stockList();
+    const hold = list.filter(x => x.source === 'portfolio'), watch = list.filter(x => x.source === 'watch');
+    const opt = x => `<option value="${x.code}" ${x.code === APP.activeSymbol ? 'selected' : ''}>${x.code}　${x.name}</option>`;
+    sel.innerHTML = (hold.length ? `<optgroup label="持股">${hold.map(opt).join('')}</optgroup>` : '') +
+                    (watch.length ? `<optgroup label="自選">${watch.map(opt).join('')}</optgroup>` : '');
+  },
+  pickStock(code) {
+    const x = this._stockList().find(s => s.code === code);
+    if (x) goToStock(x.code, x.idx, x.source);
+  },
+  stepStock(dir) {
+    const list = this._stockList();
+    if (!list.length) return;
+    const i = list.findIndex(s => s.code === APP.activeSymbol);
+    const x = list[(i + dir + list.length) % list.length];
+    goToStock(x.code, x.idx, x.source);
+  },
+};
 
 // ── Performance module（績效分析獨立頁面）──────────────
 // ── TradeCalendar module（交易與除權息日曆，月檢視）──────
@@ -4041,8 +4105,7 @@ const APP = {
     const dv = document.getElementById('dashboard-content');
     if (dv && dv.style.display !== 'none' && typeof Dashboard !== 'undefined') Dashboard.render();
     PIE.render();
-    const miniSection = document.getElementById('mini-pie-section');
-    if (miniSection) miniSection.style.display = APP.portfolio.length > 1 ? 'block' : 'none';
+    // 改版：側邊欄迷你圓餅圖已移除（持股比重之後在總覽「產業配置」呈現）
     GOALS.updateDashboard();
     this._renderSignalOverview();
   },
@@ -4318,6 +4381,8 @@ const APP = {
     this.activeSymbol = code;
     this.activeIdx = idx;
     this._source = source;
+    localStorage.setItem(this.activeMarket === 'US' ? 'ussa-last-stock' : 'twsa-last-stock', code);
+    if (typeof NAV !== 'undefined') NAV.refreshSwitch();
 
     // ★ 修正：歷史相似情境比對面板如果保持展開狀態切換股票，不會自動重新計算，
     // 會殘留上一支股票的舊數字誤導使用者。切換股票時強制收合+清空，逼使用者重新點開才會看到新資料。

@@ -26,12 +26,6 @@
       <button class="market-switch-btn active" data-market="TW">台股</button>
       <button class="market-switch-btn" data-market="US">美股</button>
     </div>
-    <button class="dashboard-toggle-btn" id="dashboard-toggle-btn" onclick="Dashboard.toggle()" title="總覽所有持股">總覽</button>
-    <button class="dashboard-toggle-btn" onclick="Dashboard.openReorderModal()" title="調整帳冊自訂順序">排序</button>
-    <button class="dashboard-toggle-btn" id="perf-toggle-btn" onclick="Performance.toggle()" title="績效分析">績效</button>
-    <button class="dashboard-toggle-btn" id="cal-toggle-btn" onclick="TradeCalendar.toggle()" title="交易與除權息日曆">日曆</button>
-    <button class="dashboard-toggle-btn" onclick="Screener.openModal()" title="全市場選股篩選器">選股</button>
-    <button class="dashboard-toggle-btn" onclick="Backtest.toggle()" title="回測現有買賣訊號邏輯">回測</button>
     <div class="topbar-market" id="tw-market-bar">
       <span class="badge closed" id="mkt-status">休市</span>
       <span class="index-chip" id="taiex-badge">加權 —</span>
@@ -62,72 +56,17 @@
 
   <!-- ── Sidebar ── -->
   <aside class="sidebar">
-
-    <!-- Portfolio Summary -->
-    <section class="section">
-      <div class="section-header">
-        <span class="section-title">投資組合</span>
-        <span class="data-source-tag">Yahoo Finance</span>
-      </div>
-      <div class="summary-grid">
-        <div class="s-card">
-          <div class="s-label">總市值</div>
-          <div class="s-value neutral" id="total-value">—</div>
-          <div class="s-sub" id="total-cost">成本 —</div>
-        </div>
-        <div class="s-card">
-          <div class="s-label">未實現損益</div>
-          <div class="s-value" id="total-pnl">—</div>
-          <div class="s-sub" id="total-pnl-pct">—</div>
-        </div>
-        <div class="s-card">
-          <div class="s-label">今日損益</div>
-          <div class="s-value" id="day-pnl">—</div>
-          <div class="s-sub" id="day-pnl-pct">—</div>
-        </div>
-        <div class="s-card">
-          <div class="s-label">報酬率</div>
-          <div class="s-value" id="total-roi">—</div>
-          <div class="s-sub neutral" id="stock-count">— 檔持股</div>
-        </div>
-      </div>
-      <!-- 近期重大總經事件（FOMC/CPI）-->
-      <div id="macro-events-section" style="margin-top:8px">
-        <div style="font-size:10px;color:var(--text-1);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">近期重大事件</div>
-        <div id="macro-events-list" style="display:flex;flex-direction:column;gap:4px"></div>
-      </div>
-      <!-- 即將除權息 -->
-      <div id="exdiv-section" style="margin-top:8px;display:none">
-        <div style="font-size:10px;color:var(--text-1);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">即將除權息</div>
-        <div id="exdiv-list" style="display:flex;flex-direction:column;gap:4px"></div>
-      </div>
-      <!-- 迷你持股比重圓餅圖 -->
-      <div id="mini-pie-section" style="margin-top:8px;display:none">
-        <div style="font-size:10px;color:var(--text-1);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">持股比重</div>
-        <div style="height:100px;position:relative">
-          <canvas id="pieChartMini"></canvas>
-        </div>
-      </div>
-    </section>
-
-    <!-- Stock List -->
-    <section class="section flex-fill">
-      <div class="section-header">
-        <span class="section-title">持股清單</span>
-        <button class="text-btn" onclick="openAddModal()">＋ 新增</button>
-      </div>
-      <div id="stock-list" class="stock-list"></div>
-    </section>
-
-    <!-- Watchlist -->
-    <section class="section">
-      <div class="section-header">
-        <span class="section-title">自選清單</span>
-        <button class="text-btn" onclick="openWatchlistModal()">＋</button>
-      </div>
-      <div id="watchlist" class="watchlist"></div>
-    </section>
-
+    <nav class="pnav" id="pnav" aria-label="頁面">
+      <a href="#" class="navlink" data-view="dashboard" aria-current="page" onclick="event.preventDefault();NAV.go('dashboard')">總覽</a>
+      <a href="#" class="navlink" data-view="detail" onclick="event.preventDefault();NAV.go('detail')">個股</a>
+      <a href="#" class="navlink" data-view="performance" onclick="event.preventDefault();NAV.go('performance')">績效</a>
+      <a href="#" class="navlink" data-view="calendar" onclick="event.preventDefault();NAV.go('calendar')">日曆</a>
+      <a href="#" class="navlink" data-view="screener" onclick="event.preventDefault();NAV.go('screener')">選股</a>
+      <a href="#" class="navlink" data-view="backtest" onclick="event.preventDefault();NAV.go('backtest')">回測</a>
+      <a href="#" class="navlink" data-view="theater" onclick="event.preventDefault();NAV.go('theater')">劇場</a>
+    </nav>
+    <!-- 迷你圓餅圖已不顯示，保留畫布避免舊程式找不到元素 -->
+    <div style="display:none"><div id="mini-pie-section"><canvas id="pieChartMini"></canvas></div></div>
   </aside>
 
   <!-- ── Main Content ── -->
@@ -135,6 +74,16 @@
 
     <!-- ── 總覽（Dashboard）── -->
     <div class="dashboard-content" id="dashboard-content">
+      <section class="ov-summary" aria-label="投資組合">
+        <div class="ov-metric"><div class="ov-k">總市值</div><div class="ov-v num neutral" id="total-value">—</div><div class="ov-s" id="total-cost">成本 —</div></div>
+        <div class="ov-metric"><div class="ov-k">未實現損益</div><div class="ov-v num" id="total-pnl">—</div><div class="ov-s" id="total-pnl-pct">—</div></div>
+        <div class="ov-metric"><div class="ov-k">今日損益</div><div class="ov-v num" id="day-pnl">—</div><div class="ov-s" id="day-pnl-pct">—</div></div>
+        <div class="ov-metric"><div class="ov-k">報酬率</div><div class="ov-v num" id="total-roi">—</div><div class="ov-s neutral" id="stock-count">— 檔持股</div></div>
+        <div class="ov-events">
+          <div id="macro-events-section"><div class="ov-k">近期重大事件</div><div id="macro-events-list"></div></div>
+          <div id="exdiv-section" style="display:none"><div class="ov-k">即將除權息</div><div id="exdiv-list"></div></div>
+        </div>
+      </section>
       <div class="lg-index-strip" id="dash-index-strip" aria-label="大盤指數"></div>
 
       <section class="lg-section" aria-labelledby="lg-hold-title">
@@ -287,6 +236,11 @@
     <div class="card">
       <div class="chart-header">
         <div>
+          <div class="detail-switch" aria-label="切換個股">
+            <button class="ds-btn" onclick="NAV.stepStock(-1)" title="上一檔" aria-label="上一檔">‹</button>
+            <select id="detail-switch-select" onchange="NAV.pickStock(this.value)" aria-label="選擇個股"></select>
+            <button class="ds-btn" onclick="NAV.stepStock(1)" title="下一檔" aria-label="下一檔">›</button>
+          </div>
           <div class="chart-stock-name" id="chart-name">請選擇股票</div>
           <div class="chart-price-row">
             <span class="chart-price" id="chart-price">—</span>
