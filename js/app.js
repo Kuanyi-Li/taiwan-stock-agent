@@ -970,7 +970,7 @@ const DETAIL = {
         <div class="dl-gauge"><i class="dl-zone lo"></i><i class="dl-zone hi"></i><i class="dl-pin" style="left:${pos}%"></i></div>
         <div class="dl-gl"><span>0</span><span>30</span><span>70</span><span>100</span></div>
         <div class="da-row"><span>RSI(14)</span><span class="num" style="color:${rsiCol}">${f(rsi)}<small>${rsiTxt}</small></span></div>
-        <div class="da-row"><span>KD</span><span class="num">${f(K)} / ${f(D)}<small>${ind.kdGolden ? '黃金交叉' : ind.kdDead ? '死亡交叉' : K > D ? 'K>D' : 'K<D'}</small></span></div>
+        <div class="da-row"><span>KD</span><span class="num">${f(K)} / ${f(D)}<small>${ind.kdGolden ? '黃金交叉' : ind.kdDead ? '死亡交叉' : K > D ? 'K 在 D 上' : 'K 在 D 下'}</small></span></div>
         <div class="da-row"><span>MACD 柱</span><span class="num ${macdUp ? 'up' : 'dn'}">${macdUp ? '多方' : '空方'}<small>${ind.macdGolden ? '黃金交叉' : ind.macdDead ? '死亡交叉' : f(ind.hist, 2)}</small></span></div>
         <div class="da-row"><span>ADX 趨勢</span><span class="num">${f(ind.adx)}<small>${ind.adx >= 25 ? '趨勢明確' : '盤整'}</small></span></div>
         <div class="da-row"><span>均線排列</span><span class="num ${ind.maBull ? 'up' : ''}">${ind.maBull ? '多頭排列' : '未成多頭'}</span></div>
