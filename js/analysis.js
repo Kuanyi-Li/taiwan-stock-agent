@@ -530,9 +530,9 @@ const ANALYSIS = {
       </div>`;
 
     const dialColor = cls => ({
-      'strong-buy':'#1D9E75','buy':'#5DCAA5',
-      'neutral':'#888',
-      'sell':'#D4537E','strong-sell':'#E24B4A'
+      'strong-buy':'#FF5A4E','buy':'#FF8B80',
+      'neutral':'#B4B4BC',
+      'sell':'#5FD6A0','strong-sell':'#22C17A'
     })[cls] || '#888';
 
     const renderDial = (title, sum, cnt) => {
@@ -559,14 +559,14 @@ const ANALYSIS = {
           <div class="dial-title">${title}</div>
           <svg viewBox="0 0 120 68" width="150" height="85">
             <path d="M 15,60 A 45,45 0 0,1 105,60"
-              fill="none" stroke="var(--bg-3)" stroke-width="8" stroke-linecap="round"/>
+              fill="none" stroke="var(--bg-3)" stroke-width="6" stroke-linecap="butt"/>
             <path d="M 15,60 A 45,45 0 0,1 105,60"
-              fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"
+              fill="none" stroke="${color}" stroke-width="6" stroke-linecap="butt"
               stroke-dasharray="${dash.toFixed(1)} ${halfCirc.toFixed(1)}"
               stroke-dashoffset="0"/>
             <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}"
-              stroke="var(--text-1)" stroke-width="2.5" stroke-linecap="round"/>
-            <circle cx="${cx}" cy="${cy}" r="4" fill="var(--text-1)"/>
+              stroke="var(--gold-l)" stroke-width="1.8" stroke-linecap="round"/>
+            <circle cx="${cx}" cy="${cy}" r="3" fill="var(--gold-l)"/>
           </svg>
           <div class="dial-label" style="color:${color}">${sum.label}</div>
           <div class="dial-counts">

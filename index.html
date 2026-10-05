@@ -504,9 +504,9 @@
         <div class="trades-container">
           <div id="trade-stats" class="trade-stats-grid"></div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
-            <span style="font-size:13px;font-weight:600">交易紀錄（最近50筆）</span>
+            <span class="serif-h">交易紀錄 <small>最近 50 筆</small></span>
             <div class="export-row">
-              <button class="export-btn" onclick="openAddTradeModal()">＋ 新增交易</button>
+              <button class="export-btn gold" onclick="openAddTradeModal()">＋ 新增交易</button>
               <button class="export-btn" onclick="APP.exportData()">⬇ 匯出備份</button>
               <button class="export-btn" onclick="document.getElementById('import-file').click()">⬆ 匯入備份</button>
               <input type="file" id="import-file" style="display:none" accept=".json" onchange="APP.importData(this.files[0])">
