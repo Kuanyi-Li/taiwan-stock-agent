@@ -1377,6 +1377,11 @@ const Dashboard = {
     else localStorage.removeItem('dash-sort-v1');
     this._applySort();
   },
+  // 隨時一鍵回到自訂順序（自訂順序本身一直存在 localStorage，欄位排序不會改動它）
+  resetSort() {
+    localStorage.removeItem('dash-sort-v1');
+    this._applySort();
+  },
   _SORT_LABEL: {
     chg:  ['今日漲最多在上', '今日跌最多在上'],
     sig:  ['買進在上', '減碼在上'],
@@ -1389,6 +1394,8 @@ const Dashboard = {
     const st = this._sortState();
     const txt = document.getElementById('dash-sort-text');
     if (txt) txt.textContent = st ? this._SORT_LABEL[st.key][st.desc ? 0 : 1] : '自訂順序';
+    const rst = document.getElementById('dash-sort-reset');
+    if (rst) rst.style.display = st ? '' : 'none';
     document.querySelectorAll('#ledger-hold th[data-sort]').forEach(th => {
       const on = st && th.dataset.sort === st.key;
       th.classList.toggle('sorted', !!on);
@@ -2092,8 +2099,10 @@ const Dashboard = {
     const items = document.querySelectorAll('#reorder-list .reorder-item');
     const codes = Array.from(items).map(el => el.dataset.code);
     this.saveOrder(codes);
+    // 剛調整完自訂順序，就切回自訂順序顯示（不然欄位排序還開著會看不出差別）
+    localStorage.removeItem('dash-sort-v1');
     closeModal('reorder-modal');
-    showToast('排序已儲存');
+    showToast('自訂順序已儲存');
     this.render();
   },
 };

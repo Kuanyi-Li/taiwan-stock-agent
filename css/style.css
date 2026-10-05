@@ -1062,6 +1062,8 @@ body.theater-active .market-switch-btn.active {
 .lg-note { font-size: 12px; color: var(--text-3); }
 .lg-note b { color: var(--text-1); font-weight: 500; }
 .lg-summary { display: inline-flex; gap: 10px; }
+.lg-sort-reset { margin-left: 8px; border: 1px solid var(--gold); background: none; color: var(--gold); font: inherit; font-size: 12px; padding: 1px 8px; cursor: pointer; }
+.lg-sort-reset:hover { background: var(--gold); color: #000; }
 .lg-summary:empty { display: none; }
 .lg-tools { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .lg-tool { border: 1px solid #2E2E34; background: none; color: var(--text-2); font: inherit; font-size: 13px; padding: 6px 14px; min-height: 32px; cursor: pointer; }
