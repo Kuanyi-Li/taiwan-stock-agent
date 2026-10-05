@@ -643,9 +643,10 @@ const CHART = {
       // 標籤（依偏多/偏空程度分級，大字體+底色背景，清楚易讀）
       const lastP = prediction.points[prediction.points.length - 1];
       const labelText = `${trend.short}  ${prediction.pctChange >= 0 ? '+' : ''}${prediction.pctChange.toFixed(1)}%`;
-      const labelX = xOf(n) + 4, labelY = yOf(lastP.mid);
       ctx.font = 'bold 17px sans-serif';
       const textW = ctx.measureText(labelText).width;
+      // 標籤靠右時往左收，不要超出圖表右緣被裁掉（避開右側價格刻度）
+      const labelX = Math.min(xOf(n) + 4, W - PAD.r - textW - 8), labelY = Math.max(24, yOf(lastP.mid));
       ctx.fillStyle = isDark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.9)';
       ctx.fillRect(labelX - 4, labelY - 20, textW + 10, 26);
       ctx.strokeStyle = predColor; ctx.lineWidth = 1;
