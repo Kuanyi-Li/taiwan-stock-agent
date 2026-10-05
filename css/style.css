@@ -1,27 +1,31 @@
 /* ── style.css  ── Taiwan Stock Agent v3 ── */
 
 :root {
-  --bg-0: #0d1117;
-  --bg-1: #161b22;
-  --bg-2: #21262d;
-  --bg-3: #2d3340;
-  --border: rgba(255,255,255,0.08);
-  --border-md: rgba(255,255,255,0.14);
-  --text-1: #e6edf3;
-  --text-2: #a5aebb; /* 修正：原本#8b949e對徽章底(bg-3)只有4.12:1(不夠)，改成5.65:1全部背景都通過，同時維持比text-3亮一階的層級感 */
-  --text-3: #96a0ab; /* 修正：確保在純黑底(7.13:1)、卡片底(5.74:1)、徽章底(4.77:1)都通過4.5:1，不只顧到純黑底的情況 */
-  --red:    #E24B4A;
-  --red-l:  #f09595;
-  --green-l:#1D9E75;
-  --green-d:#0f6e56;
+  /* ── 黑金設計系統（2026-10 改版）── */
+  --bg-0: #000000;   /* 頁面底 */
+  --bg-1: #0A0A0B;   /* 卡片底 */
+  --bg-2: #141416;   /* 輸入框/次層 */
+  --bg-3: #1E1E22;   /* 徽章底 */
+  --border: #1A1A1E;     /* 細分隔線 */
+  --border-md: #26262B;  /* 面板外框 */
+  --text-1: #ECECEC;
+  --text-2: #B4B4BC;
+  --text-3: #8E8E96;
+  --gold:   #C9A55C;   /* 主強調色 */
+  --gold-l: #E6C98A;
+  --red:    #FF5A4E;   /* 漲 */
+  --red-l:  #FF8A80;
+  --green-l:#22C17A;   /* 跌 */
+  --green-d:#178A57;
   --amber:  #EF9F27;
   --blue:   #378ADD;
-  --font-sans: 'Noto Sans TC', system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  --font-sans: 'IBM Plex Sans', 'Noto Sans TC', system-ui, sans-serif;
+  --font-serif: 'Noto Serif TC', serif;   /* 標題、大數字 */
+  --font-mono: 'IBM Plex Sans', 'Noto Sans TC', sans-serif; /* 數字：搭配 tabular-nums */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --shadow: none;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,7 +36,7 @@
 
 /* 修正衛星面板太小的問題：寬度、內距、字級都放大一階 */
 .theater-panel {
-  position: absolute; width: 320px; background: rgba(13,17,23,0.8); border: 1px solid rgba(90,143,192,0.35);
+  position: absolute; width: 320px; background: rgba(0,0,0,0.8); border: 1px solid rgba(90,143,192,0.35);
   border-radius: 14px; padding: 10px 16px; backdrop-filter: blur(6px); color: var(--text-1);
   transition: border-color 0.2s; overflow: hidden; box-sizing: border-box;
   z-index: 3; /* 版塊層級：選單>衛星面板>時間環>星系 */
@@ -56,7 +60,7 @@
 
 #theater-lock-wrap { position: absolute; top: 50%; right: 24px; transform: translateY(-50%); z-index: 4; }
 #theater-lock-btn {
-  padding: 12px 20px; border-radius: 24px; background: rgba(13,17,23,0.85);
+  padding: 12px 20px; border-radius: 24px; background: rgba(0,0,0,0.85);
   border: 1px solid rgba(90,143,192,0.4); color: var(--text-1); font-size: 14px;
   cursor: pointer; user-select: none;
 }
@@ -66,13 +70,13 @@
 #theater-nav-wrap { position: absolute; bottom: 24px; right: 24px; z-index: 4; }
 #theater-nav-btn {
   display: flex; align-items: center; gap: 10px; padding: 16px 28px; border-radius: 30px;
-  background: rgba(13,17,23,0.88); border: 1px solid rgba(90,143,192,0.45); color: var(--text-1);
+  background: rgba(0,0,0,0.88); border: 1px solid rgba(90,143,192,0.45); color: var(--text-1);
   font-size: 16px; font-weight: 600; cursor: pointer; user-select: none; transition: border-color 0.2s;
 }
 #theater-nav-btn:hover { border-color: rgba(120,160,210,0.8); }
 .theater-nav-icon { width: 10px; height: 10px; border-radius: 50%; background: #5a8fc0; display: inline-block; }
 #theater-nav-menu {
-  position: absolute; bottom: 64px; right: 0; width: 200px; background: rgba(13,17,23,0.94);
+  position: absolute; bottom: 64px; right: 0; width: 200px; background: rgba(0,0,0,0.94);
   border: 1px solid rgba(90,143,192,0.45); border-radius: 12px; padding: 8px;
   display: none; flex-direction: column; gap: 3px;
 }
@@ -104,6 +108,7 @@ body {
   background: var(--bg-0);
   color: var(--text-1);
   font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   /* 允許頁面捲動 */
@@ -119,7 +124,7 @@ body {
 .topbar {
   position: sticky; top: 0; z-index: 100;
   height: 48px;
-  background: rgba(13,17,23,0.95);
+  background: rgba(0,0,0,0.95);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between;
@@ -516,7 +521,7 @@ body {
 .chart-crosshair-v,.chart-crosshair-h { position: absolute; pointer-events: none; background: var(--border-md); opacity: 0; transition: opacity 0.1s; }
 .chart-crosshair-v { width: 1px; top: 0; bottom: 0; }
 .chart-crosshair-h { height: 1px; left: 0; right: 0; }
-.chart-loading { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(13,17,23,0.7); font-size: 13px; color: var(--text-2); z-index: 20; }
+.chart-loading { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.7); font-size: 13px; color: var(--text-2); z-index: 20; }
 
 /* Tech Pane */
 #pane-tech { padding: 12px; }
@@ -799,8 +804,8 @@ body {
 .form-input:focus { border-color: var(--green-l); }
 .form-note { font-size: 11px; color: var(--text-3); background: var(--bg-2); border-radius: var(--radius-sm); padding: 8px 10px; line-height: 1.5; }
 .form-hint { font-size: 11px; color: var(--text-3); margin-top: 4px; }
-.btn-primary { font-size: 13px; font-weight: 600; padding: 7px 20px; background: var(--green-l); border: none; color: #fff; border-radius: var(--radius-sm); cursor: pointer; }
-.btn-primary:hover { background: var(--green-d); }
+.btn-primary { font-size: 13px; font-weight: 600; padding: 7px 20px; background: var(--gold); border: none; color: #000; border-radius: var(--radius-sm); cursor: pointer; }
+.btn-primary:hover { background: var(--gold-l); }
 .btn-cancel { font-size: 13px; padding: 7px 16px; background: var(--bg-3); border: 1px solid var(--border); color: var(--text-2); border-radius: var(--radius-sm); cursor: pointer; }
 .settings-section { margin-bottom: 18px; }
 .settings-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--text-2); }
@@ -1022,7 +1027,7 @@ body.theater-active .dashboard-toggle-btn { display: none; }
 body.theater-active .market-switch {
   position: fixed; top: 50%; left: 24px; transform: translateY(-50%); z-index: 4;
   display: flex; flex-direction: column; gap: 6px;
-  background: rgba(13,17,23,0.85); border: 1px solid rgba(90,143,192,0.4);
+  background: rgba(0,0,0,0.85); border: 1px solid rgba(90,143,192,0.4);
   border-radius: 20px; padding: 10px;
 }
 /* ★ 重新設計按鈕本身：之前完全沒有專屬樣式、用瀏覽器預設外觀，改成跟鎖定/選單按鈕
