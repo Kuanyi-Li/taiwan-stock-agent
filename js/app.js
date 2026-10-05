@@ -444,23 +444,14 @@ const TRADES = {
       : null;
 
     const fmtRatio = r => r === Infinity ? '∞' : r.toFixed(2);
-    el.innerHTML = `
-      <div class="trade-stat-card">
-        <div class="trade-stat-label">勝率</div>
-        <div class="trade-stat-value" style="color:${winRate>=50?'#E24B4A':'#1D9E75'}">${winRate.toFixed(0)}%</div>
-      </div>
-      <div class="trade-stat-card">
-        <div class="trade-stat-label">已實現交易數</div>
-        <div class="trade-stat-value">${sells.length}</div>
-      </div>
-      <div class="trade-stat-card">
-        <div class="trade-stat-label">平均賺賠比</div>
-        <div class="trade-stat-value">${fmtRatio(winLossRatio)}</div>
-      </div>
-      <div class="trade-stat-card">
-        <div class="trade-stat-label">平均持有天數</div>
-        <div class="trade-stat-value">${avgHoldDays != null ? Math.round(avgHoldDays) + '天' : '—'}</div>
-      </div>`;
+    const total = sells.reduce((x, t) => x + t.realizedPnl, 0);
+    const card = (k, v, c) => `<div class="trade-stat-card"><div class="trade-stat-label">${k}</div><div class="trade-stat-value num" ${c ? `style="color:${c}"` : ''}>${v}</div></div>`;
+    el.innerHTML =
+      card('累計已實現', (total >= 0 ? '+' : '−') + Math.abs(Math.round(total)).toLocaleString('en-US'), total > 0 ? 'var(--red)' : total < 0 ? 'var(--green-l)' : '') +
+      card('勝率', winRate.toFixed(0) + '%', winRate >= 50 ? 'var(--red)' : 'var(--green-l)') +
+      card('已實現交易數', sells.length) +
+      card('平均賺賠比', fmtRatio(winLossRatio)) +
+      card('平均持有天數', avgHoldDays != null ? Math.round(avgHoldDays) + ' 天' : '—');
   },
 
   // ── 回填舊交易的已實現損益（功能上線前的賣出紀錄沒有 realizedPnl，這裡補算）──
@@ -506,34 +497,26 @@ const TRADES = {
     const trades = this.get();
     if (!trades.length) { list.innerHTML = '<div class="empty-state">暫無交易紀錄</div>'; return; }
     const isUS = APP.activeMarket === 'US';
-    list.innerHTML = trades.slice(0, 50).map(t => {
+    const rows = trades.slice(0, 50).map(t => {
       const isBuy = t.action === 'buy';
       const total = t.shares * t.price;
-      const fee = t.fee || 0;
       const tIsUS = (t.market || 'TW') === 'US';
-      const totalDisplay = tIsUS
-        ? `US$${total.toFixed(0)}`
-        : (total >= 10000 ? `${(total/10000).toFixed(2)}萬` : `${total.toFixed(0)}元`);
-      const sharesDisplay = sharesDisp(t.shares, t.market || 'TW');
-      const priceDisplay = tIsUS ? `US$${t.price}` : `$${t.price}`;
-      return `<div class="trade-item">
-        <div class="ti-left">
-          <span class="ti-action ${isBuy?'buy':'sell'}">${isBuy?'買進':'賣出'}</span>
-          <span class="ti-code">${t.code}</span>
-          <span class="ti-name">${t.name}</span>
-        </div>
-        <div class="ti-mid">
-          <span>${sharesDisplay} @ ${priceDisplay}</span>
-          <span class="ti-date">${t.date || '—'}</span>
-        </div>
-        <div class="ti-right">
-          <span class="${isBuy?'dn-color':'up-color'}">${isBuy?'-':'+'}${totalDisplay}</span>
-          ${fee ? `<span class="ti-fee">稅費 $${fee}</span>` : ''}
-          <button class="ti-edit-btn" onclick="openEditTrade(${t.id})" title="編輯">✏️</button>
-        </div>
-        ${t.note ? `<div class="ti-note">${t.note}</div>` : ''}
-      </div>`;
+      const totalDisplay = tIsUS ? `US$${total.toFixed(0)}` : (total >= 10000 ? `${(total/10000).toFixed(2)}萬` : `${total.toFixed(0)}元`);
+      const priceDisplay = tIsUS ? `US$${t.price}` : `${t.price}`;
+      const pnl = t.realizedPnl;
+      const pnlHtml = !isBuy && pnl != null ? `<span class="${pnl >= 0 ? 'up' : 'dn'}">${pnl >= 0 ? '+' : '−'}${Math.abs(Math.round(pnl)).toLocaleString('en-US')}</span>` : '<span class="tt-na">—</span>';
+      return `<tr>
+        <td class="num tt-date">${t.date || '—'}</td>
+        <td><span class="ti-action ${isBuy ? 'buy' : 'sell'}">${isBuy ? '買進' : '賣出'}</span></td>
+        <td>${t.name || ''} <span class="num tt-code">${t.code}</span>${t.note ? `<div class="tt-note">${t.note}</div>` : ''}</td>
+        <td class="num r">${sharesDisp(t.shares, t.market || 'TW')}</td>
+        <td class="num r">${priceDisplay}</td>
+        <td class="num r">${totalDisplay}${t.fee ? `<div class="tt-note">稅費 ${t.fee}</div>` : ''}</td>
+        <td class="num r">${pnlHtml}</td>
+        <td class="r"><button class="tt-edit" onclick="openEditTrade(${t.id})" title="編輯">編輯</button></td>
+      </tr>`;
     }).join('');
+    list.innerHTML = `<div class="tt-wrap"><table class="trade-table"><thead><tr><th>日期</th><th>動作</th><th>標的</th><th class="r">數量</th><th class="r">價格</th><th class="r">金額</th><th class="r">已實現損益</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   },
 };
 

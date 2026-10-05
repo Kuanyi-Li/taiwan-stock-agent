@@ -565,8 +565,8 @@ body {
 .ind-table-name { font-size: 11px; color: var(--text-2); }
 .ind-table-value { font-family: var(--font-mono); font-size: 11px; color: var(--text-1); min-width: 60px; text-align: right; }
 .ind-table-sig { font-size: 10px; font-weight: 600; min-width: 36px; text-align: center; padding: 1px 5px; border-radius: 4px; }
-.ind-buy  { color: #1D9E75; background: rgba(29,158,117,0.12); }
-.ind-sell { color: #E24B4A; background: rgba(226,75,74,0.12); }
+.ind-buy  { color: var(--red); background: none; }
+.ind-sell { color: var(--green-l); background: none; }
 .ind-neu  { color: var(--text-3); background: var(--bg-3); }
 
 #pane-info { padding: 12px; }
@@ -1347,3 +1347,51 @@ body.theater-active .market-switch-btn.active {
 .dl-peer.ref { cursor: default; color: var(--text-3); border-style: dashed; }
 .dl-peer span { font-size: 11px; color: var(--text-3); } .dl-peer em { font-style: normal; font-size: 12px; }
 @media (max-width: 900px) { .dl-grid { grid-template-columns: 1fr; } }
+
+/* ── 個股頁 3b：下方分頁黑金化 ── */
+.serif-h { font-family: var(--font-serif); font-size: 18px; font-weight: 700; } .serif-h small { font-family: var(--font-sans); font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: 6px; }
+.main-tabs { padding: 0 8px; } .main-tab-btn { min-height: 44px; font-size: 14px; color: var(--text-3); }
+.ai-title, .pa-title, .order-title, .rec-title-h { font-family: var(--font-serif); font-size: 18px; font-weight: 700; }
+.analyze-btn, .set-notify-btn, .export-btn { background: none; border: 1px solid var(--gold); color: var(--gold); border-radius: 0; }
+.analyze-btn:hover, .set-notify-btn:hover, .export-btn:hover { background: rgba(201,165,92,0.1); color: var(--gold-l); }
+.export-btn.gold, .rec-run-btn { background: var(--gold); color: #000; border: 1px solid var(--gold); border-radius: 0; font-weight: 600; }
+.export-btn.gold:hover, .rec-run-btn:hover { background: var(--gold-l); color: #000; opacity: 1; }
+.confidence-chip, .confidence-chip.high, .confidence-chip.mid, .confidence-chip.low { background: none; border: 1px solid var(--border-md); border-radius: 0; color: var(--text-2); font-weight: 400; }
+.ai-reasoning, .order-section, .portfolio-alloc, .rec-card, .alloc-decision-card, .trade-stat-card, .info-item, .rec-meta { background: var(--bg-1); border-radius: 0; }
+.signal-block { background: var(--bg-1); } .signal-block.signal-action-big { background: var(--bg-1); border-color: var(--border-md); border-top-color: var(--gold); }
+.signal-action-big .sig-value { font-family: var(--font-serif); font-size: 34px; font-weight: 900; }
+.ptag { border-radius: 0; } .meter-bar-wrap { border-radius: 0; height: 6px; border: none; } .meter-bar { border-radius: 0; }
+.budget-input-wrap, .strategy-select, .rec-filter, .notify-email-input, .notify-condition { background: var(--bg-1); border-radius: 0; border-color: var(--border-md); }
+/* 交易紀錄 */
+.trade-stats-grid { grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.trade-stat-card { border: 1px solid var(--border-md); border-top-color: var(--gold); padding: 12px 14px; }
+.trade-stat-label { font-size: 12px; color: var(--text-3); } .trade-stat-value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+.tt-wrap { overflow-x: auto; } .trade-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.trade-table th { text-align: left; font-weight: 500; font-size: 12px; color: var(--text-3); padding: 8px 10px; border-bottom: 1px solid var(--gold); white-space: nowrap; }
+.trade-table td { padding: 11px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.trade-table .r { text-align: right; } .tt-date, .tt-code { color: var(--text-3); font-size: 12px; } .tt-na { color: var(--text-3); }
+.tt-note { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.tt-edit { background: none; border: none; color: var(--gold); font: inherit; font-size: 13px; cursor: pointer; }
+.ti-action { background: none !important; padding: 0; border-radius: 0; font-size: 14px; font-weight: 500; }
+.ti-action.buy { color: var(--red); } .ti-action.sell { color: var(--green-l); }
+/* 資金分配／推薦卡 */
+.alloc-decision-card { border: 1px solid var(--border-md); border-left-width: 1px; }
+.alloc-decision-card.buy, .alloc-decision-card.watch, .alloc-decision-card.sell { border-left: 1px solid var(--border-md); border-top: 1px solid var(--gold); }
+.alloc-decision-header { font-family: var(--font-serif); border-bottom-color: var(--gold); }
+.adc-action, .adc-action.buy, .adc-action.watch, .adc-action.sell, .adc-note, .adc-reason-tag, .rec-rank, .rec-sector { background: none; border: 1px solid var(--border-md); border-radius: 0; color: var(--text-2); }
+.adc-action.buy { color: var(--red); border-color: #5a2420; } .adc-action.sell { color: var(--green-l); border-color: #12452d; }
+.adc-reason-tag.warn { color: var(--green-l); background: none; }
+.adc-order, .rec-order { background: var(--bg-2); border-radius: 0; } .rec-order-tag { color: var(--gold); }
+.alloc-bar-wrap { border-radius: 0; height: 8px; } .alloc-bar { border-radius: 0; background: repeating-linear-gradient(135deg, var(--gold) 0 2px, #8a6f3a 2px 4px); }
+.alloc-strategy { color: var(--gold); }
+.rec-card { border-top: 1px solid var(--gold); } .rec-short-note { color: var(--gold-l); background: none; border-color: var(--border-md); border-radius: 0; }
+.rec-corr-warn { border-radius: 0; background: none; }
+/* 技術指標／個股資訊 */
+.ind-table-col { background: var(--bg-0); border-radius: 0; border: none; }
+.ind-table-header { background: none; border-bottom: 1px solid var(--gold); color: var(--text-3); text-transform: none; font-size: 12px; font-weight: 500; letter-spacing: 0; }
+.ind-table-row { border-top: none; border-bottom: 1px solid var(--border); } .ind-table-sig { background: none; padding: 0; font-size: 13px; font-weight: 400; }
+.dial-title { color: var(--text-3); font-weight: 400; } .dial-label { font-family: var(--font-serif); font-size: 17px; }
+.info-grid { grid-template-columns: repeat(5, 1fr); gap: 0; border-top: 1px solid var(--gold); }
+.info-item { background: none; border: none; border-bottom: 1px solid var(--border); padding: 14px 4px; }
+.info-label { font-size: 12px; } .info-value { font-size: 19px; margin-top: 3px; font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .trade-stats-grid { grid-template-columns: repeat(2, 1fr); } .info-grid { grid-template-columns: repeat(2, 1fr); } }
