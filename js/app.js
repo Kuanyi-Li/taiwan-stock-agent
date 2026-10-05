@@ -815,40 +815,63 @@ const SESSION = {
       <div class="sc-foot ${inSession ? 'on' : ''}">${state}</div>`;
   },
 
-  // 底部雕刻紋飾：多條相位錯開的正弦波交織成直式鈔票邊紋＋小星盤收尾
-  renderOrnament() {
-    const svg = document.getElementById('nav-ornament');
-    if (!svg || svg.dataset.done) return;
-    const W = 120, H = 240, cx = W / 2;
-    let paths = '';
-    for (let k = 0; k < 10; k++) {
-      const ph = k / 10 * Math.PI * 2;
-      let d = '';
-      for (let i = 0; i <= 300; i++) {
-        const t = i / 300, yy = t * H;
-        const amp = 30 + 8 * Math.cos(t * Math.PI * 4 + ph);
-        const x = cx + amp * Math.sin(t * Math.PI * 9 + ph);
-        d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + yy.toFixed(1);
-      }
-      paths += `<path d="${d}" fill="none" stroke="#C9A55C" stroke-width="${k % 2 ? 0.4 : 0.6}" opacity="${k % 2 ? 0.45 : 0.8}"/>`;
-    }
-    paths += `<line x1="${cx - 42}" y1="0" x2="${cx - 42}" y2="${H}" stroke="#C9A55C" stroke-width="0.5" opacity="0.6"/><line x1="${cx + 42}" y1="0" x2="${cx + 42}" y2="${H}" stroke="#C9A55C" stroke-width="0.5" opacity="0.6"/>`;
-    // 收尾的小星盤
-    const n = 9, R = 70, rr = R / n, dd = rr * 1.5, sc = 26 / (R + rr + dd);
-    let ros = '';
-    for (let i = 0; i <= 360; i++) {
-      const t = i / 360 * Math.PI * 2;
-      const x = (R + rr) * Math.cos(t) - dd * Math.cos((R + rr) / rr * t), yv = (R + rr) * Math.sin(t) - dd * Math.sin((R + rr) / rr * t);
-      ros += (i ? 'L' : 'M') + (cx + x * sc).toFixed(1) + ' ' + (H + 34 + yv * sc).toFixed(1);
-    }
-    svg.setAttribute('viewBox', `0 0 ${W} ${H + 64}`);
-    svg.innerHTML = paths +
-      `<line x1="${cx}" y1="0" x2="${cx}" y2="${H}" stroke="#C9A55C" stroke-width="0.4" stroke-dasharray="1 3" opacity="0.6"/>` +
-      `<path d="${ros}" fill="none" stroke="#C9A55C" stroke-width="0.7"/><circle cx="${cx}" cy="${H + 34}" r="3" fill="#C9A55C"/>`;
-    svg.dataset.done = '1';
-  },
 };
 setInterval(() => SESSION.render(), 30000);
+
+// ── 左欄底紋：青花瓷（海水紋＋如意雲紋＋回紋邊），由下往上淡出 ─────────
+const PORCELAIN = {
+  COLORS: { blue: ['#2F5FB3', '#5B86D6'], gold: ['#C9A55C', '#E6C98A'] },
+  _svg(c1, c2) {
+    // 單一圖塊 120×120：下半海水紋（同心弧魚鱗）、上半如意雲紋（雙捲渦）
+    const W = 120, H = 120;
+    let s = '';
+    // 海水紋：每列錯半格，同心弧 4 圈；後畫的列用黑底蓋住前一列下緣，形成魚鱗
+    const R = 15;
+    for (let row = 0; row < 5; row++) {
+      const cy = 60 + row * (R * 0.5) + R * 0.5;
+      const off = row % 2 ? R : 0;
+      for (let cx = -R + off; cx <= W + R; cx += R * 2) {
+        s += `<path d="M${cx - R} ${cy} A${R} ${R} 0 0 1 ${cx + R} ${cy} Z" fill="#000"/>`;
+        for (let k = 1; k <= 4; k++) {
+          const r = R * k / 4;
+          s += `<path d="M${(cx - r).toFixed(1)} ${cy} A${r} ${r} 0 0 1 ${(cx + r).toFixed(1)} ${cy}" fill="none" stroke="${k === 4 ? c1 : c2}" stroke-width="${k === 4 ? 1 : 0.6}"/>`;
+        }
+      }
+    }
+    // 如意雲紋：兩個相反方向的捲渦＋連接的雲尾
+    const spiral = (x0, y0, dir, scale) => {
+      let d = '';
+      for (let i = 0; i <= 60; i++) {
+        const t = i / 60 * Math.PI * 3.2, r = (1 - i / 60) * 7 * scale + 0.6;
+        const x = x0 + dir * r * Math.cos(t), y = y0 + r * Math.sin(t);
+        d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+      }
+      return d;
+    };
+    const cloud = (x, y, sc) => {
+      const a = spiral(x - 8 * sc, y, -1, sc), b = spiral(x + 8 * sc, y, 1, sc);
+      const tail = `M${(x - 15 * sc).toFixed(1)} ${(y + 1 * sc).toFixed(1)} Q${x} ${(y + 12 * sc).toFixed(1)} ${(x + 15 * sc).toFixed(1)} ${(y + 1 * sc).toFixed(1)}` +
+                   ` M${(x - 4 * sc).toFixed(1)} ${(y - 6 * sc).toFixed(1)} Q${x} ${(y - 13 * sc).toFixed(1)} ${(x + 4 * sc).toFixed(1)} ${(y - 6 * sc).toFixed(1)}`;
+      return `<path d="${a} ${b}" fill="none" stroke="${c2}" stroke-width="0.8"/><path d="${tail}" fill="none" stroke="${c1}" stroke-width="1"/>`;
+    };
+    s += cloud(30, 22, 1) + cloud(90, 44, 0.85);
+    // 點綴小圈
+    s += `<circle cx="75" cy="14" r="1.4" fill="${c2}"/><circle cx="12" cy="48" r="1.2" fill="${c2}"/>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${s}</svg>`;
+  },
+  // 回紋（雷紋）邊框條
+  _meander(c1) {
+    const p = 'M0 15 H4 V4 H16 V12 H8 V8 H12 M16 15 H20 V4 H32 V12 H24 V8 H28';
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="18" viewBox="0 0 32 18"><path d="M0 1 H32 M0 17 H32" stroke="${c1}" stroke-width="1"/><path d="${p}" fill="none" stroke="${c1}" stroke-width="1.1"/></svg>`;
+  },
+  apply(variant) {
+    const el = document.getElementById('nav-porcelain');
+    if (!el) return;
+    const [c1, c2] = this.COLORS[variant] || this.COLORS.blue;
+    const enc = s => `url("data:image/svg+xml;utf8,${encodeURIComponent(s)}")`;
+    el.style.backgroundImage = `${enc(this._meander(c1))}, ${enc(this._svg(c1, c2))}`;
+  },
+};
 
 // ── SKY：總覽「今日星位」（改版步驟5）──────────────────────
 // 雕刻星盤：花瓣數＝持股檔數；盤中旋轉、休市停止；
@@ -4389,7 +4412,7 @@ const APP = {
     if (logo) logo.classList.toggle('spin', marketOpen);
     SKY.setSpinning(marketOpen);
     SESSION.render();
-    SESSION.renderOrnament();
+    PORCELAIN.apply(localStorage.getItem('nav-porcelain') || 'blue');
   },
 
   async refreshPrices(force = false) {

@@ -1278,7 +1278,10 @@ body.theater-active .market-switch-btn.active {
 .sc-foot b { display: block; font-weight: 500; color: var(--text-2); }
 .sc-foot.on b { color: var(--green-l); }
 .sc-foot.on { color: var(--text-1); }
-.nav-ornament { display: block; width: 110px; margin: auto auto 24px; padding-top: 24px; opacity: 0.7;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 25%); mask-image: linear-gradient(to bottom, transparent, #000 25%); }
-@media (max-width: 680px) { .session-clock, .nav-ornament { display: none; } }
-@media (max-height: 620px) { .nav-ornament { display: none; } }
+.sidebar > * { position: relative; z-index: 1; }
+.sidebar > .nav-porcelain { position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-repeat: repeat-x, repeat; background-position: left bottom 6px, left bottom 24px; background-size: 32px 18px, 120px 120px;
+  opacity: 0.75;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,0.7) 16%, rgba(0,0,0,0.18) 36%, transparent 52%);
+          mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,0.7) 16%, rgba(0,0,0,0.18) 36%, transparent 52%); }
+@media (max-width: 680px) { .session-clock, .nav-porcelain { display: none; } }
