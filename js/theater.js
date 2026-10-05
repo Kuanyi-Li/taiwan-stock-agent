@@ -23,14 +23,23 @@ const Theater = {
     if (checkbox) checkbox.checked = false; // 透過選單離開一定是離開劇場模式
     localStorage.setItem('theater-mode-on', 'false');
     if (target === 'screener') { Screener.openModal(); return; }
-    if (target === 'backtest') { showMainView('backtest'); return; }
+    if (target === 'backtest') {
+      showMainView('backtest');
+      const btBody = document.getElementById('bt-body');
+      if (btBody && !btBody.innerHTML.trim()) btBody.innerHTML = '<div class="empty-state">選擇市場、回測期間後按「開始回測」</div>';
+      return;
+    }
     if (target === 'detail') {
       showMainView('detail');
       if (!APP.activeSymbol && APP.portfolio.length) APP.selectStock(APP.portfolio[0].code, 0, 'portfolio');
+      else if (CHART.currentData.length) setTimeout(() => CHART.draw(), 50);
       return;
     }
     if (target === 'calendar') { TradeCalendar.toggle(); return; }
+    // ★ 修正：之前只切畫面、沒有呼叫render，績效頁會一直停在「載入中...」
     showMainView(target);
+    if (target === 'performance') Performance.render();
+    if (target === 'dashboard') Dashboard.render();
   },
 
   toggleNavMenu(forceState) {
@@ -68,7 +77,9 @@ const Theater = {
     this._buildSystem('TW', this._TW_OFFSET);
     this._buildSystem('US', this._US_OFFSET);
     this._buildLabels();
-    if (!this._currentMarket) this._currentMarket = APP.activeMarket || 'TW';
+    // ★ 修正：每次進入都跟APP目前的市場同步，不能只在第一次設定——
+    // 否則在外面切回台股後再進劇場，會看到上次停留的美股星系
+    this._currentMarket = APP.activeMarket || 'TW';
     this._setCameraToMarket(this._currentMarket, false); // 進入時直接定位，不用動畫
     this._applySystemVisibility(); // ★ 只顯示目前市場的星系
     this._startPanels();
@@ -89,6 +100,12 @@ const Theater = {
     this._panelIntervals = [];
     if (this._animId) { cancelAnimationFrame(this._animId); this._animId = null; }
     if (this._flyAnimId) { cancelAnimationFrame(this._flyAnimId); this._flyAnimId = null; }
+    // ★ 修正：劇場內切換過市場的話，離開時補跑一次完整的市場切換
+    // （logo、大盤列、側邊欄、總覽卡片），避免一般頁面停在半台半美的混雜狀態
+    if (this._marketChangedInTheater) {
+      this._marketChangedInTheater = false;
+      APP.switchMarket(APP.activeMarket);
+    }
   },
 
   // ★ 直接定位攝影機到指定市場的星系（不用動畫，onEnter第一次進入時用）
@@ -656,7 +673,8 @@ const Theater = {
         p.moons.forEach(m => {
           const nameLabel = document.createElement('div');
           nameLabel.className = 'theater-3d-label theater-3d-label-moon';
-          nameLabel.textContent = m.name || m.code;
+          // 美股公司全名太長(例如 Space Exploration Technologies)會互相疊在一起，美股改顯示代號
+          nameLabel.textContent = market === 'US' ? m.code : (m.name || m.code);
           nameLabel.style.color = m.chgPct >= 0 ? '#e0524f' : '#1d9e75';
           nameLabel.style.textShadow = '0 0 1.2px #fff, 0 0 1.2px #fff';
           labelLayer.appendChild(nameLabel);
@@ -990,6 +1008,13 @@ const Theater = {
       });
     });
     if (this._stars) this._stars.rotation.y += 0.00015 * this._speedMul;
+    // ★ 修正美股星系右側出現灰色弧形陰影：星雲球/星空原本固定在台股原點，
+    // 美股星系剛好落在星雲球殼邊界上，鏡頭在殼外就會看到球殼。改成跟著鏡頭注視點移動。
+    if (this._cameraLookAt) {
+      const la = this._cameraLookAt;
+      if (this._nebula) this._nebula.position.set(la.x, la.y, la.z);
+      if (this._stars) this._stars.position.set(la.x, la.y, la.z);
+    }
     // ★ 修正拖曳旋轉繞錯中心點的問題：之前是「轉整個場景」，但場景永遠繞著世界原點
     // （台股星系的位置）轉，美股星系位移過，繞錯的點轉就會偏移、看起來歪掉。
     // 改成「攝影機繞著目前鎖定的星系球心公轉」，不管看哪個星系都會正確繞著它自己轉。

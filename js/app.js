@@ -1349,10 +1349,19 @@ const Dashboard = {
   },
 
   async render() {
-    if (this._rendering) return;
+    // ★ 修正：之前畫到一半時再呼叫render會被直接丟掉，快速切換台美股後
+    // 總覽卡片會停在上一個市場。改成記下「待重畫」，目前這輪畫完後立刻補跑一次。
+    // （不中途重建網格，因為上一輪的卡片載入會依索引寫回格子，中途重建會寫錯格）
+    if (this._rendering) { this._rerunPending = true; return; }
     this._rendering = true;
+    try { await this._renderOnce(); }
+    finally { this._rendering = false; }
+    if (this._rerunPending) { this._rerunPending = false; return this.render(); }
+  },
+
+  async _renderOnce() {
     const grid = document.getElementById('dashboard-grid');
-    if (!grid) { this._rendering = false; return; }
+    if (!grid) return;
     const compact = this.isCompact();
     grid.classList.toggle('compact-grid', compact);
     const btn = document.getElementById('dash-mode-toggle');
@@ -1398,7 +1407,6 @@ const Dashboard = {
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">尚無持股或自選股，請先新增</div>`;
       const sumEl = document.getElementById('dashboard-summary');
       if (sumEl) sumEl.innerHTML = '';
-      this._rendering = false;
       return;
     }
 
@@ -1428,7 +1436,6 @@ const Dashboard = {
     // 卡片自己算好的指標已寫回全域快取，順便刷新側邊欄讓訊號同步更新
     APP.renderStockList();
     APP._renderSignalOverview();
-    this._rendering = false;
   },
 
   // 頂部摘要列：整體買/賣/觀望張數統計
@@ -3761,6 +3768,7 @@ const APP = {
     });
     // ★ 劇場模式下：不要跑一般模式的重置邏輯，改成攝影機動畫飛到對應的星系
     if (typeof Theater !== 'undefined' && Theater._isActive) {
+      Theater._marketChangedInTheater = true; // 離開劇場時補跑完整切換
       Theater.flyToMarket(market);
       return;
     }
