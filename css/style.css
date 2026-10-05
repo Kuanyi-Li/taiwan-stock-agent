@@ -133,12 +133,12 @@ body {
 .topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .logo { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 15px; letter-spacing: -0.02em; white-space: nowrap; }
-.logo-mark { width: 24px; height: 24px; background: var(--green-l); border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.logo-mark { width: 24px; height: 24px; background: var(--gold); border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .logo-mark::after { content:''; display:block; width:12px; height:8px; border-left:2px solid #fff; border-bottom:2px solid #fff; transform:rotate(-45deg) translate(1px,-2px); }
 .topbar-market { display: flex; align-items: center; gap: 8px; overflow: hidden; }
 
 .dashboard-toggle-btn { background: var(--bg-3); border: 1px solid var(--border); color: var(--text-1); font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
-.dashboard-toggle-btn:hover { border-color: var(--green-l); color: var(--green-l); }
+.dashboard-toggle-btn:hover { border-color: var(--gold); color: var(--gold); }
 
 .dashboard-content { height: calc(100vh - 48px - 24px); display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden; }
 .performance-content { padding: 4px; max-height: calc(100vh - 48px - 24px); overflow-y: auto; }
@@ -147,7 +147,7 @@ body {
 .cal-page-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; flex-shrink: 0; }
 .cal-page-nav { display: flex; align-items: center; gap: 8px; }
 .cal-nav-btn { background: var(--bg-2); border: 1px solid var(--border); color: var(--text-1); font-size: 14px; font-weight: 600; padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; }
-.cal-nav-btn:hover { border-color: var(--green-l); color: var(--green-l); }
+.cal-nav-btn:hover { border-color: var(--gold); color: var(--gold); }
 .cal-page-title { font-size: 22px; font-weight: 700; min-width: 130px; text-align: center; }
 .cal-page-legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .cal-legend-item { display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: var(--text-2); }
@@ -175,7 +175,7 @@ body {
 .perf-big-canvas-wrap { height: 220px; position: relative; }
 .perf-period-tabs { display: flex; gap: 4px; margin-bottom: 10px; }
 .perf-period-btn { font-size: 13px; font-weight: 600; padding: 6px 13px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-2); color: var(--text-2); cursor: pointer; }
-.perf-period-btn.active { background: var(--green-l); color: #fff; border-color: var(--green-l); }
+.perf-period-btn.active { background: var(--gold); color: #000; border-color: var(--gold); }
 .perf-stat-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
 .perf-stat-row:last-child { border-bottom: none; }
 .perf-stat-name { color: var(--text-2); font-weight: 500; }
@@ -310,7 +310,7 @@ body {
 .section.flex-fill { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
 .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-1); }
-.text-btn { font-size: 12px; color: var(--green-l); background: none; border: none; padding: 0; cursor: pointer; }
+.text-btn { font-size: 12px; color: var(--gold); background: none; border: none; padding: 0; cursor: pointer; }
 .text-btn:hover { color: var(--text-1); }
 .data-source-tag { font-size: 10px; color: var(--text-3); border: 1px solid var(--border); padding: 1px 5px; border-radius: 4px; }
 
@@ -349,7 +349,7 @@ body {
   position: relative;
 }
 .stock-item:hover { background: var(--bg-2); }
-.stock-item.active { background: var(--bg-2); border-left: 2px solid var(--green-l); }
+.stock-item.active { background: var(--bg-2); border-left: 2px solid var(--gold); }
 .si-main { flex: 1; min-width: 0; }
 .si-actions { display: flex; flex-direction: column; gap: 3px; opacity: 0; transition: opacity 0.15s; }
 .stock-item:hover .si-actions { opacity: 1; }
@@ -466,7 +466,7 @@ body {
 .period-tabs { display: flex; gap: 2px; flex-wrap: wrap; background: var(--bg-2); padding: 3px; border-radius: 8px; }
 .period-btn { background: none; border: none; color: var(--text-2); font-size: 11px; padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.1s; }
 .period-btn:hover { color: var(--text-1); }
-.period-btn.active { background: var(--green-l); color: #fff; }
+.period-btn.active { background: var(--gold); color: #000; }
 .chart-type-toggle { display: flex; gap: 2px; background: var(--bg-2); padding: 3px; border-radius: 8px; }
 .type-btn { background: none; border: none; color: var(--text-2); font-size: 11px; padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.1s; }
 .type-btn.active { background: var(--bg-3); color: var(--text-1); }
@@ -570,7 +570,7 @@ body {
 .main-tabs { display: flex; gap: 2px; padding: 12px 16px 0; border-bottom: 1px solid var(--border); overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .main-tab-btn { background: none; border: none; color: var(--text-2); font-size: 13px; padding: 7px 14px; border-bottom: 2px solid transparent; transition: all 0.15s; white-space: nowrap; cursor: pointer; }
 .main-tab-btn:hover { color: var(--text-1); }
-.main-tab-btn.active { color: var(--green-l); border-bottom-color: var(--green-l); }
+.main-tab-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
 .main-tab-pane { display: none; }
 .main-tab-pane.active { display: block; }
 
@@ -585,7 +585,7 @@ body {
 .confidence-chip.low  { background: var(--bg-2); color: var(--text-3); }
 .confidence-chip.mid  { background: var(--bg-3); color: var(--text-2); }
 .analyze-btn { display: flex; align-items: center; gap: 5px; font-size: 12px; padding: 5px 12px; background: var(--bg-3); border: 1px solid var(--border); color: var(--text-1); border-radius: var(--radius-sm); cursor: pointer; }
-.analyze-btn:hover { border-color: var(--green-l); color: var(--green-l); }
+.analyze-btn:hover { border-color: var(--gold); color: var(--gold); }
 .ai-body { padding: 14px 16px; }
 
 /* 建議動作大區塊 */
@@ -723,7 +723,7 @@ body {
 .cash-input:focus { border-color: var(--green-l); }
 .cash-unit { font-size: 12px; color: var(--text-3); }
 .usd-rate { font-size: 11px; color: var(--text-3); }
-.cash-save-btn { font-size: 12px; padding: 6px 14px; background: var(--green-l); border: none; color: #fff; border-radius: var(--radius-sm); cursor: pointer; }
+.cash-save-btn { font-size: 12px; padding: 6px 14px; background: var(--gold); border: none; color: #000; border-radius: var(--radius-sm); cursor: pointer; }
 
 /* Asset structure bar */
 .goal-asset-section { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; margin-bottom: 12px; }
