@@ -762,6 +762,94 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 setInterval(() => EVTL.loadExDiv(), 6 * 3600 * 1000);
 
+// ── SESSION：左欄「盤勢時鐘」＋底部雕刻紋飾（改版）──────────────────
+// 直式刻度尺：台股 09:00–13:30；美股依美東 09:30–16:00 換算成台灣時間顯示
+const SESSION = {
+  // 以「分鐘」表示的交易時段（台灣當地時間軸；美股可能跨午夜 → 用連續分鐘，可 > 1440）
+  _range() {
+    const now = new Date();
+    if (APP.activeMarket !== 'US') {
+      const day = now.getDay();
+      return { open: 9 * 60, close: 13 * 60 + 30, nowMin: now.getHours() * 60 + now.getMinutes(), weekday: day >= 1 && day <= 5, label: '台股' };
+    }
+    // 美東時間與台灣時間差（分鐘）
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const diff = Math.round((now - et) / 60000); // 夏令 +720、冬令 +780
+    const etMin = et.getHours() * 60 + et.getMinutes();
+    const etDay = et.getDay();
+    return { open: 570 + diff, close: 960 + diff, nowMin: etMin + diff, weekday: etDay >= 1 && etDay <= 5, label: '美股' };
+  },
+  _fmt(min) { min = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`; },
+  _dur(min) { const h = Math.floor(min / 60), m = min % 60; return h ? `${h} 時 ${m} 分` : `${m} 分`; },
+
+  render() {
+    const el = document.getElementById('session-clock');
+    if (!el) return;
+    const r = this._range();
+    const len = r.close - r.open;
+    const inSession = r.weekday && r.nowMin >= r.open && r.nowMin <= r.close;
+    const H = 200; // 刻度尺高度（px）
+    const y = m => ((m - r.open) / len * H).toFixed(1);
+    let ticks = '';
+    for (let m = r.open; m <= r.close; m += 15) {
+      const major = (m - r.open) % 60 === 0 || m === r.close;
+      ticks += `<i class="sc-tick ${major ? 'major' : ''}" style="top:${y(m)}px"></i>`;
+      if (major) ticks += `<span class="sc-lab num" style="top:${y(m)}px">${this._fmt(m)}</span>`;
+    }
+    let state, prog = 0, pointer = '';
+    if (inSession) {
+      prog = (r.nowMin - r.open) / len;
+      state = `<b>盤中</b>距收盤 ${this._dur(r.close - r.nowMin)}`;
+      pointer = `<i class="sc-ptr" style="top:${(prog * H).toFixed(1)}px"></i><span class="sc-now num" style="top:${(prog * H).toFixed(1)}px">${this._fmt(r.nowMin)}</span>`;
+    } else if (r.weekday && r.nowMin < r.open) {
+      state = `<b>開盤前</b>距開盤 ${this._dur(r.open - r.nowMin)}`;
+    } else {
+      prog = r.weekday && r.nowMin > r.close ? 1 : 0;
+      state = r.weekday && r.nowMin > r.close ? '<b>已收盤</b>' : '<b>休市</b>';
+    }
+    el.innerHTML = `
+      <div class="sc-head"><span>${r.label}盤勢</span><span class="sc-state ${inSession ? 'on' : ''}">${inSession ? '●' : '○'}</span></div>
+      <div class="sc-rule" style="height:${H}px">
+        <i class="sc-axis"></i><i class="sc-fill" style="height:${(prog * H).toFixed(1)}px"></i>${ticks}${pointer}
+      </div>
+      <div class="sc-foot ${inSession ? 'on' : ''}">${state}</div>`;
+  },
+
+  // 底部雕刻紋飾：多條相位錯開的正弦波交織成直式鈔票邊紋＋小星盤收尾
+  renderOrnament() {
+    const svg = document.getElementById('nav-ornament');
+    if (!svg || svg.dataset.done) return;
+    const W = 120, H = 240, cx = W / 2;
+    let paths = '';
+    for (let k = 0; k < 10; k++) {
+      const ph = k / 10 * Math.PI * 2;
+      let d = '';
+      for (let i = 0; i <= 300; i++) {
+        const t = i / 300, yy = t * H;
+        const amp = 30 + 8 * Math.cos(t * Math.PI * 4 + ph);
+        const x = cx + amp * Math.sin(t * Math.PI * 9 + ph);
+        d += (i ? 'L' : 'M') + x.toFixed(1) + ' ' + yy.toFixed(1);
+      }
+      paths += `<path d="${d}" fill="none" stroke="#C9A55C" stroke-width="${k % 2 ? 0.4 : 0.6}" opacity="${k % 2 ? 0.45 : 0.8}"/>`;
+    }
+    paths += `<line x1="${cx - 42}" y1="0" x2="${cx - 42}" y2="${H}" stroke="#C9A55C" stroke-width="0.5" opacity="0.6"/><line x1="${cx + 42}" y1="0" x2="${cx + 42}" y2="${H}" stroke="#C9A55C" stroke-width="0.5" opacity="0.6"/>`;
+    // 收尾的小星盤
+    const n = 9, R = 70, rr = R / n, dd = rr * 1.5, sc = 26 / (R + rr + dd);
+    let ros = '';
+    for (let i = 0; i <= 360; i++) {
+      const t = i / 360 * Math.PI * 2;
+      const x = (R + rr) * Math.cos(t) - dd * Math.cos((R + rr) / rr * t), yv = (R + rr) * Math.sin(t) - dd * Math.sin((R + rr) / rr * t);
+      ros += (i ? 'L' : 'M') + (cx + x * sc).toFixed(1) + ' ' + (H + 34 + yv * sc).toFixed(1);
+    }
+    svg.setAttribute('viewBox', `0 0 ${W} ${H + 64}`);
+    svg.innerHTML = paths +
+      `<line x1="${cx}" y1="0" x2="${cx}" y2="${H}" stroke="#C9A55C" stroke-width="0.4" stroke-dasharray="1 3" opacity="0.6"/>` +
+      `<path d="${ros}" fill="none" stroke="#C9A55C" stroke-width="0.7"/><circle cx="${cx}" cy="${H + 34}" r="3" fill="#C9A55C"/>`;
+    svg.dataset.done = '1';
+  },
+};
+setInterval(() => SESSION.render(), 30000);
+
 // ── SKY：總覽「今日星位」（改版步驟5）──────────────────────
 // 雕刻星盤：花瓣數＝持股檔數；盤中旋轉、休市停止；
 // 顏色看今日損益正負（紅/綠/白），花瓣起伏深淺看今日漲跌幅（0%→較平、3%以上→最深）
@@ -4300,6 +4388,8 @@ const APP = {
     const logo = document.getElementById('logo-mark');
     if (logo) logo.classList.toggle('spin', marketOpen);
     SKY.setSpinning(marketOpen);
+    SESSION.render();
+    SESSION.renderOrnament();
   },
 
   async refreshPrices(force = false) {
