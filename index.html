@@ -18,20 +18,20 @@
 <header class="topbar">
   <div class="topbar-left">
     <div class="logo">
-      <div class="logo-mark"></div>
-      <span>🇹🇼 股票 Agent</span>
+      <svg class="logo-mark" id="logo-mark" viewBox="-120 -120 240 240" aria-hidden="true"><path d="M87 0L88 -2L91 -2L95 -1L100 1L104 7L107 13L109 21L108 30L105 38L100 45L94 50L87 52L81 53L77 52L74 50L73 48L74 46L77 47L80 49L82 53L84 59L84 67L81 74L77 81L70 87L63 91L55 92L47 92L41 89L37 86L35 83L35 80L37 79L39 80L40 83L41 87L40 93L36 99L31 105L24 109L15 111L7 111L-1 109L-8 105L-12 100L-15 94L-15 90L-14 87L-13 86L-11 87L-11 90L-12 94L-15 98L-21 102L-28 104L-36 105L-44 103L-52 99L-58 93L-62 86L-64 79L-64 73L-62 69L-60 66L-58 65L-57 67L-57 69L-59 72L-64 74L-70 75L-77 74L-84 70L-91 65L-96 58L-99 50L-99 42L-98 34L-95 29L-91 25L-87 23L-85 23L-84 25L-84 27L-87 28L-92 28L-97 26L-103 22L-108 16L-111 9L-112 0L-111 -9L-108 -16L-103 -22L-97 -26L-92 -28L-87 -28L-84 -27L-84 -25L-85 -23L-87 -23L-91 -25L-95 -29L-98 -34L-99 -42L-99 -50L-96 -58L-91 -65L-84 -70L-77 -74L-70 -75L-64 -74L-59 -72L-57 -69L-57 -67L-58 -65L-60 -66L-62 -69L-64 -73L-64 -79L-62 -86L-58 -93L-52 -99L-44 -103L-36 -105L-28 -104L-21 -102L-15 -98L-12 -94L-11 -90L-11 -87L-13 -86L-14 -87L-15 -90L-15 -94L-12 -100L-8 -105L-1 -109L7 -111L15 -111L24 -109L31 -105L36 -99L40 -93L41 -87L40 -83L39 -80L37 -79L35 -80L35 -83L37 -86L41 -89L47 -92L55 -92L63 -91L70 -87L77 -81L81 -74L84 -67L84 -59L82 -53L80 -49L77 -47L74 -46L73 -48L74 -50L77 -52L81 -53L87 -52L94 -50L100 -45L105 -38L108 -30L109 -21L107 -13L104 -7L100 -1L95 1L91 2L88 2L87 0Z" fill="none" stroke="currentColor" stroke-width="7"/></svg>
+      <span>股票 Agent</span>
     </div>
     <!-- 市場切換按鈕 -->
-    <div class="market-switch">
-      <button class="market-switch-btn active" data-market="TW">🇹🇼 台股</button>
-      <button class="market-switch-btn" data-market="US">🇺🇸 美股</button>
+    <div class="market-switch" role="group" aria-label="市場">
+      <button class="market-switch-btn active" data-market="TW">台股</button>
+      <button class="market-switch-btn" data-market="US">美股</button>
     </div>
-    <button class="dashboard-toggle-btn" id="dashboard-toggle-btn" onclick="Dashboard.toggle()" title="總覽所有持股">🏠 總覽</button>
-    <button class="dashboard-toggle-btn" onclick="Dashboard.openReorderModal()" title="調整總覽卡片排序">↕ 排序</button>
-    <button class="dashboard-toggle-btn" id="perf-toggle-btn" onclick="Performance.toggle()" title="績效分析">📈 績效</button>
-    <button class="dashboard-toggle-btn" id="cal-toggle-btn" onclick="TradeCalendar.toggle()" title="交易與除權息日曆">📅 日曆</button>
-    <button class="dashboard-toggle-btn" onclick="Screener.openModal()" title="全市場選股篩選器">🔍 選股</button>
-    <button class="dashboard-toggle-btn" onclick="Backtest.toggle()" title="回測現有買賣訊號邏輯">🧪 回測</button>
+    <button class="dashboard-toggle-btn" id="dashboard-toggle-btn" onclick="Dashboard.toggle()" title="總覽所有持股">總覽</button>
+    <button class="dashboard-toggle-btn" onclick="Dashboard.openReorderModal()" title="調整總覽卡片排序">排序</button>
+    <button class="dashboard-toggle-btn" id="perf-toggle-btn" onclick="Performance.toggle()" title="績效分析">績效</button>
+    <button class="dashboard-toggle-btn" id="cal-toggle-btn" onclick="TradeCalendar.toggle()" title="交易與除權息日曆">日曆</button>
+    <button class="dashboard-toggle-btn" onclick="Screener.openModal()" title="全市場選股篩選器">選股</button>
+    <button class="dashboard-toggle-btn" onclick="Backtest.toggle()" title="回測現有買賣訊號邏輯">回測</button>
     <div class="topbar-market" id="tw-market-bar">
       <span class="badge closed" id="mkt-status">休市</span>
       <span class="index-chip" id="taiex-badge">加權 —</span>
@@ -156,8 +156,8 @@
         <div class="perf-card-title">🧪 回測現有買賣訊號邏輯</div>
         <div class="form-note" style="margin-bottom:10px">用你目前的持股，套用現有的買賣訊號邏輯回測歷史表現。</div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
-          <button class="bt-market-btn perf-period-btn active" data-market="TW" onclick="Backtest._setMarket('TW')">🇹🇼 台股</button>
-          <button class="bt-market-btn perf-period-btn" data-market="US" onclick="Backtest._setMarket('US')">🇺🇸 美股</button>
+          <button class="bt-market-btn perf-period-btn active" data-market="TW" onclick="Backtest._setMarket('TW')">台股</button>
+          <button class="bt-market-btn perf-period-btn" data-market="US" onclick="Backtest._setMarket('US')">美股</button>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
           <button class="bt-range-btn perf-period-btn" data-idx="0" onclick="Backtest._setRange(0)">近3個月</button>
@@ -206,12 +206,12 @@
           <span class="theater-nav-icon"></span> 前往頁面
         </div>
         <div id="theater-nav-menu">
-          <button onclick="Theater.goTo('dashboard')">🏠 總覽</button>
+          <button onclick="Theater.goTo('dashboard')">總覽</button>
           <button onclick="Theater.goTo('detail')">📈 個股</button>
           <button onclick="Theater.goTo('performance')">📊 績效</button>
-          <button onclick="Theater.goTo('calendar')">📅 日曆</button>
-          <button onclick="Theater.goTo('screener')">🔍 選股</button>
-          <button onclick="Theater.goTo('backtest')">🧪 回測</button>
+          <button onclick="Theater.goTo('calendar')">日曆</button>
+          <button onclick="Theater.goTo('screener')">選股</button>
+          <button onclick="Theater.goTo('backtest')">回測</button>
         </div>
       </div>
     </div>
