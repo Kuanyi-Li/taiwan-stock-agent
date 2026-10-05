@@ -1200,3 +1200,27 @@ body.theater-active .market-switch-btn.active {
   .sky-rosette { width: 240px; height: 240px; margin: 0 auto; }
   .sky-center-v { font-size: 22px; }
 }
+
+/* ═══ 訊號天平（改版步驟6）═══ */
+.sigbal { border: 1px solid var(--border-md); padding: 20px 22px 18px; margin-bottom: 22px; }
+.sigbal .lg-head { margin-bottom: 0; }
+.sb-scale { position: relative; height: 72px; margin: 14px 0 12px; }
+.sb-scale svg { position: absolute; inset: 0; width: 100%; height: 72px; overflow: visible; }
+.sb-scale line { transition: all 0.6s; }
+.sb-fulcrum { position: absolute; left: 50%; top: 32px; margin-left: -11px; width: 0; height: 0; border-left: 11px solid transparent; border-right: 11px solid transparent; border-bottom: 30px solid var(--gold); }
+.sb-base { position: absolute; left: 50%; top: 62px; margin-left: -36px; width: 72px; height: 1px; background: #5A5A62; }
+.sb-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.sb-colhead { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid #5A5A62; font-weight: 600; font-size: 14px; }
+.sb-colhead.dn { color: var(--green-l); border-bottom-color: var(--green-l); }
+.sb-colhead.up { color: var(--red); border-bottom-color: var(--red); }
+.sb-list { display: flex; flex-direction: column; gap: 6px; }
+.sb-chip { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 7px 10px; border: 1px solid var(--border-md); background: none; color: var(--text-1); font: inherit; font-size: 14px; cursor: pointer; text-align: left; }
+.sb-chip:hover { border-color: var(--gold); }
+.sb-name { font-family: var(--font-serif); font-weight: 700; }
+.sb-code, .sb-w { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.sb-tag { font-style: normal; font-size: 11px; color: var(--gold); border: 1px solid #3A3A42; padding: 0 4px; margin-left: 2px; white-space: nowrap; }
+.sb-empty { color: #3A3A42; font-size: 13px; padding: 6px 2px; }
+@media (max-width: 680px) {
+  .sigbal { padding: 16px 12px; }
+  .sb-cols { grid-template-columns: 1fr; gap: 14px; }
+}

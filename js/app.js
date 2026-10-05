@@ -1756,18 +1756,54 @@ const Dashboard = {
   },
 
   // 摘要：建議減碼/觀望/買進各幾檔（只算持股）
+  // 訊號天平：持股依建議分三欄，橫桿依兩側持股比重傾斜（改版步驟6）
   _renderSummary() {
-    const sumEl = document.getElementById('dashboard-summary');
-    if (!sumEl) return;
-    let buy = 0, sell = 0, hold = 0;
-    APP.portfolio.forEach(s => {
-      const r = this._rows[s.code];
-      if (!r || r.tier == null) return;
-      if (r.tier >= 4) buy++; else if (r.tier <= 2) sell++; else hold++;
+    const box = document.getElementById('sigbal');
+    if (!box) return;
+    const fx = APP.activeMarket === 'US' ? CURRENCY.toTWD(1) : 1;
+    const items = APP.portfolio.map(s => {
+      const r = this._rows[s.code] || {};
+      const price = r.price ?? s.price ?? s.cost;
+      return { code: s.code, name: s.name || s.code, tier: r.tier, sigLabel: r.sigLabel, val: price * s.shares * fx };
     });
-    sumEl.innerHTML = (buy + sell + hold)
-      ? `<span class="dn-color">減碼 ${sell}</span><span>觀望 ${hold}</span><span class="up-color">買進 ${buy}</span>`
-      : '';
+    const total = items.reduce((a, x) => a + x.val, 0) || 1;
+    const groups = { sell: [], hold: [], buy: [] };
+    let pending = 0;
+    items.forEach(x => {
+      if (x.tier == null) { pending++; return; }
+      x.w = x.val / total * 100;
+      x.label = x.sigLabel || SIGNAL.LEVELS[x.tier]?.label || '';
+      (x.tier <= 2 ? groups.sell : x.tier >= 4 ? groups.buy : groups.hold).push(x);
+    });
+    // 同一欄裡，訊號越強越前面；同強度依比重大到小
+    groups.sell.sort((a, b) => a.tier - b.tier || b.w - a.w);
+    groups.buy.sort((a, b) => b.tier - a.tier || b.w - a.w);
+    groups.hold.sort((a, b) => b.w - a.w);
+    const sum = l => l.reduce((a, x) => a + x.w, 0);
+    const sellW = sum(groups.sell), buyW = sum(groups.buy);
+    const d = Math.max(-14, Math.min(14, (sellW - buyW) / 2)); // 減碼側重→左邊往下
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('sigbal-sellw', sellW.toFixed(0) + '%');
+    set('sigbal-buyw', buyW.toFixed(0) + '%');
+    set('sigbal-pending', pending ? `${pending} 檔分析中` : '');
+    const beam = document.getElementById('sigbal-beam');
+    if (beam) {
+      beam.setAttribute('y1', (30 + d).toFixed(1)); beam.setAttribute('y2', (30 - d).toFixed(1));
+      const pl = document.getElementById('sigbal-panl'), pr = document.getElementById('sigbal-panr');
+      pl.setAttribute('y1', (30 + d).toFixed(1)); pl.setAttribute('y2', (40 + d).toFixed(1));
+      pr.setAttribute('y1', (30 - d).toFixed(1)); pr.setAttribute('y2', (40 - d).toFixed(1));
+    }
+    const chip = (x, base) => `<button class="sb-chip" onclick="NAV.pickStock('${x.code}')" title="${x.label}">
+        <span><span class="sb-name">${x.name}</span> <span class="num sb-code">${x.code}</span>${x.label !== base ? ` <em class="sb-tag">${x.label}</em>` : ''}</span>
+        <span class="num sb-w">佔 ${x.w.toFixed(0)}%</span></button>`;
+    const col = (key, base) => {
+      const l = groups[key];
+      set(`sigbal-${key}-n`, `${l.length} 檔`);
+      const el = document.getElementById(`sigbal-${key}`);
+      if (el) el.innerHTML = l.length ? l.map(x => chip(x, base)).join('') : '<div class="sb-empty">—</div>';
+    };
+    col('sell', '建議減碼'); col('hold', '持有觀望'); col('buy', '可考慮加碼');
+    box.style.display = APP.portfolio.length ? '' : 'none';
   },
 
   _idOf(code) { return code.replace(/[^a-zA-Z0-9]/g, '_'); },
@@ -1915,7 +1951,7 @@ const Dashboard = {
     const s = r.isWatch ? null : APP.portfolio[r.i];
     const sig = SIGNAL.quickEstimate(s ? { ...s, price: r.price } : { code, price: r.price, cost: r.price });
     const tier = sig?.tier ?? 3;
-    r.tier = tier;
+    r.tier = tier; r.sigLabel = sig?.label;
     const col = tier <= 2 ? 'var(--green-l)' : tier >= 4 ? 'var(--red)' : 'var(--text-2)';
     const lab = tr.querySelector('.lg-sig-label');
     lab.textContent = sig.label; lab.style.color = col;
