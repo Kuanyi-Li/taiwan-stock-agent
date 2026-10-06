@@ -95,7 +95,7 @@
 }
 .theater-3d-label-core { font-size: 15px; font-weight: 700; }
 .theater-3d-label-moon { font-size: 10px; font-weight: 700; line-height: 1.3; text-align: center; }
-.theater-3d-label-event { font-size: 10px; font-weight: 600; line-height: 1.3; text-align: center; color: #c4b5fd; }
+.theater-3d-label-event { font-size: 10px; font-weight: 600; line-height: 1.3; text-align: center; color: var(--gold-l); }
 #theater-stage { cursor: grab; }
 #theater-stage:active { cursor: grabbing; }
 
@@ -1521,3 +1521,36 @@ body:not(.theater-active) .market-switch-btn.active { background: none; color: #
 .cal-tag { font-size: 12px; padding: 0 6px; }
 .cal-aside { width: 310px; }
 .cal-aside { margin-top: 33px; }
+
+/* ── 劇場 HUD（黑金改版）── */
+.theater-panel { width: 300px; background: rgba(0,0,0,.82); border: 1px solid #2E2E34; border-radius: 0; padding: 18px 20px; backdrop-filter: none; }
+.theater-panel:hover { border-color: #5A5A62; }
+.theater-panel .crop { position: absolute; width: 12px; height: 12px; border: 0 solid var(--gold); pointer-events: none; }
+.theater-panel .crop.tl { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+.theater-panel .crop.br { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+.theater-panel-title { font-family: var(--font-serif); font-size: 17px; font-weight: 700; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--gold); }
+.theater-panel-content { font-size: 14px; color: #D9D9DE; line-height: 1.5; }
+.theater-panel-chart { border: 0; border-radius: 0; margin-bottom: 6px; }
+.tpg-label { font-size: 12px; color: var(--text-3); }
+.tpg-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 500; }
+.theater-portfolio-grid { gap: 12px 16px; }
+.theater-dot { border-radius: 0; width: 8px; height: 2px; background: #2E2E34; }
+.theater-dot.active { background: var(--gold); }
+#theater-panel-asset { top: 28px; left: 32px; } #theater-panel-sector { top: 28px; right: 32px; } #theater-panel-flow { top: 28px; }
+#theater-lock-btn, #theater-nav-btn { border-radius: 0; background: rgba(0,0,0,.82); border: 1px solid #2E2E34; color: var(--text-1); font-size: 14px; font-weight: 500; padding: 10px 18px; min-height: 44px; }
+#theater-lock-btn:hover, #theater-nav-btn:hover { border-color: var(--gold); }
+.theater-nav-icon { background: var(--gold); border-radius: 0; transform: rotate(45deg); width: 8px; height: 8px; }
+#theater-nav-wrap { right: 32px; bottom: 28px; } #theater-lock-wrap { right: 32px; }
+#theater-nav-menu { border-radius: 0; background: rgba(0,0,0,.94); border: 1px solid #2E2E34; border-top-color: var(--gold); padding: 6px; }
+#theater-nav-menu button { border-radius: 0; font-size: 14px; padding: 10px 12px; }
+#theater-nav-menu button:hover { background: rgba(201,165,92,.14); color: var(--gold-l); }
+.theater-3d-label { font-family: var(--font-serif); font-weight: 900; }
+.theater-3d-label-core { font-size: 15px; }
+.theater-3d-label-moon { font-weight: 700; }
+.theater-3d-label-event { color: var(--gold-l); font-family: var(--font-sans); }
+body.theater-active .market-switch { border-radius: 0; background: rgba(0,0,0,.82); border: 1px solid #2E2E34; left: 32px; padding: 6px; gap: 4px; }
+body.theater-active .market-switch-btn { border-radius: 0; font-size: 14px; font-weight: 500; padding: 10px 16px; }
+body.theater-active .market-switch-btn:hover { background: rgba(201,165,92,.12); }
+body.theater-active .market-switch-btn.active { background: var(--gold); color: #000; }
+.theater-panel { overflow: visible; }
+.theater-3d-label-event { color: var(--gold-l); }

@@ -85,7 +85,7 @@ const Theater = {
     this._startPanels();
     if (!this._animId) this._animate();
     const btn = document.getElementById('theater-lock-btn');
-    if (btn) btn.textContent = this._dragLocked ? '🔒 已鎖定' : '🔓 拖曳旋轉';
+    if (btn) btn.textContent = this._dragLocked ? '已鎖定視角' : '拖曳旋轉';
   },
 
   onExit() {
@@ -286,7 +286,7 @@ const Theater = {
     const container = document.getElementById('theater-stage');
     if (container) container.style.cursor = this._dragLocked ? 'default' : 'grab';
     const btn = document.getElementById('theater-lock-btn');
-    if (btn) btn.textContent = this._dragLocked ? '🔒 已鎖定' : '🔓 拖曳旋轉';
+    if (btn) btn.textContent = this._dragLocked ? '已鎖定視角' : '拖曳旋轉';
   },
 
   // ★ 加入滾輪縮放：不用糾結星系該多大，讓使用者自己決定，記住上次的縮放程度
@@ -443,7 +443,7 @@ const Theater = {
     const indexCode = isUS ? '^GSPC' : '^TWII';
     const indexData = DATA.priceStore[indexCode];
     const idxChgPct = (indexData?.price && indexData?.prevClose) ? (indexData.price - indexData.prevClose) / indexData.prevClose * 100 : 0;
-    const coreColor = idxChgPct >= 0 ? 0xd9534f : 0x3d9970;
+    const coreColor = idxChgPct >= 0 ? 0xFF5A4E : 0x22C17A;
     const coreSize = 0.65 + Math.min(0.35, Math.abs(idxChgPct) * 0.12);
     // ★ 球體視覺放大：只放大實際畫出來的幾何體，軌道間距計算用的coreSize維持不變，
     // 不會影響已經驗證過的防撞安全間距
@@ -587,8 +587,8 @@ const Theater = {
         // ★ 漲跌幅度改用顏色鮮豔度表達：波動小(接近平盤)顏色偏灰濁，波動大顏色越鮮豔飽和，
         // 5%以上視為最大強度
         const intensity = Math.min(1, Math.abs(chgPct) / 5);
-        const mutedColor = isUp ? new THREE.Color(0x8f5a56) : new THREE.Color(0x4a7a5f);
-        const vividColor = isUp ? new THREE.Color(0xe0524f) : new THREE.Color(0x1d9e75);
+        const mutedColor = isUp ? new THREE.Color(0x9A4640) : new THREE.Color(0x2A7A55);
+        const vividColor = isUp ? new THREE.Color(0xFF5A4E) : new THREE.Color(0x22C17A);
         const moonColor = mutedColor.clone().lerp(vividColor, intensity);
         const moonColorDark = moonColor.clone().multiplyScalar(0.35);
 
@@ -675,16 +675,16 @@ const Theater = {
           nameLabel.className = 'theater-3d-label theater-3d-label-moon';
           // 美股公司全名太長(例如 Space Exploration Technologies)會互相疊在一起，美股改顯示代號
           nameLabel.textContent = market === 'US' ? m.code : (m.name || m.code);
-          nameLabel.style.color = m.chgPct >= 0 ? '#e0524f' : '#1d9e75';
-          nameLabel.style.textShadow = '0 0 1.2px #fff, 0 0 1.2px #fff';
+          nameLabel.style.color = m.chgPct >= 0 ? '#FF5A4E' : '#22C17A';
+          nameLabel.style.textShadow = '0 0 3px #000, 0 0 3px #000';
           labelLayer.appendChild(nameLabel);
           m.nameLabelEl = nameLabel;
 
           const pctLabel = document.createElement('div');
           pctLabel.className = 'theater-3d-label theater-3d-label-moon';
           pctLabel.textContent = `${m.chgPct>=0?'+':''}${m.chgPct.toFixed(1)}%`;
-          pctLabel.style.color = m.chgPct >= 0 ? '#e0524f' : '#1d9e75';
-          pctLabel.style.textShadow = '0 0 1.2px #fff, 0 0 1.2px #fff';
+          pctLabel.style.color = m.chgPct >= 0 ? '#FF5A4E' : '#22C17A';
+          pctLabel.style.textShadow = '0 0 3px #000, 0 0 3px #000';
           labelLayer.appendChild(pctLabel);
           m.pctLabelEl = pctLabel;
         });
@@ -714,7 +714,7 @@ const Theater = {
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', pathD);
     path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', '#e6edf3');
+    path.setAttribute('stroke', '#C9A55C');
     path.setAttribute('stroke-width', '5');
     svg.appendChild(path);
 
@@ -737,7 +737,7 @@ const Theater = {
       const tickLen = d === 0 ? 10 : (isWeekMark ? 7 : 4);
       tick.setAttribute('x1', pos.x); tick.setAttribute('y1', pos.y-tickLen);
       tick.setAttribute('x2', pos.x); tick.setAttribute('y2', pos.y+tickLen);
-      tick.setAttribute('stroke', '#e6edf3');
+      tick.setAttribute('stroke', '#C9A55C');
       tick.setAttribute('stroke-width', d===0 ? 4 : (isWeekMark ? 2.5 : 1.5));
       tick.setAttribute('opacity', d===0 ? 1 : (isWeekMark ? 0.7 : 0.35));
       svg.appendChild(tick);
@@ -747,7 +747,7 @@ const Theater = {
     const todayCirclePos = pointOnArc(0.5);
     todayDot.setAttribute('cx', todayCirclePos.x); todayDot.setAttribute('cy', todayCirclePos.y);
     todayDot.setAttribute('r', '5');
-    todayDot.setAttribute('fill', '#e6edf3');
+    todayDot.setAttribute('fill', '#C9A55C');
     svg.appendChild(todayDot);
 
     // 今天：正中央，即時日期時間文字（字體大幅加大，一眼就要看得清楚）
@@ -756,7 +756,7 @@ const Theater = {
       todayLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       todayLabel.id = 'theater-today-label';
       todayLabel.setAttribute('text-anchor', 'middle');
-      todayLabel.setAttribute('fill', '#e6edf3');
+      todayLabel.setAttribute('fill', '#C9A55C');
       todayLabel.setAttribute('font-family', 'monospace'); // 等寬字體強化碼表/儀表數字感
     }
     todayLabel.setAttribute('font-size', '26');
@@ -776,7 +776,7 @@ const Theater = {
 
       const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       circle.setAttribute('cx', pos.x); circle.setAttribute('cy', pos.y); circle.setAttribute('r', r);
-      circle.setAttribute('fill', '#c4b5fd');
+      circle.setAttribute('fill', '#E6C98A');
       circle.setAttribute('opacity', 0.6 + proximity*0.4);
       svg.appendChild(circle);
 
@@ -784,7 +784,7 @@ const Theater = {
       const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       text.setAttribute('x', pos.x); text.setAttribute('y', pos.y + r + 20);
       text.setAttribute('text-anchor', 'middle');
-      text.setAttribute('fill', '#c4b5fd');
+      text.setAttribute('fill', '#E6C98A');
       text.setAttribute('font-size', '14');
       text.setAttribute('font-weight', '700');
       text.textContent = `${ev.label} ${dateStr}`;
@@ -1177,7 +1177,7 @@ const Theater = {
       i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
     });
     const trendUp = values[values.length-1] >= values[0];
-    ctx.strokeStyle = trendUp ? '#e0524f' : '#1d9e75';
+    ctx.strokeStyle = trendUp ? '#FF5A4E' : '#22C17A';
     ctx.lineWidth = 1.8;
     ctx.stroke();
   },
@@ -1195,7 +1195,7 @@ const Theater = {
     ctx.clearRect(0,0,W,H);
     const entries = Object.entries(weights).sort((a,b)=>b[1]-a[1]);
     if (!entries.length) return;
-    const colors = ['#5a8fc0','#6ea88a','#b08a5a','#9a7ab0','#c07a7a','#7ab0a8','#8899aa'];
+    const colors = ['#C9A55C','#E6C98A','#8E8E96','#B4B4BC','#7A6A3E','#5A5A62','#D9D9DE'];
     // ★ 修正圓餅圖偏左的bug：之前cx用H/2(只有32px)算橫向位置，畫布明明是寬的長方形，
     // 圓餅被擠在最左邊、右邊空一大片。改成用圓的半徑當左邊界，圓右邊留出空間放圖例文字。
     const rOuter = H/2 - 4, rInner = rOuter * 0.55;
@@ -1217,8 +1217,8 @@ const Theater = {
       const ly = 8 + i * 18;
       ctx.fillStyle = colors[i % colors.length];
       ctx.fillRect(legendX, ly, 8, 8);
-      ctx.fillStyle = '#a5aebb';
-      ctx.font = '10px sans-serif';
+      ctx.fillStyle = '#B4B4BC';
+      ctx.font = '11px "Noto Serif TC", serif';
       ctx.fillText(`${sector} ${(w*100).toFixed(0)}%`, legendX + 13, ly + 8);
     });
   },
@@ -1237,16 +1237,17 @@ const Theater = {
     if (!items.length) return;
     const top = [...items].sort((a,b)=>Math.abs(b.val)-Math.abs(a.val)).slice(0,4);
     const maxAbs = Math.max(...top.map(x=>Math.abs(x.val))) || 1;
-    const barH = (H-6) / top.length - 3;
+    const nameOf = code => (APP._twPortfolio || []).find(s => s.code === code)?.name || code;
+    const LX = 64, rowH = H / top.length, barH = Math.min(8, rowH - 4);
+    ctx.font = '12px "Noto Serif TC", serif';
+    ctx.textBaseline = 'middle';
     top.forEach((item, i) => {
-      const y = 3 + i*(barH+3);
-      const w = Math.abs(item.val)/maxAbs * (W*0.6);
-      ctx.fillStyle = item.val >= 0 ? '#e0524f' : '#1d9e75';
-      ctx.fillRect(W*0.2, y, item.val>=0 ? w : 0, barH);
-      if (item.val < 0) ctx.fillRect(W*0.2-w, y, w, barH);
-      ctx.fillStyle = '#a5aebb';
-      ctx.font = '9px sans-serif';
-      ctx.fillText(item.code, 2, y+barH-1);
+      const cy = rowH * i + rowH / 2;
+      const w = Math.abs(item.val) / maxAbs * (W - LX - 6);
+      ctx.fillStyle = '#ECECEC';
+      ctx.fillText(nameOf(item.code), 0, cy);
+      ctx.fillStyle = item.val >= 0 ? '#FF5A4E' : '#22C17A';
+      for (let x = 0; x < w; x += 5) ctx.fillRect(LX + x, cy - barH / 2, Math.min(3, w - x), barH); // 刻度式虛線長條
     });
   },
 };
