@@ -84,7 +84,7 @@ const Theater = {
     this._applySystemVisibility(); // ★ 只顯示目前市場的星系
     this._startPanels();
     this._updateCorner();
-    clearInterval(this._cornerTimer); this._cornerTimer = setInterval(() => { this._updateCorner(); }, 30000);
+    clearInterval(this._cornerTimer); this._cornerTimer = setInterval(() => { this._updateCorner(); Object.values(this._systems || {}).forEach(sy => this._drawDial(sy)); }, 30000);
     if (!this._animId) this._animate();
     const btn = document.getElementById('theater-lock-btn');
     if (btn) btn.textContent = this._dragLocked ? '已鎖定視角' : '拖曳旋轉';
@@ -150,6 +150,7 @@ const Theater = {
     Object.entries(this._systems || {}).forEach(([market, sys]) => {
       const visible = showBoth || market === this._currentMarket;
       if (sys.core) sys.core.visible = visible;
+      if (sys.dial) sys.dial.visible = visible;
       sys.planetGroups.forEach(p => { p.orbitHolder.visible = visible; });
     });
   },
@@ -434,6 +435,99 @@ const Theater = {
     grad.geos.forEach(geo => { geo.attributes.color.needsUpdate = true; });
   },
 
+  // ★ 渾天儀改版第2步：中心改成「花紋球」——黑色實心球，球面貼總覽頁那種玫瑰花紋(epitrochoid)的貼圖，
+  // 球體自轉時花紋跟著轉。貼圖用等距圓柱投影：赤道一排大花紋、南北緯40度各一排小花紋，
+  // 緯度越高水平方向被拉伸越多，所以高緯排的花紋橫向預先壓縮(1/cos)，貼上球面後才不會變形。
+  _epiPts(cx, cy, R, n, k, steps = 360, sx = 1) {
+    const r0 = 70 / n, d = r0 * (1.5 + 0.28 * k) * 1.1, rot = k * Math.PI / (n * 5), sc = R / (70 + r0 + d);
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps * Math.PI * 2;
+      const x = (70 + r0) * Math.cos(t) - d * Math.cos((70 + r0) / r0 * t);
+      const y = (70 + r0) * Math.sin(t) - d * Math.sin((70 + r0) / r0 * t);
+      pts.push([cx + (x * Math.cos(rot) - y * Math.sin(rot)) * sc * sx, cy + (x * Math.sin(rot) + y * Math.cos(rot)) * sc]);
+    }
+    return pts;
+  },
+  _makeCoreSphere(radius, tintHex) {
+    const W = 2048, H = 1024, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#050505'; g.fillRect(0, 0, W, H);
+    const GOLD = '#C9A55C', tint = '#' + new THREE.Color(tintHex).getHexString();
+    // 緯線細格（淡金）
+    g.lineWidth = 1; g.strokeStyle = 'rgba(201,165,92,0.25)';
+    for (let lat = -80; lat <= 80; lat += 10) { const y = H / 2 - lat / 90 * H / 2; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+    const rosette = (cx, cy, R, n, layers, sx) => {
+      for (let k = 0; k < layers; k++) {
+        const pts = this._epiPts(cx, cy, R, n, k, 360, sx);
+        g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
+        g.strokeStyle = k % 2 === 0 ? GOLD : tint; g.globalAlpha = 1 - k * 0.07; g.lineWidth = 2.6; g.stroke();
+      }
+      g.globalAlpha = 1;
+    };
+    const rows = [[0, 7, 150, 1], [42, 5, 100, 1 / Math.cos(42 * Math.PI / 180)], [-42, 5, 100, 1 / Math.cos(42 * Math.PI / 180)]];
+    rows.forEach(([lat, cnt, R, sx], ri) => {
+      const y = H / 2 - lat / 90 * H / 2;
+      for (let i = 0; i < cnt; i++) rosette((i + 0.5 + (ri ? 0.5 : 0)) / cnt * W, y, R, 6 + ri, 6, sx);
+    });
+    const tex = new THREE.CanvasTexture(cv);
+    tex.anisotropy = this._renderer ? this._renderer.capabilities.getMaxAnisotropy() : 4;
+    const geo = new THREE.SphereGeometry(radius, 48, 32);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex }));
+    const group = new THREE.Group();
+    group.add(mesh);
+    // 金色赤道細環，讓球體輪廓更有「儀器」感
+    const ring = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(Array.from({ length: 128 }, (_, i) => { const a = i / 128 * Math.PI * 2; return new THREE.Vector3(Math.cos(a) * radius * 1.004, 0, Math.sin(a) * radius * 1.004); })),
+      new THREE.LineBasicMaterial({ color: 0xE6C98A, transparent: true, opacity: 0.7 }));
+    group.add(ring);
+    group.userData.solidMesh = mesh;
+    return group;
+  },
+
+  // ★ 面向鏡頭的小錶盤：用Sprite(永遠正對鏡頭)，半徑比核心球大一圈，中心留空(被球體本身遮住)，
+  // 只露出外圈刻度、小時數字跟指針。指針位置＝現在時間在「開盤→收盤」區間的進度(-135°~+135°)。
+  _makeDial(coreRadius, market) {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 512;
+    const tex = new THREE.CanvasTexture(cv);
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+    const R = coreRadius * 1.4;
+    spr.scale.set(R * 2, R * 2, 1);
+    spr.userData = { cv, tex, market };
+    return spr;
+  },
+  _drawDial(sys) {
+    if (!sys || !sys.dial) return;
+    const { cv, tex, market } = sys.dial.userData, g = cv.getContext('2d');
+    const isUS = market === 'US';
+    const tz = isUS ? 'America/New_York' : 'Asia/Taipei';
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+    const nowMin = (+parts.find(x => x.type === 'hour').value % 24) * 60 + +parts.find(x => x.type === 'minute').value;
+    const open = isUS ? 9 * 60 + 30 : 9 * 60, close = isUS ? 16 * 60 : 13 * 60 + 30;
+    const frac = Math.max(0, Math.min(1, (nowMin - open) / (close - open)));
+    const ang = (f) => (-135 + 270 * f) * Math.PI / 180;           // 0度=正上方，順時針
+    const P = (r, f) => [256 + r * Math.sin(ang(f)), 256 - r * Math.cos(ang(f))];
+    const GOLD = '#C9A55C', GL = '#E6C98A';
+    g.clearRect(0, 0, 512, 512);
+    g.strokeStyle = GOLD; g.lineWidth = 3; g.beginPath(); g.arc(256, 256, 244, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 1; g.globalAlpha = 0.6; g.beginPath(); g.arc(256, 256, 230, 0, Math.PI * 2); g.stroke(); g.globalAlpha = 1;
+    // 每10分鐘一個小刻度，整點長刻度＋數字
+    for (let m = open; m <= close; m += 10) {
+      const f = (m - open) / (close - open), hour = (m % 60 === 0);
+      const [x1, y1] = P(240, f), [x2, y2] = P(hour ? 214 : 226, f);
+      g.strokeStyle = hour ? GOLD : '#7A6A3E'; g.lineWidth = hour ? 4 : 2;
+      g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+    }
+    g.fillStyle = GL; g.font = '600 30px "IBM Plex Sans", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (let h = Math.ceil(open / 60); h * 60 <= close; h++) { const [x, y] = P(190, (h * 60 - open) / (close - open)); g.fillText(String(h), x, y); }
+    // 指針
+    const [hx, hy] = P(226, frac);
+    g.strokeStyle = GOLD; g.lineWidth = 5; g.beginPath(); g.moveTo(...P(150, frac)); g.lineTo(hx, hy); g.stroke();
+    const up = (sys.idxChgPct || 0) >= 0;
+    g.fillStyle = up ? '#FF5A4E' : '#22C17A'; g.beginPath(); g.arc(hx, hy, 8, 0, Math.PI * 2); g.fill();
+    tex.needsUpdate = true;
+  },
+
   _makeWireSphere(radius, color, opacity, detail = 2) {
     const group = new THREE.Group();
     const geo = new THREE.IcosahedronGeometry(radius, detail);
@@ -461,6 +555,7 @@ const Theater = {
     if (old) {
       old.planetGroups.forEach(p => this._scene.remove(p.orbitHolder));
       if (old.core) this._scene.remove(old.core);
+      if (old.dial) this._scene.remove(old.dial);
       if (old.groupWrapper) this._scene.remove(old.groupWrapper);
     }
     const sys = { core: null, planetGroups: [], occluders: [], offset };
@@ -475,10 +570,15 @@ const Theater = {
     // ★ 球體視覺放大：只放大實際畫出來的幾何體，軌道間距計算用的coreSize維持不變，
     // 不會影響已經驗證過的防撞安全間距
     const VISUAL_SCALE = 1.18;
-    sys.core = this._makeWireSphere(coreSize * VISUAL_SCALE, coreColor, 0.6, 3);
+    sys.idxChgPct = idxChgPct;
+    sys.core = this._makeCoreSphere(coreSize * VISUAL_SCALE, coreColor);
     sys.core.userData.spinSpeed = 0.0008 + Math.min(0.0015, Math.abs(idxChgPct) * 0.0003);
     sys.core.position.set(offset.x, offset.y, offset.z);
     this._scene.add(sys.core);
+    sys.dial = this._makeDial(coreSize * VISUAL_SCALE, market);
+    sys.dial.position.set(offset.x, offset.y, offset.z);
+    this._scene.add(sys.dial);
+    this._drawDial(sys);
     sys.occluders.push(sys.core.userData.solidMesh);
     this._occluders.push(sys.core.userData.solidMesh);
 
@@ -696,7 +796,9 @@ const Theater = {
     Object.entries(this._systems || {}).forEach(([market, sys]) => {
       const coreLabel = document.createElement('div');
       coreLabel.className = 'theater-3d-label theater-3d-label-core';
-      coreLabel.textContent = market === 'US' ? 'S&P 500' : '加權指數';
+      const cp = sys.idxChgPct || 0;
+      coreLabel.innerHTML = `${market === 'US' ? 'S&P 500' : '加權指數'}<br><span style="font-size:0.8em;font-weight:600;color:${cp >= 0 ? '#FF5A4E' : '#22C17A'}">${cp >= 0 ? '+' : ''}${cp.toFixed(2)}%</span>`;
+      coreLabel.style.textAlign = 'center'; coreLabel.style.lineHeight = '1.25';
       labelLayer.appendChild(coreLabel);
       sys.coreLabelEl = coreLabel;
 
