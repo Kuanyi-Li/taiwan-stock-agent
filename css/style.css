@@ -1574,3 +1574,12 @@ body.theater-active .market-switch-btn.active { background: var(--gold); color: 
 .theater-status.on { color: var(--text-1); } .theater-status.on i { background: var(--gold); animation: tsPulse 2.4s ease-in-out infinite; }
 @keyframes tsPulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .theater-status.on i { animation: none; } }
+
+/* 劇場：滑過球體的詳細數字卡 */
+#theater-hover-card { position:absolute; top:0; left:0; display:none; pointer-events:none; z-index:20; min-width:176px; padding:10px 14px 9px;
+  background:rgba(0,0,0,0.92); border:1px solid var(--gold, #C9A55C); font-size:12px; color:#D9D9DE; }
+#theater-hover-card .thc-head { display:flex; justify-content:space-between; gap:16px; padding-bottom:6px; margin-bottom:6px; border-bottom:1px solid rgba(201,165,92,0.6); font-size:14px; }
+#theater-hover-card .thc-head b { color:#ECECEC; font-weight:700; }
+#theater-hover-card .thc-row { display:flex; justify-content:space-between; gap:16px; line-height:1.75; }
+#theater-hover-card .thc-row span:first-child { color:#8E8E96; }
+#theater-hover-card .thc-go { margin-top:6px; color:var(--gold-l, #E6C98A); font-size:11px; }
