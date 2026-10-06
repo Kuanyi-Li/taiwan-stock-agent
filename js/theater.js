@@ -292,6 +292,54 @@ const Theater = {
       container.style.cursor = this._dragLocked ? 'default' : 'grab';
       saveRotation();
     });
+    // ★ 第5步：滑鼠移到球上顯示詳細數字卡；點擊（非拖曳）前往個股頁
+    let card = document.getElementById('theater-hover-card');
+    if (!card) {
+      card = document.createElement('div'); card.id = 'theater-hover-card';
+      container.style.position = 'relative'; container.appendChild(card);
+    }
+    const pick = (e) => {
+      const rect = container.getBoundingClientRect(); const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      let best = null, bestD = Infinity;
+      Object.values(this._systems || {}).forEach(sy => {
+        sy.planetGroups.forEach(p => {
+          const sc = p.screen; if (!sc || !sc.visible) return;
+          const d = Math.hypot(mx - sc.x, my - sc.y);
+          if (d <= sc.r * 1.12 && sc.dist < bestD) { best = p; bestD = sc.dist; }
+        });
+      });
+      return { p: best, mx, my };
+    };
+    let downAt = null;
+    container.addEventListener('mousedown', (e) => { downAt = { x: e.clientX, y: e.clientY }; });
+    container.addEventListener('mousemove', (e) => {
+      if (dragging) { card.style.display = 'none'; return; }
+      const { p, mx, my } = pick(e);
+      this._hoverP = p;
+      if (!p) { card.style.display = 'none'; container.style.cursor = this._dragLocked ? 'default' : 'grab'; return; }
+      container.style.cursor = 'pointer';
+      const up = p.chgPct >= 0, col = up ? '#FF5A4E' : '#22C17A';
+      const nm = p.market === 'US' ? `${p.code}` : (p.name || p.code);
+      card.innerHTML = `<div class="thc-head"><b>${nm}</b><span style="color:${col}">${up ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>`
+        + `<div class="thc-row"><span>產業</span><span>${p.sector}</span></div>`
+        + `<div class="thc-row"><span>占產業</span><span>${(p.wSector * 100).toFixed(0)}%</span></div>`
+        + `<div class="thc-row"><span>占總持股</span><span>${(p.wTotal * 100).toFixed(1)}%</span></div>`
+        + `<div class="thc-go">點擊前往個股頁 ›</div>`;
+      card.style.display = 'block';
+      const cw = card.offsetWidth, ch = card.offsetHeight, W = container.clientWidth, H = container.clientHeight;
+      let x = mx + 18, y = my + 14; if (x + cw > W - 8) x = mx - cw - 18; if (y + ch > H - 8) y = my - ch - 14;
+      card.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
+    });
+    container.addEventListener('mouseleave', () => { card.style.display = 'none'; this._hoverP = null; });
+    container.addEventListener('click', (e) => {
+      if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 5) return; // 拖曳不算點擊
+      const { p } = pick(e); if (!p) return;
+      const list = p.market === 'US' ? (APP._usPortfolio || []) : (APP._twPortfolio || []);
+      if (typeof goToStock === 'function') {
+        const idx = (APP.portfolio || []).findIndex(x => x.code === p.code);
+        goToStock(p.code, idx >= 0 ? idx : list.findIndex(x => x.code === p.code), 'portfolio');
+      }
+    });
     // 手機觸控支援
     container.addEventListener('touchstart', (e) => {
       if (this._dragLocked) return;
@@ -671,7 +719,8 @@ const Theater = {
       this._scene.add(orbitHolder);
 
       // ★ 黃銅環（第1步）：統一金色，環粗細依產業占整體持股比例
-      const sectorShare = stocks.reduce((sum, x) => sum + (x.price ?? x.cost) * x.shares, 0) / totalVal;
+      const sectorVal = stocks.reduce((sum, x) => sum + (x.price ?? x.cost) * x.shares, 0);
+      const sectorShare = sectorVal / totalVal;
       const brassWidth = 0.025 + Math.min(0.04, sectorShare * 0.1);
       const orbitGradient = this._makeGradientOrbit(orbitR, 0xC9A55C, 64, brassWidth);
       orbitGradient.line.material.opacity = 0.9;
@@ -725,7 +774,7 @@ const Theater = {
         changeRing.renderOrder = 5;
         group.add(changeRing);
         const angle = baseAngle + j * Math.PI * 2 / stocks.length;
-        sys.planetGroups.push({ group, orbitHolder, orbitR, angle, speed: 0.001 * direction, moons: [], sector, solidMesh: ball.userData.solidMesh, orbitGradient, ball, changeRing, code: st.code, name: st.name, chgPct, spin: 0.01 + Math.random() * 0.01 });
+        sys.planetGroups.push({ group, orbitHolder, orbitR, angle, speed: 0.001 * direction, moons: [], sector, solidMesh: ball.userData.solidMesh, orbitGradient, ball, changeRing, wTotal: ((st.price ?? st.cost) * st.shares) / totalVal, wSector: ((st.price ?? st.cost) * st.shares) / (sectorVal || 1), market, code: st.code, name: st.name, chgPct, spin: 0.01 + Math.random() * 0.01 });
       });
     });
     this._buildTimeRing();
@@ -761,7 +810,7 @@ const Theater = {
         label.className = 'theater-3d-label';
         const nm = market === 'US' ? p.code : (p.name || p.code);
         p.labelText = nm;
-        label.innerHTML = `${nm}<br><span style="font-size:0.72em;font-weight:600;color:${p.chgPct >= 0 ? '#FF5A4E' : '#22C17A'}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(1)}%</span>`;
+        label.textContent = nm;
         label.style.textAlign = 'center'; label.style.lineHeight = '1.2';
         // ★ 修正字級沒有真正跟著滾輪縮放的問題：之前用「世界座標半徑」算字級，
         // 但球體在螢幕上的實際大小會隨鏡頭縮放(this._zoomDistance)即時改變，
@@ -1017,6 +1066,7 @@ const Theater = {
         if (sys.coreLabelEl) sys.coreLabelEl.style.display = 'none';
         sys.planetGroups.forEach(p => {
           if (p.labelEl) p.labelEl.style.display = 'none';
+          p.screen = null;
           p.moons.forEach(m => {
             if (m.nameLabelEl) m.nameLabelEl.style.display = 'none';
             if (m.pctLabelEl) m.pctLabelEl.style.display = 'none';
@@ -1034,6 +1084,7 @@ const Theater = {
           const pos = project(p.group, p.solidMesh);
           p.labelEl.style.transform = `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%)`;
           p.labelEl.style.display = (pos.behind || pos.occluded) ? 'none' : 'block';
+          p.screen = { x: pos.x, y: pos.y, r: projectedRadiusPx(pos.worldPos, (p.solidMesh?.geometry?.parameters?.radius || 0.3)), visible: !(pos.behind || pos.occluded), dist: this._camera.position.distanceTo(pos.worldPos) };
           // ★ 修正字級跟著公轉位置亂跳的問題：之前用「當下離鏡頭多遠」算，球體公轉移動時
           // 忽近忽遠，字級也跟著一直變動，感覺像沒有真的對應球體大小。改成主要看
           // 「球體本身世界座標大小」（穩定、不會因為公轉位置改變），縮放等級只當一個
