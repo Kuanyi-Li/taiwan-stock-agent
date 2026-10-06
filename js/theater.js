@@ -581,7 +581,12 @@ const Theater = {
       // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
       // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
       // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
-      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.035);
+      // ★ 渾天儀改版第1步：軌道改成黃銅環——統一金色，環的粗細依「這個產業占整體持股的比例」，
+      // 占比越大環越粗（0.025 ~ 0.065），讓「產業占比」這層資訊從軌道本身就看得出來
+      const sectorShare = stocks.reduce((sum, x) => sum + (x.price ?? x.cost) * x.shares, 0) / totalVal;
+      const brassWidth = 0.025 + Math.min(0.04, sectorShare * 0.1);
+      const orbitGradient = this._makeGradientOrbit(orbitR, 0xC9A55C, 64, brassWidth);
+      orbitGradient.line.material.opacity = 0.9;
       orbitHolder.add(orbitGradient.line);
 
       // ★ 直接沿用預先算好的sizeInfo，不要重新算一次——要確保球體實際大小
