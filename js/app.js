@@ -172,6 +172,30 @@ const GOALS = {
     this._renderBenchmarkCompare(history);
   },
 
+  // ── 報酬率（Modified Dietz）：R = (期末 − 期初 − ΣCF) ÷ (期初 + Σ w·CF) ──────
+  // CF 由交易紀錄推得：買進＝投入(+)、賣出＝取出(−)，換成台幣；w = 該筆距期末的天數佔整段天數
+  // 限制：現金欄位是手動輸入，其增減無從得知，不納入資金進出
+  _modifiedDietz(history) {
+    const first = history[0], last = history[history.length - 1];
+    const bmv = first.value, emv = last.value;
+    const day = d => new Date(d + 'T00:00:00').getTime();
+    const T = (day(last.date) - day(first.date)) / 86400000;
+    let sumCF = 0, sumW = 0;
+    if (T > 0) {
+      TRADES.get().forEach(t => {
+        if (!t.date || t.date <= first.date || t.date > last.date) return;
+        const fx = (t.market || 'TW') === 'US' ? CURRENCY.toTWD(1) : 1;
+        const amt = t.shares * t.price * fx;
+        const cf = t.action === 'buy' ? amt + (t.fee || 0) * fx : -(amt - (t.fee || 0) * fx);
+        const w = (day(last.date) - day(t.date)) / 86400000 / T;
+        sumCF += cf; sumW += cf * w;
+      });
+    }
+    const denom = bmv + sumW;
+    const pct = denom > 0 ? (emv - bmv - sumCF) / denom * 100 : (emv - bmv) / bmv * 100;
+    return { pct, netFlow: sumCF };
+  },
+
   // ── 跟加權指數比較同期報酬率 ─────────────────────────
   async _renderBenchmarkCompare(history, targetId) {
     const el = document.getElementById(targetId || 'benchmark-compare');
@@ -183,7 +207,9 @@ const GOALS = {
       const startDate = validHistory[0].date;
       const startVal = validHistory[0].value;
       const endVal = validHistory[validHistory.length - 1].value;
-      const portfolioPct = (endVal - startVal) / startVal * 100;
+      // ★ Modified Dietz：扣掉期間內的資金進出（買進＝投入、賣出＝取出），不然加碼買股會被誤算成報酬
+      const dz = this._modifiedDietz(validHistory);
+      const portfolioPct = dz.pct;
 
       // 抓加權指數同期資料
       const data = await DATA.fetchHistory('^TWII', '1d');
@@ -193,7 +219,8 @@ const GOALS = {
 
       const diff = portfolioPct - benchPct;
       const beatMarket = diff >= 0;
-      el.innerHTML = `你 <strong style="color:${portfolioPct>=0?'#E24B4A':'#1D9E75'}">${portfolioPct>=0?'+':''}${portfolioPct.toFixed(1)}%</strong> vs 加權 <strong>${benchPct>=0?'+':''}${benchPct.toFixed(1)}%</strong> <span style="color:${beatMarket?'#E24B4A':'#1D9E75'}">(${beatMarket?'贏':'輸'}${Math.abs(diff).toFixed(1)}%)</span>`;
+      el.innerHTML = `你 <strong style="color:${portfolioPct>=0?'#E24B4A':'#1D9E75'}">${portfolioPct>=0?'+':''}${portfolioPct.toFixed(1)}%</strong> vs 加權 <strong>${benchPct>=0?'+':''}${benchPct.toFixed(1)}%</strong> <span style="color:${beatMarket?'#E24B4A':'#1D9E75'}">(${beatMarket?'贏':'輸'}${Math.abs(diff).toFixed(1)}%)</span>` +
+        (dz.netFlow ? `<div class="bench-note">已扣除期間資金進出：淨${dz.netFlow > 0 ? '投入' : '取出'} NT$${Math.abs(Math.round(dz.netFlow)).toLocaleString('en-US')}（Modified Dietz）</div>` : '');
     } catch(e) { el.textContent = ''; }
   },
 
@@ -1451,52 +1478,54 @@ const Performance = {
     const body = document.getElementById('perf-body');
     if (!body) return;
     body.innerHTML = `
+      <div class="perf-head"><h1 class="serif-h perf-h1">績效</h1></div>
       <div class="perf-card" style="margin-bottom:14px">
-        <div class="perf-card-title">💰 淨值走勢</div>
+        <div class="perf-card-title">市值與投入本金</div>
         <div class="perf-period-tabs">
           ${['1m','3m','6m','1y','all'].map(p => `<button class="perf-period-btn ${p===this._period?'active':''}" data-period="${p}" onclick="Performance.setPeriod('${p}')">${ {'1m':'1個月','3m':'3個月','6m':'6個月','1y':'1年','all':'全部'}[p] }</button>`).join('')}
         </div>
+        <div class="perf-legend"><span><i class="lg-gold"></i>市值</span><span><i class="lg-dash"></i>累計投入本金</span><span class="k">兩者之差＝損益</span></div>
         <div class="perf-big-canvas-wrap"><canvas id="perf-networth-canvas"></canvas></div>
         <div id="perf-benchmark" style="margin-top:10px;font-size:15px;font-weight:600;color:var(--text-1)"></div>
       </div>
       <div class="perf-grid">
         <div class="perf-card">
-          <div class="perf-card-title">📊 交易統計</div>
+          <div class="perf-card-title">交易統計</div>
           <div id="perf-trade-stats"></div>
         </div>
         <div class="perf-card">
-          <div class="perf-card-title">🏭 產業集中度</div>
+          <div class="perf-card-title">產業集中度</div>
           <div id="perf-sector-breakdown" class="perf-sector-bar-wrap"></div>
         </div>
         <div class="perf-card">
-          <div class="perf-card-title">🏆 最佳/最差交易</div>
+          <div class="perf-card-title">單筆最佳／最差</div>
           <div id="perf-best-worst"></div>
         </div>
         <div class="perf-card">
-          <div class="perf-card-title">📅 本月/今年損益</div>
+          <div class="perf-card-title">本月/今年損益</div>
           <div id="perf-period-pnl"></div>
         </div>
       </div>
       <div class="perf-card" style="margin-bottom:14px">
-        <div class="perf-card-title">📊 月度已實現損益</div>
+        <div class="perf-card-title">月度已實現損益</div>
         <div class="perf-big-canvas-wrap" style="height:160px"><canvas id="perf-monthly-canvas"></canvas></div>
       </div>
       <div class="perf-card">
-        <div class="perf-card-title">🏅 個股累計損益排行</div>
+        <div class="perf-card-title">個股累計損益</div>
         <div id="perf-stock-ranking"></div>
       </div>
       <div class="perf-card" style="margin-top:14px">
-        <div class="perf-card-title">🤖 AI循環階段（基建 vs 應用端輪動）</div>
+        <div class="perf-card-title">AI循環階段（基建 vs 應用端輪動）</div>
         <div class="form-note" style="margin-bottom:10px">⚠️ 用股價相對強度動能推論的代理指標，非產業基本面分析，僅供留意訊號參考，不構成投資建議。</div>
         <div id="ai-cycle-body"><div class="empty-state">計算中...</div></div>
       </div>
       <div class="perf-card" style="margin-top:14px">
-        <div class="perf-card-title">📊 今日台股類股漲跌排行 <span class="snapshot-badge" title="一天更新一次的快照資料，非即時">📅快照</span></div>
+        <div class="perf-card-title">今日台股類股漲跌 <span class="snapshot-badge" title="一天更新一次的快照資料，非即時">📅快照</span></div>
         <div class="form-note" style="margin-bottom:10px">TWSE官方36種產業分類，只有今日快照，無歷史走勢。</div>
         <div id="sector-ranking-body"><div class="empty-state">載入中...</div></div>
       </div>
       <div class="perf-card" style="margin-top:14px">
-        <div class="perf-card-title">🏦 持股三大法人買賣超（今日）<span class="snapshot-badge" title="一天更新一次的快照資料，非即時">📅快照</span></div>
+        <div class="perf-card-title">持股三大法人買賣超（今日）<span class="snapshot-badge" title="一天更新一次的快照資料，非即時">📅快照</span></div>
         <div class="form-note" style="margin-bottom:10px">外資、投信、自營商買賣超股數，正值＝買超、負值＝賣超。</div>
         <div id="inst-flow-body"><div class="empty-state">載入中...</div></div>
       </div>`;
@@ -1520,7 +1549,7 @@ const Performance = {
     if (!list.length) { el.innerHTML = '<div class="empty-state">暫無資料</div>'; return; }
     const maxAbs = Math.max(...list.map(s => Math.abs(s.chgPct)), 1);
     el.innerHTML = list.map(s => {
-      const color = s.chgPct >= 0 ? '#E24B4A' : '#1D9E75';
+      const color = s.chgPct >= 0 ? '#FF5A4E' : '#22C17A';
       const pct = Math.abs(s.chgPct) / maxAbs * 100;
       return `
         <div class="perf-sector-row" style="margin-bottom:5px">
@@ -1555,9 +1584,9 @@ const Performance = {
         <div class="perf-trade-item">
           <span>${r.code} ${r.name}</span>
           <span style="display:flex;gap:10px;font-size:11px">
-            <span style="color:var(--text-2)">外資 <b style="color:${r.foreign>=0?'#E24B4A':'#1D9E75'}">${fmtShares(r.foreign)}</b></span>
-            <span style="color:var(--text-2)">投信 <b style="color:${r.trust>=0?'#E24B4A':'#1D9E75'}">${fmtShares(r.trust)}</b></span>
-            <span style="color:${r.total>=0?'#E24B4A':'#1D9E75'};font-weight:700">合計 ${fmtShares(r.total)}</span>
+            <span style="color:var(--text-2)">外資 <b style="color:${r.foreign>=0?'#FF5A4E':'#22C17A'}">${fmtShares(r.foreign)}</b></span>
+            <span style="color:var(--text-2)">投信 <b style="color:${r.trust>=0?'#FF5A4E':'#22C17A'}">${fmtShares(r.trust)}</b></span>
+            <span style="color:${r.total>=0?'#FF5A4E':'#22C17A'};font-weight:700">合計 ${fmtShares(r.total)}</span>
           </span>
         </div>`).join('')}
     `;
@@ -1577,12 +1606,12 @@ const Performance = {
         <div style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.6">${p.desc}</div>
         <div class="perf-grid" style="margin-bottom:14px">
           <div>
-            <div class="perf-stat-row"><span class="perf-stat-name">🔧 基建籃子 20日</span><span class="perf-stat-num" style="color:${(r.infraRet20??0)>=0?'#E24B4A':'#1D9E75'}">${fmtPct(r.infraRet20)}</span></div>
-            <div class="perf-stat-row"><span class="perf-stat-name">🔧 基建籃子 60日</span><span class="perf-stat-num" style="color:${(r.infraRet60??0)>=0?'#E24B4A':'#1D9E75'}">${fmtPct(r.infraRet60)}</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">🔧 基建籃子 20日</span><span class="perf-stat-num" style="color:${(r.infraRet20??0)>=0?'#FF5A4E':'#22C17A'}">${fmtPct(r.infraRet20)}</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">🔧 基建籃子 60日</span><span class="perf-stat-num" style="color:${(r.infraRet60??0)>=0?'#FF5A4E':'#22C17A'}">${fmtPct(r.infraRet60)}</span></div>
           </div>
           <div>
-            <div class="perf-stat-row"><span class="perf-stat-name">💰 應用籃子 20日</span><span class="perf-stat-num" style="color:${(r.appRet20??0)>=0?'#E24B4A':'#1D9E75'}">${fmtPct(r.appRet20)}</span></div>
-            <div class="perf-stat-row"><span class="perf-stat-name">💰 應用籃子 60日</span><span class="perf-stat-num" style="color:${(r.appRet60??0)>=0?'#E24B4A':'#1D9E75'}">${fmtPct(r.appRet60)}</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">💰 應用籃子 20日</span><span class="perf-stat-num" style="color:${(r.appRet20??0)>=0?'#FF5A4E':'#22C17A'}">${fmtPct(r.appRet20)}</span></div>
+            <div class="perf-stat-row"><span class="perf-stat-name">💰 應用籃子 60日</span><span class="perf-stat-num" style="color:${(r.appRet60??0)>=0?'#FF5A4E':'#22C17A'}">${fmtPct(r.appRet60)}</span></div>
           </div>
         </div>
         <div style="display:flex;gap:14px;margin-bottom:8px;font-size:12px">
@@ -1689,7 +1718,7 @@ const Performance = {
       const x = PAD.l + i * gap + (gap - barW) / 2;
       const bh = Math.abs(v) / maxAbs * (chartH / 2 - 4);
       const y = v >= 0 ? zeroY - bh : zeroY;
-      ctx.fillStyle = v >= 0 ? '#E24B4A' : (v < 0 ? '#1D9E75' : 'rgba(255,255,255,0.1)');
+      ctx.fillStyle = v >= 0 ? '#FF5A4E' : (v < 0 ? '#22C17A' : 'rgba(255,255,255,0.1)');
       ctx.fillRect(x, y, barW, Math.max(1, bh));
 
       // 資料跨年時顯示 YY/MM，否則只顯示 MM
@@ -1717,7 +1746,7 @@ const Performance = {
     const maxAbs = Math.max(...sorted.map(s => Math.abs(s.pnl)), 1);
     el.innerHTML = sorted.map(s => {
       const pct = Math.abs(s.pnl) / maxAbs * 100;
-      const color = s.pnl >= 0 ? '#E24B4A' : '#1D9E75';
+      const color = s.pnl >= 0 ? '#FF5A4E' : '#22C17A';
       return `
         <div class="perf-sector-row" style="margin-bottom:6px">
           <span class="perf-sector-name" style="width:110px">${s.code} ${s.name}</span>
@@ -1725,6 +1754,17 @@ const Performance = {
           <span class="perf-sector-pct" style="width:90px;color:${color}">${s.pnl>=0?'+':''}${s.pnl.toFixed(0)}元</span>
         </div>`;
     }).join('');
+  },
+
+  // 累計投入本金：期初市值＋之後每天累積的淨投入（買進＋、賣出−，台幣）
+  _capitalSeries(history) {
+    const first = history[0];
+    const flows = TRADES.get().filter(t => t.date && t.date > first.date).map(t => {
+      const fx = (t.market || 'TW') === 'US' ? CURRENCY.toTWD(1) : 1;
+      const amt = t.shares * t.price * fx, f = (t.fee || 0) * fx;
+      return { date: t.date, cf: t.action === 'buy' ? amt + f : -(amt - f) };
+    });
+    return history.map(h => first.value + flows.filter(x => x.date <= h.date).reduce((a, x) => a + x.cf, 0));
   },
 
   _drawNetWorthChart() {
@@ -1756,7 +1796,8 @@ const Performance = {
     const PAD = { l:52, r:12, t:10, b:26 };
     const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
     const values = history.map(h => h.value);
-    const minV = Math.min(...values), maxV = Math.max(...values);
+    const cap = this._capitalSeries(history);
+    const minV = Math.min(...values, ...cap), maxV = Math.max(...values, ...cap);
     const range = (maxV - minV) || 1;
     const n = values.length;
     const xOf = i => PAD.l + (i / (n-1)) * chartW;
@@ -1775,14 +1816,21 @@ const Performance = {
 
     // 面積 + 折線
     const isUp = values[n-1] >= values[0];
-    const color = isUp ? '#E24B4A' : '#1D9E75';
+    const color = '#C9A55C';
     ctx.beginPath();
     ctx.moveTo(xOf(0), PAD.t + chartH);
     values.forEach((v,i) => ctx.lineTo(xOf(i), yOf(v)));
     ctx.lineTo(xOf(n-1), PAD.t + chartH);
     ctx.closePath();
-    ctx.fillStyle = isUp ? 'rgba(226,75,74,0.12)' : 'rgba(29,158,117,0.12)';
+    ctx.fillStyle = 'rgba(201,165,92,0.10)';
     ctx.fill();
+
+    // 累計投入本金線（期初市值＋之後的淨投入，依交易紀錄推得）；與市值之間的差＝損益
+    ctx.beginPath(); values.forEach((v, i) => { const x = xOf(i); i ? ctx.lineTo(x, yOf(v)) : ctx.moveTo(x, yOf(v)); });
+    for (let i = n - 1; i >= 0; i--) ctx.lineTo(xOf(i), yOf(cap[i]));
+    ctx.closePath(); ctx.fillStyle = values[n-1] >= cap[n-1] ? 'rgba(255,90,78,0.16)' : 'rgba(34,193,122,0.16)'; ctx.fill();
+    ctx.beginPath(); cap.forEach((v, i) => { const x = xOf(i); i ? ctx.lineTo(x, yOf(v)) : ctx.moveTo(x, yOf(v)); });
+    ctx.strokeStyle = '#8E8E96'; ctx.lineWidth = 1.3; ctx.setLineDash([5, 3]); ctx.stroke(); ctx.setLineDash([]);
 
     ctx.beginPath();
     values.forEach((v,i) => { const x=xOf(i), y=yOf(v); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
@@ -1837,8 +1885,8 @@ const Performance = {
     const avgHold = sells.filter(t=>t.holdDays!=null).length
       ? Math.round(sells.reduce((s,t)=>s+(t.holdDays||0),0)/sells.filter(t=>t.holdDays!=null).length) : null;
     el.innerHTML = `
-      <div class="perf-stat-row"><span class="perf-stat-name">勝率</span><span class="perf-stat-num" style="color:${winRate>=50?'#E24B4A':'#1D9E75'}">${winRate.toFixed(0)}%（${wins.length}/${sells.length}）</span></div>
-      <div class="perf-stat-row"><span class="perf-stat-name">累計已實現損益</span><span class="perf-stat-num" style="color:${totalRealized>=0?'#E24B4A':'#1D9E75'}">${totalRealized>=0?'+':''}${totalRealized.toFixed(0)}元</span></div>
+      <div class="perf-stat-row"><span class="perf-stat-name">勝率</span><span class="perf-stat-num" style="color:${winRate>=50?'#FF5A4E':'#22C17A'}">${winRate.toFixed(0)}%（${wins.length}/${sells.length}）</span></div>
+      <div class="perf-stat-row"><span class="perf-stat-name">累計已實現損益</span><span class="perf-stat-num" style="color:${totalRealized>=0?'#FF5A4E':'#22C17A'}">${totalRealized>=0?'+':''}${totalRealized.toFixed(0)}元</span></div>
       <div class="perf-stat-row"><span class="perf-stat-name">平均賺賠比</span><span class="perf-stat-num">${ratio}</span></div>
       <div class="perf-stat-row"><span class="perf-stat-name">平均持有天數</span><span class="perf-stat-num">${avgHold!=null?avgHold+'天':'—'}</span></div>`;
   },
@@ -1850,7 +1898,7 @@ const Performance = {
     if (!portfolio.length) { el.innerHTML = '<div class="empty-state" style="padding:10px 0">尚無持股</div>'; return; }
     const bySectorPct = calcSectorWeights('ALL');
     const sorted = Object.entries(bySectorPct).map(([sector,weight])=>({sector,pct:weight*100})).sort((a,b)=>b.pct-a.pct);
-    const colors = ['#E24B4A','#eab308','#37adf0','#1D9E75','#a78bfa','#f97316'];
+    const colors = ['#FF5A4E','#eab308','#37adf0','#22C17A','#a78bfa','#f97316'];
     el.innerHTML = sorted.map((s,i) => `
       <div class="perf-sector-row">
         <span class="perf-sector-name">${s.sector}</span>
@@ -1867,11 +1915,11 @@ const Performance = {
     const sorted = [...sells].sort((a,b) => b.realizedPnl - a.realizedPnl);
     const best = sorted.slice(0, 3);
     const worst = sorted.slice(-3).reverse().filter(t => !best.includes(t));
-    const row = (t, isBest) => `<div class="perf-trade-item"><span>${t.code} ${t.name}</span><span style="color:${isBest?'#E24B4A':'#1D9E75'};font-weight:700">${t.realizedPnl>=0?'+':''}${t.realizedPnl.toFixed(0)}元</span></div>`;
+    const row = (t, isBest) => `<div class="perf-trade-item"><span>${t.code} ${t.name}</span><span style="color:${isBest?'#FF5A4E':'#22C17A'};font-weight:700">${t.realizedPnl>=0?'+':''}${t.realizedPnl.toFixed(0)}元</span></div>`;
     el.innerHTML = `
       <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">🥇 最佳</div>
       ${best.map(t => row(t, true)).join('') || '<div class="empty-state" style="padding:4px 0">—</div>'}
-      <div style="font-size:11px;color:var(--text-3);margin:10px 0 4px">📉 最差</div>
+      <div style="font-size:11px;color:var(--text-3);margin:10px 0 4px">單筆最差</div>
       ${worst.map(t => row(t, false)).join('') || '<div class="empty-state" style="padding:4px 0">—</div>'}`;
   },
 
@@ -1887,8 +1935,8 @@ const Performance = {
     const monthCount = sells.filter(t => t.date?.startsWith(thisMonth)).length;
     const yearCount = sells.filter(t => t.date?.startsWith(thisYear)).length;
     el.innerHTML = `
-      <div class="perf-stat-row"><span class="perf-stat-name">本月已實現損益（${monthCount}筆）</span><span class="perf-stat-num" style="color:${monthPnl>=0?'#E24B4A':'#1D9E75'}">${monthPnl>=0?'+':''}${monthPnl.toFixed(0)}元</span></div>
-      <div class="perf-stat-row"><span class="perf-stat-name">今年已實現損益（${yearCount}筆）</span><span class="perf-stat-num" style="color:${yearPnl>=0?'#E24B4A':'#1D9E75'}">${yearPnl>=0?'+':''}${yearPnl.toFixed(0)}元</span></div>`;
+      <div class="perf-stat-row"><span class="perf-stat-name">本月已實現損益（${monthCount}筆）</span><span class="perf-stat-num" style="color:${monthPnl>=0?'#FF5A4E':'#22C17A'}">${monthPnl>=0?'+':''}${monthPnl.toFixed(0)}元</span></div>
+      <div class="perf-stat-row"><span class="perf-stat-name">今年已實現損益（${yearCount}筆）</span><span class="perf-stat-num" style="color:${yearPnl>=0?'#FF5A4E':'#22C17A'}">${yearPnl>=0?'+':''}${yearPnl.toFixed(0)}元</span></div>`;
   },
 };
 
