@@ -83,9 +83,8 @@ const Theater = {
     this._setCameraToMarket(this._currentMarket, false); // 進入時直接定位，不用動畫
     this._applySystemVisibility(); // ★ 只顯示目前市場的星系
     this._startPanels();
-    this._updateCorner(); this._updateSession();
-    clearInterval(this._cornerTimer); this._cornerTimer = setInterval(() => { this._updateCorner(); this._updateSession(); }, 30000);
-    if (!this._sessionResizeBound) { this._sessionResizeBound = true; window.addEventListener('resize', () => { if (this._isActive) this._updateSession(); }); }
+    this._updateCorner();
+    clearInterval(this._cornerTimer); this._cornerTimer = setInterval(() => { this._updateCorner(); }, 30000);
     if (!this._animId) this._animate();
     const btn = document.getElementById('theater-lock-btn');
     if (btn) btn.textContent = this._dragLocked ? '已鎖定視角' : '拖曳旋轉';
@@ -124,42 +123,6 @@ const Theater = {
   // ★ 修正台股模式會同時看到美股星系(反之亦然)的問題：只顯示目前市場的星系，
   // 另一個設成不可見。飛行動畫進行中例外——兩個都先顯示，這樣飛過去的路上才有東西可看，
   // 不是穿過一片空無一物的黑，抵達後再把離開的那個藏起來。
-  // ── 盤中進度弧線：橢圓弧（150°→390°）上每 15 分鐘一格、整點長刻度，金色實線＝已過、菱形＝現在 ──
-  _updateSession() {
-    const svg = document.getElementById('theater-session');
-    const wrap = document.getElementById('theater-content');
-    if (!svg || !wrap || typeof SESSION === 'undefined') return;
-    const W = wrap.clientWidth || 1440, H = wrap.clientHeight || 810;
-    const CX = W / 2, CY = H * 0.585, rx = Math.min(W * 0.36, 560), ry = Math.min(H * 0.21, 190);
-    const r = SESSION._range();
-    const len = r.close - r.open;
-    const prog = r.weekday ? Math.max(0, Math.min(1, (r.nowMin - r.open) / len)) : 0;
-    const a0 = 150 * Math.PI / 180, a1 = 390 * Math.PI / 180;
-    const pt = (u, off = 0) => { const a = a0 + (a1 - a0) * u; const x = rx * Math.cos(a), y = ry * Math.sin(a); const L = Math.hypot(x / rx, y / ry) || 1; return [CX + x + (x / rx) / L * off, CY + y + (y / ry) / L * off]; };
-    const arc = (u0, u1) => { let d = ''; const n = 72; for (let i = 0; i <= n; i++) { const p = pt(u0 + (u1 - u0) * i / n); d += (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); } return d; };
-    const steps = Math.max(1, Math.round(len / 15));
-    let minor = '', major = '';
-    for (let q = 0; q <= steps; q++) {
-      const u = q / steps, mj = ((r.open + q * 15) % 60 === 0) || q === 0 || q === steps;
-      const p = pt(u), p2 = pt(u, mj ? 10 : 5);
-      const seg = `M${p[0].toFixed(1)} ${p[1].toFixed(1)}L${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
-      if (mj) major += seg; else minor += seg;
-    }
-    const [hx, hy] = pt(prog), [l1x, l1y] = pt(0), [l2x, l2y] = pt(1);
-    const live = r.weekday && r.nowMin >= r.open && r.nowMin <= r.close;
-    const stateTxt = !r.weekday ? '休市' : live ? `盤中進度 ${SESSION._fmt(r.nowMin)}` : (r.nowMin < r.open ? '尚未開盤' : '已收盤');
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    svg.innerHTML = `
-      <path d="${arc(0, 1)}" fill="none" stroke="#2E2E34" stroke-width="1"/>
-      <path d="${minor}" fill="none" stroke="#5A5A62" stroke-width="1"/>
-      <path d="${major}" fill="none" stroke="#C9A55C" stroke-width="1.2"/>
-      ${prog > 0 ? `<path d="${arc(0, prog)}" fill="none" stroke="#C9A55C" stroke-width="2.4"/>` : ''}
-      ${r.weekday ? `<path d="M${hx.toFixed(1)} ${(hy - 6).toFixed(1)}l5 6l-5 6l-5 -6z" fill="#C9A55C"/>` : ''}
-      <text x="${l1x.toFixed(1)}" y="${(l1y - 14).toFixed(1)}" class="ts-lab" text-anchor="middle">${SESSION._fmt(r.open)} 開盤</text>
-      <text x="${l2x.toFixed(1)}" y="${(l2y - 14).toFixed(1)}" class="ts-lab" text-anchor="middle">${SESSION._fmt(r.close)} 收盤</text>
-      <text x="${(hx + 12).toFixed(1)}" y="${(hy + 4).toFixed(1)}" class="ts-now">${stateTxt}</text>`;
-  },
-
   // 左下角星圖註記：市場／產業與持股數／開休市狀態
   _updateCorner() {
     const el = document.getElementById('theater-corner');
@@ -167,13 +130,20 @@ const Theater = {
     const isUS = (this._currentMarket || APP.activeMarket) === 'US';
     const pf = (isUS ? APP._usPortfolio : APP._twPortfolio) || [];
     const sectors = new Set(pf.map(s => isUS ? '美股' : ((typeof getStockSector === 'function') ? getStockSector(s.code) : '其他')));
-    let state;
-    if (isUS) state = (typeof APP.isUSMarketOpen === 'function' && APP.isUSMarketOpen()) ? '開盤中' : '休市';
-    else {
-      const hol = (typeof HOLIDAYS !== 'undefined') ? HOLIDAYS.name('TW', new Date().toISOString().slice(0, 10)) : null;
-      state = this._isMarketOpen() ? '開盤中' : (hol ? `休市・${hol}` : '已收盤');
-    }
-    el.innerHTML = `<div class="tc-title">STAR CHART ・ 星圖</div><div>${isUS ? '美股' : '台股'}　${sectors.size} 個產業　${pf.length} 檔持股</div><div class="tc-state ${state === '開盤中' ? 'on' : ''}">${state}</div>`;
+    // 開休市狀態：底部中央一行字＋菱形指示（開盤中金色閃動；休市灰色，國定假日註明名稱）
+    const r = (typeof SESSION !== 'undefined') ? SESSION._range() : null;
+    const live = !!r && r.weekday && r.nowMin >= r.open && r.nowMin <= r.close;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const hol = (typeof HOLIDAYS !== 'undefined') ? HOLIDAYS.name(isUS ? 'US' : 'TW', todayStr) : null;
+    let txt;
+    if (live) txt = `開盤中　距收盤 ${SESSION._dur(r.close - r.nowMin)}`;
+    else if (hol) txt = `休市・${hol}`;
+    else if (r && !r.weekday) txt = '休市・週末';
+    else if (r && r.nowMin < r.open) txt = `尚未開盤　${SESSION._fmt(r.open)} 開盤`;
+    else txt = '已收盤';
+    el.innerHTML = `<div class="tc-title">STAR CHART ・ 星圖</div><div>${isUS ? '美股' : '台股'}　${sectors.size} 個產業　${pf.length} 檔持股</div>`;
+    const st = document.getElementById('theater-status');
+    if (st) { st.className = 'theater-status' + (live ? ' on' : ''); st.innerHTML = `<i></i>${txt}`; }
   },
 
   _applySystemVisibility(showBoth) {
@@ -464,47 +434,6 @@ const Theater = {
     grad.geos.forEach(geo => { geo.attributes.color.needsUpdate = true; });
   },
 
-  // ── 核心：總覽頁「證券雕刻花紋圓盤」的 3D 版（外擺線疊層，外層 6 圈＋內層 3 圈＋刻度環）──
-  _epiLayers(n, layers, amp, pts = 720) {
-    const out = [], R = 70, r = R / n;
-    for (let k = 0; k < layers; k++) {
-      const d = r * (1.5 + 0.28 * k) * amp, rot = k * Math.PI / (n * layers), sc = 1 / (R + r + d);
-      const arr = [];
-      for (let i = 0; i < pts; i++) {
-        const t = i / pts * Math.PI * 2;
-        const x = (R + r) * Math.cos(t) - d * Math.cos((R + r) / r * t);
-        const y = (R + r) * Math.sin(t) - d * Math.sin((R + r) / r * t);
-        arr.push([(x * Math.cos(rot) - y * Math.sin(rot)) * sc, (x * Math.sin(rot) + y * Math.cos(rot)) * sc]);
-      }
-      out.push(arr);
-    }
-    return out;
-  },
-  _makeCoreDisc(radius, n, amp, tintHex) {
-    const GOLD = 0xC9A55C;
-    const root = new THREE.Group();                 // 傾斜（面向鏡頭但保有縱深）
-    root.rotation.x = 1.05;
-    const outer = new THREE.Group(), inner = new THREE.Group();
-    root.add(outer); root.add(inner);
-    const loop = (pts, y, color, opacity) => {
-      const v = pts.map(([x, z]) => new THREE.Vector3(x * radius, y, z * radius));
-      return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(v), new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false }));
-    };
-    const stO = [[GOLD, .95], [tintHex, .7], [GOLD, .75], [tintHex, .5], [GOLD, .55], [tintHex, .35]];
-    this._epiLayers(n, 6, amp).forEach((pts, k) => outer.add(loop(pts, (k - 2.5) * 0.045 * radius, stO[k][0], stO[k][1])));
-    const stI = [[GOLD, .9], [tintHex, .55], [GOLD, .6]];
-    this._epiLayers(n * 2, 3, amp).forEach((pts, k) => { const l = loop(pts.map(([x, z]) => [x * 0.79, z * 0.79]), (k - 1) * 0.06 * radius, stI[k][0], stI[k][1]); inner.add(l); });
-    // 刻度環（120 格，每 10 格一長刻度），不旋轉
-    const tv = [];
-    for (let i = 0; i < 120; i++) { const a = i / 120 * Math.PI * 2, r2 = i % 10 === 0 ? 1.05 : 1.08; tv.push(new THREE.Vector3(Math.cos(a) * 1.15 * radius, 0, Math.sin(a) * 1.15 * radius), new THREE.Vector3(Math.cos(a) * r2 * radius * 1.0 + 0, 0, Math.sin(a) * r2 * radius * 1.0)); }
-    root.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(tv), new THREE.LineBasicMaterial({ color: GOLD, transparent: true, opacity: 0.6, depthWrite: false })));
-    // 標籤遮擋用的看不見的實心球（沿用既有「solidMesh.geometry.parameters.radius」介面）
-    const solid = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.9, 12, 12), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
-    root.add(solid);
-    root.userData = { solidMesh: solid, outer, inner };
-    return root;
-  },
-
   _makeWireSphere(radius, color, opacity, detail = 2) {
     const group = new THREE.Group();
     const geo = new THREE.IcosahedronGeometry(radius, detail);
@@ -546,9 +475,7 @@ const Theater = {
     // ★ 球體視覺放大：只放大實際畫出來的幾何體，軌道間距計算用的coreSize維持不變，
     // 不會影響已經驗證過的防撞安全間距
     const VISUAL_SCALE = 1.18;
-    const pfCount = Math.max(3, Math.min(30, ((isUS ? APP._usPortfolio : APP._twPortfolio) || []).length || 6));
-    const amp = 0.75 + Math.min(1, Math.abs(idxChgPct) / 3) * 0.6;
-    sys.core = this._makeCoreDisc(coreSize * VISUAL_SCALE, pfCount, amp, idxChgPct > 0.0001 ? 0xFF5A4E : idxChgPct < -0.0001 ? 0x22C17A : 0xECECEC);
+    sys.core = this._makeWireSphere(coreSize * VISUAL_SCALE, coreColor, 0.6, 3);
     sys.core.userData.spinSpeed = 0.0008 + Math.min(0.0015, Math.abs(idxChgPct) * 0.0003);
     sys.core.position.set(offset.x, offset.y, offset.z);
     this._scene.add(sys.core);
@@ -654,7 +581,12 @@ const Theater = {
       // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
       // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
       // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
-      const orbitGradient = this._makeGradientOrbit(orbitR, color, 64, 0.035);
+      // ★ 渾天儀改版第1步：軌道改成黃銅環——統一金色，環的粗細依「這個產業占整體持股的比例」，
+      // 占比越大環越粗（0.025 ~ 0.065），讓「產業占比」這層資訊從軌道本身就看得出來
+      const sectorShare = stocks.reduce((sum, x) => sum + (x.price ?? x.cost) * x.shares, 0) / totalVal;
+      const brassWidth = 0.025 + Math.min(0.04, sectorShare * 0.1);
+      const orbitGradient = this._makeGradientOrbit(orbitR, 0xC9A55C, 64, brassWidth);
+      orbitGradient.line.material.opacity = 0.9;
       orbitHolder.add(orbitGradient.line);
 
       // ★ 直接沿用預先算好的sizeInfo，不要重新算一次——要確保球體實際大小
@@ -1104,11 +1036,7 @@ const Theater = {
 
     // ★ 遍歷全部星系（台股+美股），各自的核心球自轉、公轉、漸層更新都要跑一遍
     Object.values(this._systems || {}).forEach(sys => {
-      if (sys.core && sys.core.userData.outer) {
-        const sp = (sys.core.userData.spinSpeed || 0.0008) * 2 * this._speedMul;
-        sys.core.userData.outer.rotation.y += sp;           // 外層順轉
-        sys.core.userData.inner.rotation.y -= sp * 0.67;    // 內層反向、較慢（同總覽頁 6°/s : −4°/s）
-      }
+      if (sys.core) sys.core.rotation.y += (sys.core.userData.spinSpeed || 0.0008) * this._speedMul;
       sys.planetGroups.forEach(p => {
         p.angle += p.speed * this._speedMul;
         p.group.position.x = Math.cos(p.angle) * p.orbitR;
