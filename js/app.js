@@ -928,7 +928,7 @@ const PORCELAIN = {
     const [c1, c2] = this.COLORS[variant] || this.COLORS.gold;
     const enc = s => `url("data:image/svg+xml;utf8,${encodeURIComponent(s)}")`;
     const img = `${enc(this._meander(c1))}, ${enc(this._svg(c1, c2))}`;
-    document.querySelectorAll('#nav-porcelain, .cal-deco').forEach(el => { el.style.backgroundImage = img; });
+    document.querySelectorAll('#nav-porcelain, .cal-deco, .theater-deco').forEach(el => { el.style.backgroundImage = img; });
   },
 };
 
