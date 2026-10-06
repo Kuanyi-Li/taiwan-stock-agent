@@ -57,15 +57,6 @@ const Theater = {
   onEnter() {
     this._isActive = true;
     document.body.classList.add('theater-active');
-    // ★ 修正切換按鈕位置一直沒生效的問題：.topbar有backdrop-filter，這個屬性會讓
-    // position:fixed的子元素被限制在.topbar自己的範圍內，跳不出去（CSS的containing block
-    // 特性），單靠CSS改不了，只能用JS把元素直接搬出.topbar、移到body底下。
-    const marketSwitch = document.querySelector('.market-switch');
-    if (marketSwitch && marketSwitch.parentElement !== document.body) {
-      this._marketSwitchOriginalParent = marketSwitch.parentElement;
-      this._marketSwitchOriginalNextSibling = marketSwitch.nextSibling;
-      document.body.appendChild(marketSwitch);
-    }
     if (!this._scene) this._initScene();
     // ★ 修正每次重新進入劇場模式，文字標籤會消失/亂掉的bug：這裡才是真正的原因——
     // 遮擋物陣列(_occluders)之前只有「不存在時才初始化」，每次重進都會累加新的球體，
@@ -240,7 +231,7 @@ const Theater = {
     this._nebula = new THREE.Mesh(nebulaGeo, nebulaMat);
     this._scene.add(this._nebula);
 
-    this._camera = new THREE.PerspectiveCamera(48, w / h, 0.1, 100);
+    this._camera = new THREE.PerspectiveCamera(this._fovFor(w / h), w / h, 0.1, 100);
     // ★ 修正星系位置往上移：相機看向的目標點下移，畫面裡的星系相對就會往上移
     this._camera.position.set(0, 1.3, 9.5);
     this._camera.lookAt(0, -0.9, 0);
@@ -331,14 +322,30 @@ const Theater = {
       card.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
     });
     container.addEventListener('mouseleave', () => { card.style.display = 'none'; this._hoverP = null; });
+    const goStock = (p) => {
+      if (typeof goToStock !== 'function') return;
+      const list = p.market === 'US' ? (APP._usPortfolio || []) : (APP._twPortfolio || []);
+      const idx = (APP.portfolio || []).findIndex(x => x.code === p.code);
+      goToStock(p.code, idx >= 0 ? idx : list.findIndex(x => x.code === p.code), 'portfolio');
+    };
+    // 觸控沒有 hover：點球→底部卡＋「前往個股頁」按鈕；點空白收起
+    let bcard = document.getElementById('theater-ball-card');
+    if (!bcard) { bcard = document.createElement('div'); bcard.id = 'theater-ball-card'; (container.parentElement || container).appendChild(bcard); }
+    this._hideBallCard = () => { bcard.style.display = 'none'; };
     container.addEventListener('click', (e) => {
       if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 5) return; // 拖曳不算點擊
-      const { p } = pick(e); if (!p) return;
-      const list = p.market === 'US' ? (APP._usPortfolio || []) : (APP._twPortfolio || []);
-      if (typeof goToStock === 'function') {
-        const idx = (APP.portfolio || []).findIndex(x => x.code === p.code);
-        goToStock(p.code, idx >= 0 ? idx : list.findIndex(x => x.code === p.code), 'portfolio');
-      }
+      const { p } = pick(e);
+      const coarse = window.matchMedia('(hover: none)').matches;
+      if (!coarse) { if (p) goStock(p); return; }
+      if (!p) { bcard.style.display = 'none'; return; }
+      const up = p.chgPct >= 0, col = up ? '#FF5A4E' : '#22C17A';
+      bcard.innerHTML = `<div class="thc-head"><b>${p.market === 'US' ? p.code : (p.name || p.code)}</b><span style="color:${col}">${up ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>`
+        + `<div class="thc-row"><span>產業</span><span>${p.sector}</span></div>`
+        + `<div class="thc-row"><span>占產業</span><span>${(p.wSector * 100).toFixed(0)}%</span></div>`
+        + `<div class="thc-row"><span>占總持股</span><span>${(p.wTotal * 100).toFixed(1)}%</span></div>`
+        + `<button class="thc-btn" type="button">前往個股頁 ›</button>`;
+      bcard.querySelector('.thc-btn').onclick = () => { bcard.style.display = 'none'; goStock(p); };
+      bcard.style.display = 'block';
     });
     // 手機觸控支援
     container.addEventListener('touchstart', (e) => {
@@ -379,12 +386,21 @@ const Theater = {
     }, { passive: false });
   },
 
+  // 窄螢幕（手機直向）：保持水平視野不變，垂直視野隨之加大，整個星系才放得進畫面
+  _fovFor(aspect) {
+    const base = 48, ref = 1.5;
+    if (aspect >= ref) return base;
+    const k = Math.min(2.1, ref / aspect);
+    return Math.min(100, 2 * Math.atan(Math.tan(base * Math.PI / 360) * k) * 180 / Math.PI);
+  },
+
   _onResize() {
     const container = document.getElementById('theater-stage');
     if (!container || !this._camera || !this._renderer) return;
     const w = container.clientWidth, h = container.clientHeight;
     if (!w || !h) return;
     this._camera.aspect = w / h;
+    this._camera.fov = this._fovFor(w / h);
     this._camera.updateProjectionMatrix();
     this._renderer.setSize(w, h);
   },
@@ -863,7 +879,9 @@ const Theater = {
 
     const w = container.clientWidth || 900;
     // ★ 修正：照設計稿改回弧形（不是直線），整個橫屏寬度、實心白粗線
-    const cx = w / 2, arcW = w - 40, y0 = 45, dip = 110; // ★ 修正弧度太淺看起來像直線的問題：下凹幅度大幅加深
+    const compact = w < 680;
+    if (compact) svg.style.height = '96px';
+    const cx = w / 2, arcW = w - 40, y0 = compact ? 22 : 45, dip = compact ? 44 : 110; // ★ 修正弧度太淺看起來像直線的問題：下凹幅度大幅加深
     const pathD = `M ${cx-arcW/2} ${y0} Q ${cx} ${y0+dip} ${cx+arcW/2} ${y0}`;
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', pathD);
@@ -913,12 +931,12 @@ const Theater = {
       todayLabel.setAttribute('fill', '#C9A55C');
       todayLabel.setAttribute('font-family', 'monospace'); // 等寬字體強化碼表/儀表數字感
     }
-    todayLabel.setAttribute('font-size', '26');
+    todayLabel.setAttribute('font-size', compact ? '15' : '26');
     todayLabel.setAttribute('font-weight', '700');
     svg.appendChild(todayLabel);
     const todayPos = pointOnArc(0.5);
     todayLabel.setAttribute('x', todayPos.x);
-    todayLabel.setAttribute('y', todayPos.y - 22);
+    todayLabel.setAttribute('y', todayPos.y - (compact ? 14 : 22));
     this._updateTimeRingClock(todayLabel);
 
     // 事件：只有未來的資料(MacroEvents.getUpcoming只回傳未來)，全部會落在中間偏左（明天方向）
@@ -936,10 +954,10 @@ const Theater = {
 
       const dateStr = ev.date ? ev.date.slice(5).replace('-', '/') : '';
       const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('x', pos.x); text.setAttribute('y', pos.y + r + 20);
+      text.setAttribute('x', pos.x); text.setAttribute('y', pos.y + r + (compact ? 13 : 20));
       text.setAttribute('text-anchor', 'middle');
       text.setAttribute('fill', '#E6C98A');
-      text.setAttribute('font-size', '14');
+      text.setAttribute('font-size', compact ? '10' : '14');
       text.setAttribute('font-weight', '700');
       text.textContent = `${ev.label} ${dateStr}`;
       svg.appendChild(text);
@@ -1078,6 +1096,7 @@ const Theater = {
         const p = project(sys.core, sys.core.userData.solidMesh);
         sys.coreLabelEl.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
         sys.coreLabelEl.style.display = (p.behind || p.occluded) ? 'none' : 'block';
+        sys.coreLabelEl.style.fontSize = `${Math.max(11, Math.round(15 * Math.min(1, Math.tan(24 * Math.PI / 180) / Math.tan(this._camera.fov * Math.PI / 360) * 1.25)))}px`;
       }
       sys.planetGroups.forEach(p => {
         if (p.labelEl) {
@@ -1091,7 +1110,7 @@ const Theater = {
           // 全體一致的整體倍率（zoomDistance越小=鏡頭越近=全部字一起放大），
           // 這樣同一顆球的字級才會穩定，不同球之間的相對大小也才會真正反映球體大小。
           const sphereRadius = p.solidMesh?.geometry?.parameters?.radius || 0.3;
-          const zoomFactor = 9.5 / (this._zoomDistance ?? 9.5); // 用預設縮放距離當基準
+          const zoomFactor = 9.5 / (this._zoomDistance ?? 9.5) * (Math.tan(24 * Math.PI / 180) / Math.tan(this._camera.fov * Math.PI / 360)) * Math.min(1, h / 760); // 以預設縮放＋桌機視野為基準；窄螢幕視野變大、球變小，字也跟著縮
           const maxWidthPx = sphereRadius * 150 * zoomFactor;
           const idealFontPx = Math.max(8, Math.min(26, Math.round(sphereRadius * 34 * zoomFactor)));
           // ★ 修正長產業名稱被省略號截斷的問題：不要截斷，改成依文字長度動態縮小字級，
@@ -1281,6 +1300,11 @@ const Theater = {
         contentEl.innerHTML = showGrid ? this._assetGridHTML : '';
         chartEl.style.display = showGrid ? 'none' : 'block';
       };
+      const sm = document.getElementById('theater-m-summary');
+      if (sm) {
+        const dp = readVal('day-pnl'), cls = /^\s*-/.test(dp) ? 'dn' : 'up';
+        sm.innerHTML = `<span>總市值 <b>${readVal('total-value')}</b></span><span>今日 <b class="${cls}">${dp}</b></span><span class="${cls}">${readVal('total-roi')}</span><i>▾</i>`;
+      }
       applyAssetState(0);
       this._applyAssetState = applyAssetState; // 存起來供輪播計時器呼叫
       const dotsEl = document.getElementById('theater-panel-asset-dots');

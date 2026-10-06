@@ -1035,23 +1035,7 @@ body {
 
 /* 劇場模式下：隱藏頁面按鈕列，台美股切換移到畫面左側中間（跟右側的鎖定按鈕對稱）*/
 body.theater-active .dashboard-toggle-btn { display: none; }
-body.theater-active .market-switch {
-  position: fixed; top: 50%; left: 24px; transform: translateY(-50%); z-index: 4;
-  display: flex; flex-direction: column; gap: 6px;
-  background: rgba(0,0,0,0.85); border: 1px solid rgba(90,143,192,0.4);
-  border-radius: 20px; padding: 10px;
-}
-/* ★ 重新設計按鈕本身：之前完全沒有專屬樣式、用瀏覽器預設外觀，改成跟鎖定/選單按鈕
-   同一套玻璃感圓角膠囊風格，選中的市場用藍色高亮，沒選中的維持低調透明 */
-body.theater-active .market-switch-btn {
-  background: none; border: none; color: var(--text-2); font-size: 15px; font-weight: 600;
-  padding: 12px 18px; border-radius: 14px; cursor: pointer; white-space: nowrap;
-  transition: background 0.2s, color 0.2s;
-}
-body.theater-active .market-switch-btn:hover { background: rgba(90,143,192,0.15); }
-body.theater-active .market-switch-btn.active {
-  background: rgba(90,143,192,0.35); color: var(--text-1);
-}
+body.theater-active .dashboard-toggle-btn { display: none; }
 
 /* ═══ 持股帳冊（改版步驟3）═══ */
 .serif { font-family: var(--font-serif); }
@@ -1442,13 +1426,13 @@ body.theater-active .market-switch-btn.active {
 .sky-morph { animation: skyMorph .6s ease-out; }
 .sky-dot { transition: opacity .3s; }
 /* 台股／美股切換：金色底塊滑動（劇場模式維持原樣） */
-body:not(.theater-active) .market-switch { position: relative; }
-body:not(.theater-active) .market-switch::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: var(--gold); transition: transform .28s cubic-bezier(.4,0,.2,1); }
-body:not(.theater-active) .market-switch[data-active="US"]::before { transform: translateX(100%); }
-body:not(.theater-active) .market-switch-btn { position: relative; z-index: 1; flex: 1 1 0; text-align: center; transition: color .2s; }
-body:not(.theater-active) .market-switch-btn.active { background: none; color: #000; }
+body .market-switch { position: relative; }
+body .market-switch::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: var(--gold); transition: transform .28s cubic-bezier(.4,0,.2,1); }
+body .market-switch[data-active="US"]::before { transform: translateX(100%); }
+body .market-switch-btn { position: relative; z-index: 1; flex: 1 1 0; text-align: center; transition: color .2s; }
+body .market-switch-btn.active { background: none; color: #000; }
 .al-seg, .in-dv i, .meter-bar { transition: width .5s cubic-bezier(.2,.7,.2,1); }
-@media (prefers-reduced-motion: reduce) { .view-enter, .sky-morph, .lg-price.flash-up, .lg-price.flash-dn { animation: none; } body:not(.theater-active) .market-switch::before { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .view-enter, .sky-morph, .lg-price.flash-up, .lg-price.flash-dn { animation: none; } body .market-switch::before { transition: none; } }
 
 /* ── 日曆（黑金改版）── */
 .cal-page-nav { gap: 6px; }
@@ -1548,10 +1532,6 @@ body:not(.theater-active) .market-switch-btn.active { background: none; color: #
 .theater-3d-label-core { font-size: 15px; }
 .theater-3d-label-moon { font-weight: 700; }
 .theater-3d-label-event { color: var(--gold-l); font-family: var(--font-sans); }
-body.theater-active .market-switch { border-radius: 0; background: rgba(0,0,0,.82); border: 1px solid #2E2E34; left: 32px; padding: 6px; gap: 4px; }
-body.theater-active .market-switch-btn { border-radius: 0; font-size: 14px; font-weight: 500; padding: 10px 16px; }
-body.theater-active .market-switch-btn:hover { background: rgba(201,165,92,.12); }
-body.theater-active .market-switch-btn.active { background: var(--gold); color: #000; }
 .theater-panel { overflow: visible; }
 .theater-3d-label-event { color: var(--gold-l); }
 
@@ -1583,3 +1563,39 @@ body.theater-active .market-switch-btn.active { background: var(--gold); color: 
 #theater-hover-card .thc-row { display:flex; justify-content:space-between; gap:16px; line-height:1.75; }
 #theater-hover-card .thc-row span:first-child { color:#8E8E96; }
 #theater-hover-card .thc-go { margin-top:6px; color:var(--gold-l, #E6C98A); font-size:11px; }
+
+/* ═══ 劇場：保留頁面導覽＋手機版 ═══ */
+#theater-hud { display: contents; }
+.theater-m-summary, .theater-m-handle, #theater-ball-card { display: none; }
+#theater-nav-wrap { display: none; } /* 左側導覽已保留，不再需要「前往頁面」 */
+#theater-ball-card { position: absolute; left: 12px; right: 12px; bottom: 64px; z-index: 30; padding: 14px 16px; background: #050505; border: 1px solid var(--gold); font-size: 13px; color: #D9D9DE; }
+#theater-ball-card .thc-head { display: flex; justify-content: space-between; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid rgba(201,165,92,.6); font-size: 16px; }
+#theater-ball-card .thc-head b { color: #ECECEC; }
+#theater-ball-card .thc-row { display: flex; justify-content: space-between; line-height: 1.9; }
+#theater-ball-card .thc-row span:first-child { color: #8E8E96; }
+#theater-ball-card .thc-btn { width: 100%; margin-top: 10px; padding: 10px; background: var(--gold); border: 0; color: #000; font-size: 14px; font-weight: 700; cursor: pointer; }
+@media (max-width: 680px) {
+  /* 頂列精簡成一排：logo／台股美股／重新整理、設定 */
+  body.theater-active .topbar { flex-wrap: nowrap; padding: 8px 10px; }
+  body.theater-active .topbar-left { width: auto; flex-wrap: nowrap; }
+  body.theater-active .topbar-market, body.theater-active .clock, body.theater-active .live-dot { display: none; }
+  /* 頁面導覽：劇場時固定在底部，七個頁名等寬 */
+  body.theater-active .sidebar { position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 40; height: 52px; border-top: 1px solid var(--border-md); border-bottom: 0; background: var(--bg-0); padding-bottom: env(safe-area-inset-bottom); }
+  body.theater-active .sidebar .session-clock, body.theater-active .sidebar .nav-porcelain { display: none; }
+  body.theater-active .pnav { padding: 0; height: 52px; overflow: visible; }
+  body.theater-active .navlink { flex: 1 1 0; text-align: center; padding: 0 !important; font-size: 12px; line-height: 52px; border-bottom: 0; border-top: 2px solid transparent; }
+  body.theater-active .navlink[aria-current="page"] { border-top-color: var(--gold); border-bottom-color: transparent; color: var(--gold-l); }
+  .theater-wrap { height: calc(100dvh - 49px - 52px); }
+  .theater-wrap::before, .theater-corner, #theater-lock-wrap { display: none; }
+  .theater-status { bottom: 6px; font-size: 12px; }
+  /* HUD 三張卡 → 頂部摘要條＋底部抽屜 */
+  .theater-m-summary { display: flex; align-items: center; gap: 14px; position: absolute; top: 8px; left: 10px; right: 10px; z-index: 6; padding: 10px 12px; background: rgba(0,0,0,.85); border: 1px solid #2E2E34; font-size: 12px; color: #D9D9DE; cursor: pointer; white-space: nowrap; overflow: hidden; }
+  .theater-m-summary b { font-weight: 600; color: #ECECEC; }
+  .theater-m-summary b.up, .theater-m-summary span.up { color: #FF5A4E; } .theater-m-summary b.dn, .theater-m-summary span.dn { color: #22C17A; }
+  .theater-m-summary i { margin-left: auto; font-style: normal; color: var(--gold-l); }
+  #theater-hud { display: block; position: absolute; left: 0; right: 0; bottom: 0; max-height: 78%; overflow-y: auto; z-index: 25; background: #050505; border-top: 1px solid var(--gold); padding: 6px 14px 14px; transform: translateY(105%); transition: transform .28s cubic-bezier(.4,0,.2,1); }
+  #theater-content.sheet-open #theater-hud { transform: translateY(0); }
+  .theater-m-handle { display: block; text-align: center; font-size: 11px; color: #8E8E96; padding: 8px 0; cursor: pointer; }
+  #theater-hud .theater-panel { position: static; transform: none; width: auto; margin-top: 10px; }
+  #theater-ball-card { bottom: 12px; }
+}
