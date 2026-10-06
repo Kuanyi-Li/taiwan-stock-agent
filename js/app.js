@@ -1099,6 +1099,33 @@ const DETAIL = {
   };
 })();
 
+// ── SPIN：花紋圓盤與 logo 的旋轉（開盤慢慢加速、休市慢慢減速，不會突然停）──
+const SPIN = {
+  items: [
+    { id: 'sky-rot-outer', dps: 6 },   // 每秒轉 6 度（約 60 秒一圈）
+    { id: 'sky-rot-inner', dps: -4 },  // 反向，約 90 秒一圈
+    { id: 'logo-mark', dps: 6 },
+  ],
+  TAU: 1.4,        // 加減速時間常數（秒）；約 3～4 秒從靜止到全速
+  target: 0, v: 0, last: 0, raf: 0,
+  set(on) {
+    this.target = on && !UI.reduced() ? 1 : 0;
+    if (!this.raf) { this.last = performance.now(); this.raf = requestAnimationFrame(t => this.tick(t)); }
+  },
+  tick(now) {
+    const dt = Math.min(0.1, (now - this.last) / 1000); this.last = now;
+    this.v += (this.target - this.v) * (1 - Math.exp(-dt / this.TAU));
+    if (this.target === 0 && this.v < 0.002) this.v = 0;
+    this.items.forEach(it => {
+      const el = it.el || (it.el = document.getElementById(it.id));
+      if (!el || !el.isConnected) { it.el = null; return; }
+      it.ang = ((it.ang || 0) + it.dps * this.v * dt) % 360;
+      el.style.transform = `rotate(${it.ang.toFixed(3)}deg)`;
+    });
+    this.raf = (this.target === 0 && this.v === 0) ? 0 : requestAnimationFrame(t => this.tick(t));
+  },
+};
+
 // ── SKY：總覽「今日星位」（改版步驟5）──────────────────────
 // 雕刻星盤：花瓣數＝持股檔數；盤中旋轉、休市停止；
 // 顏色看今日損益正負（紅/綠/白），花瓣起伏深淺看今日漲跌幅（0%→較平、3%以上→最深）
@@ -1161,10 +1188,8 @@ const SKY = {
   },
 
   // 盤中旋轉、休市停止（由 _updateMarketStatus 呼叫）
-  setSpinning(on) {
-    document.getElementById('sky-rot-outer')?.classList.toggle('spin', on);
-    document.getElementById('sky-rot-inner')?.classList.toggle('spinr', on);
-  },
+  setSpinning(on) { SPIN.set(on); },
+
 
   _benchPct() {
     const code = APP.activeMarket === 'US' ? '^GSPC' : '^TWII';
@@ -4577,8 +4602,6 @@ const APP = {
     const dot = document.getElementById('live-dot');
     if (dot) dot.style.opacity = marketOpen ? '1' : '0.3';
     // 改版：開盤時 logo 雕刻花紋旋轉，休市停止
-    const logo = document.getElementById('logo-mark');
-    if (logo) logo.classList.toggle('spin', marketOpen);
     SKY.setSpinning(marketOpen);
     SESSION.render();
     PORCELAIN.apply('gold');
