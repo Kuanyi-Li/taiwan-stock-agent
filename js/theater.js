@@ -693,8 +693,22 @@ const Theater = {
         orbitHolder.add(group);
         this._occluders.push(ball.userData.solidMesh);
         sys.occluders.push(ball.userData.solidMesh);
+        // 漲跌幅弧環：淡色整圈=±10%，弧長=|漲跌幅|/10，12 點鐘方向順時針；永遠正對鏡頭
+        const arcCol = isUp ? 0xFF5A4E : 0x22C17A;
+        const r0 = rs * VISUAL_SCALE * 1.14, r1 = r0 + Math.max(0.025, rs * 0.07);
+        const changeRing = new THREE.Group();
+        const baseMat = new THREE.MeshBasicMaterial({ color: arcCol, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
+        changeRing.add(new THREE.Mesh(new THREE.RingGeometry(r0, r1, 64), baseMat));
+        const arcLen = Math.min(1, Math.abs(chgPct) / 10) * Math.PI * 2;
+        if (arcLen > 0.02) {
+          const arcMat = new THREE.MeshBasicMaterial({ color: arcCol, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
+          const arc = new THREE.Mesh(new THREE.RingGeometry(r0, r1 + (r1 - r0) * 0.3, Math.max(4, Math.ceil(arcLen / 0.1)), 1, Math.PI / 2 - arcLen, arcLen), arcMat);
+          changeRing.add(arc);
+        }
+        changeRing.renderOrder = 5;
+        group.add(changeRing);
         const angle = baseAngle + j * Math.PI * 2 / stocks.length;
-        sys.planetGroups.push({ group, orbitHolder, orbitR, angle, speed: 0.001 * direction, moons: [], sector, solidMesh: ball.userData.solidMesh, orbitGradient, ball, code: st.code, name: st.name, chgPct, spin: 0.01 + Math.random() * 0.01 });
+        sys.planetGroups.push({ group, orbitHolder, orbitR, angle, speed: 0.001 * direction, moons: [], sector, solidMesh: ball.userData.solidMesh, orbitGradient, ball, changeRing, code: st.code, name: st.name, chgPct, spin: 0.01 + Math.random() * 0.01 });
       });
     });
     this._buildTimeRing();
