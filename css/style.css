@@ -1415,3 +1415,25 @@ body.theater-active .market-switch-btn.active {
 .perf-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .perf-grid.perf-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 900px) { .perf-grid, .perf-grid.perf-grid-2 { grid-template-columns: 1fr; } }
+
+/* ── 總覽：市場情報（步驟 8）── */
+.intel-row .ov-panel:first-child { flex: 1.35 1 420px; }
+.intel-inst { margin-bottom: 22px; }
+.in-phase { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.in-phase-n { font-family: var(--font-serif); font-size: 30px; font-weight: 900; color: var(--gold); }
+.in-desc { font-size: 13px; color: var(--text-3); }
+.in-two { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 14px 0; }
+.in-k { font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
+.in-legend { display: flex; gap: 18px; margin-top: 8px; font-size: 12px; color: var(--text-3); flex-wrap: wrap; }
+.in-legend i { display: inline-block; width: 18px; border-top: 2px solid var(--gold); vertical-align: middle; margin-right: 6px; }
+.in-legend i.lg-dash { border-top: 2px dashed #8E8E96; } .in-note { margin-left: auto; }
+.in-link { margin-left: auto; background: none; border: none; color: var(--gold); font: inherit; font-size: 12px; cursor: pointer; }
+.in-sr { display: grid; grid-template-columns: 96px 1fr 66px; gap: 12px; align-items: center; padding: 6px 0; font-size: 14px; }
+.in-sr .num { text-align: right; }
+.in-dv { position: relative; height: 10px; background: var(--bg-1); }
+.in-dv::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #3A3A42; }
+.in-dv i { position: absolute; top: 0; bottom: 0; }
+.in-ir { display: grid; grid-template-columns: 130px 1fr 1fr 1fr 100px; gap: 20px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.in-tot { text-align: right; font-weight: 600; }
+.in-foot { margin-top: 10px; font-size: 12px; color: var(--text-3); }
+@media (max-width: 900px) { .in-two { grid-template-columns: 1fr; } .in-ir { grid-template-columns: 1fr 1fr; } .in-sr { grid-template-columns: 80px 1fr 60px; } }
