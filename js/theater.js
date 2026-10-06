@@ -449,25 +449,25 @@ const Theater = {
     }
     return pts;
   },
-  _makeCoreSphere(radius, tintHex) {
+  _makeCoreSphere(radius, tintHex, S = 1024, segs = [48, 32]) {
     // ★ 修正花紋變形：等距圓柱貼圖貼在球面上，花紋會被拉成歪斜的橢圓。改成「視角貼圖」(matcap 概念)：
     // 用法線在「螢幕平面」的分量當貼圖座標，所以不管鏡頭怎麼轉，看到的永遠是一張正面的花紋圓盤
     // (跟總覽頁一樣)，球面邊緣自然被壓縮、並加上明暗跟金色邊緣光，就有球體的立體感。花紋靠旋轉座標轉動。
-    const S = 1024, cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const k = S / 1024, cv = document.createElement('canvas'); cv.width = cv.height = S;
     const g = cv.getContext('2d');
     g.fillStyle = '#050505'; g.fillRect(0, 0, S, S);
     const GOLD = '#C9A55C', tint = '#' + new THREE.Color(tintHex).getHexString();
     const layers = (R, n, cnt, lw) => {
       for (let k = 0; k < cnt; k++) {
-        const pts = this._epiPts(S / 2, S / 2, R, n, k, 720, 1);
+        const pts = this._epiPts(S / 2, S / 2, R, n, k, S >= 1024 ? 720 : 360, 1);
         g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
         g.strokeStyle = k % 2 === 0 ? GOLD : tint; g.globalAlpha = 1 - k * 0.07; g.lineWidth = lw; g.stroke();
       }
       g.globalAlpha = 1;
     };
-    layers(S * 0.47, 8, 7, 4.5);          // 外圈大玫瑰
-    layers(S * 0.25, 4, 3, 5);          // 內圈小玫瑰
-    g.strokeStyle = GOLD; g.lineWidth = 3; g.globalAlpha = 0.8;
+    layers(S * 0.47, 8, 7, Math.max(1.1, 4.5 * k));          // 外圈大玫瑰
+    layers(S * 0.25, 4, 3, Math.max(1.2, 5 * k));          // 內圈小玫瑰
+    g.strokeStyle = GOLD; g.lineWidth = Math.max(1, 3 * k); g.globalAlpha = 0.8;
     [0.49, 0.30].forEach(f => { g.beginPath(); g.arc(S / 2, S / 2, S * f, 0, Math.PI * 2); g.stroke(); });
     g.globalAlpha = 1;
     const tex = new THREE.CanvasTexture(cv);
@@ -481,7 +481,7 @@ const Theater = {
         'col *= 0.45 + 0.55*pow(f, 0.6); float rim = pow(1.0 - f, 3.0); col += vec3(0.90,0.79,0.54) * rim * 0.75;' +
         'gl_FragColor = vec4(col, 1.0); }'
     });
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 32), mat);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, segs[0], segs[1]), mat);
     const group = new THREE.Group();
     group.add(mesh);
     group.userData.solidMesh = mesh;
@@ -640,39 +640,29 @@ const Theater = {
     // 跟內圈大球一樣的固定間距，難怪感覺特別空。改成間距 = 兩個相鄰球體延伸範圍的
     // 平均值 × 比例係數，球越小間距自動跟著縮小。用真3D座標驗證過比例0.2依然安全。
     const GAP_RATIO = 0.08, GROUP_BOUNDARY_MARGIN = 0.05;
+    // ★ 渾天儀改版第3步：產業球拿掉，每檔持股是自己產業環上的一顆「花紋球」，沿著環公轉。
+    // 球半徑依持股權重；環的間距改成「相鄰兩環上最大球的範圍相加」，保證不同環的球不會互相穿過；
+    // 同一環上的球等間距，環半徑也要夠大，讓一環上放得下全部持股（美股全部同一環時特別重要）。
+    const stockR = (s) => 0.22 + Math.min(0.26, ((s.price ?? s.cost) * s.shares / totalVal) * 0.7);
     const sizeInfo = sectors.map(([sector, stocks]) => {
-      const sectorVal = stocks.reduce((s,x)=>s+(x.price??x.cost)*x.shares, 0);
-      const sectorWeight = sectorVal / totalVal;
-      const sphereSize = 0.28 + Math.min(0.35, sectorWeight * 0.75);
-      const moonOrbitR = sphereSize + 0.32;
-      return { sphereSize, moonOrbitR };
+      const maxR = Math.max(...stocks.map(stockR));
+      return { sphereSize: maxR, moonOrbitR: maxR * VISUAL_SCALE + 0.1 };
     });
     const orbitRList = [];
     sizeInfo.forEach((info, i) => {
-      // ★ 核心球大小隨大盤漲跌幅浮動(最大到1.0)，第一圈半徑要動態算，不能寫死
-      if (i === 0) { orbitRList.push(Math.max(coreSize + info.moonOrbitR + 0.35, coreSize * VISUAL_SCALE * 1.6 + 0.2)); return; }
-      const isBoundary = directionFor(i) !== directionFor(i-1);
-      if (isBoundary) {
-        orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
-      } else {
-        const adaptiveGap = (sizeInfo[i-1].moonOrbitR + info.moonOrbitR) / 2 * GAP_RATIO;
-        orbitRList.push(orbitRList[i-1] + adaptiveGap);
-      }
+      const ringMinR = sectors[i][1].reduce((sum, st) => sum + 2 * stockR(st) * VISUAL_SCALE, 0) * 1.15 / (Math.PI * 2);
+      // ★ 核心球大小隨大盤漲跌幅浮動(最大到1.0)，第一圈半徑要動態算，並且要避開錶盤
+      if (i === 0) { orbitRList.push(Math.max(coreSize * VISUAL_SCALE * 1.6 + info.moonOrbitR * 0.6 + 0.15, ringMinR)); return; }
+      orbitRList.push(Math.max(orbitRList[i-1] + (sizeInfo[i-1].moonOrbitR + info.moonOrbitR) * 0.62, ringMinR));
     });
 
     sectors.forEach(([sector, stocks], i) => {
       const orbitR = orbitRList[i];
-      // ★ 修正軌道視覺太亂的問題：傾斜角範圍縮小，讓所有軌道傾斜方向比較收斂
       const seed = sector.charCodeAt(0) + sector.length;
-      // ★ 修正傾斜角度太大的問題：半徑分開不夠，如果傾斜角差異太大，3D空間中還是可能
-      // 在某個位置擦身而過。縮小傾斜範圍讓軌道接近共平面，這樣半徑間距的防撞保證才會真正生效。
-      // ★ 修正球體越大、線條貼著滑過的距離越長的問題：傾斜角的「差異」要依球體大小
-      // 自適應——球越大，需要越陡的交叉角度，才能讓穿過的線條是快速交叉而過，
-      // 不是像平行線一樣貼著滑過一大段。用sphereSize動態放大傾斜幅度。
+      // 傾斜角依該環最大球的大小自適應放大（球越大越需要陡的交叉角度）
       const sizeFactor = 1 + sizeInfo[i].sphereSize * 2;
       const tiltX = ((seed % 7) - 3) * 0.07 * sizeFactor;
       const tiltZ = ((seed % 5) - 2) * 0.084 * sizeFactor;
-      const color = sectorColors[i % sectorColors.length];
 
       const orbitHolder = new THREE.Group();
       orbitHolder.rotation.x = tiltX;
@@ -680,103 +670,32 @@ const Theater = {
       orbitHolder.position.set(offset.x, offset.y, offset.z);
       this._scene.add(orbitHolder);
 
-      const pathPts = [];
-      for (let a = 0; a <= 64; a++) { const t = (a / 64) * Math.PI * 2; pathPts.push(new THREE.Vector3(Math.cos(t) * orbitR, 0, Math.sin(t) * orbitR)); }
-      // ★ 重新理解需求：不是「離核心遠近」的固定漸層，是「球體目前公轉到哪裡，
-      // 那一段軌道就亮/粗，其餘部分自然變暗」——這是跟著即時角度動態變化的漸層，
-      // 用逐頂點顏色(vertex colors)實作，每一幀依球體當下角度重新計算亮度分布。
-      // ★ 渾天儀改版第1步：軌道改成黃銅環——統一金色，環的粗細依「這個產業占整體持股的比例」，
-      // 占比越大環越粗（0.025 ~ 0.065），讓「產業占比」這層資訊從軌道本身就看得出來
+      // ★ 黃銅環（第1步）：統一金色，環粗細依產業占整體持股比例
       const sectorShare = stocks.reduce((sum, x) => sum + (x.price ?? x.cost) * x.shares, 0) / totalVal;
       const brassWidth = 0.025 + Math.min(0.04, sectorShare * 0.1);
       const orbitGradient = this._makeGradientOrbit(orbitR, 0xC9A55C, 64, brassWidth);
       orbitGradient.line.material.opacity = 0.9;
       orbitHolder.add(orbitGradient.line);
 
-      // ★ 直接沿用預先算好的sizeInfo，不要重新算一次——要確保球體實際大小
-      // 跟軌道間距計算時用的尺寸完全一致，不然防撞保證會失真
-      const sphereSize = sizeInfo[i].sphereSize;
-
-      const planetGroup = new THREE.Group();
-      // ★ 修正中球長得太像的問題：每個產業用不同的切面細分數量(0/1/2輪流)，
-      // 就算顏色接近，切面密度不同也能幫助分辨是哪一顆
-      const detailLevel = i % 3;
-      const industrySphere = this._makeWireSphere(sphereSize * VISUAL_SCALE, color, 0.7, detailLevel);
-      planetGroup.add(industrySphere);
-      this._occluders.push(industrySphere.userData.solidMesh);
-      sys.occluders.push(industrySphere.userData.solidMesh);
-
-      const moonOrbitR = sphereSize + 0.32;
-      // ★ 同樣規則套用到小球環：改成漸層線，依「這個環上每顆小球目前的角度」動態算亮度
-      const moonRingGradient = this._makeGradientOrbit(moonOrbitR, color, 48, 0.018);
-      planetGroup.add(moonRingGradient.line);
-
-      // ★ 方向由所在半區決定（不是隨機），前半順時鐘、後半逆時鐘，
-      // 呼應驗證時的分組邏輯，同一組內轉速一致，鎖相位保證才會成立
+      // ★ 方向由所在半區決定，同一環上的球同方向、同速率、等間距
       const direction = directionFor(i);
-
-      // ★ 修正小球運動方向不一致的問題：同一個母球底下的小球方向要一致、等間距、同速率
-      const MOON_SPEED = 0.018;
-      const moons = stocks.map((s, j) => {
-        const chgPct = s.price && s.prevClose ? (s.price - s.prevClose) / s.prevClose * 100 : 0;
-        const isUp = chgPct >= 0;
-        // ★ 漲跌幅度改用顏色鮮豔度表達：波動小(接近平盤)顏色偏灰濁，波動大顏色越鮮豔飽和，
-        // 5%以上視為最大強度
+      const baseAngle = angleFor(i);
+      stocks.forEach((st, j) => {
+        const chgPct = st.price && st.prevClose ? (st.price - st.prevClose) / st.prevClose * 100 : 0;
+        // 漲跌幅度用顏色鮮豔度表達：越接近平盤越灰濁，5%以上最鮮豔
         const intensity = Math.min(1, Math.abs(chgPct) / 5);
-        const mutedColor = isUp ? new THREE.Color(0x9A4640) : new THREE.Color(0x2A7A55);
-        const vividColor = isUp ? new THREE.Color(0xFF5A4E) : new THREE.Color(0x22C17A);
-        const moonColor = mutedColor.clone().lerp(vividColor, intensity);
-        const moonColorDark = moonColor.clone().multiplyScalar(0.35);
-
-        // ★ 小球大小：這支股票佔投組總市值的比例
-        const stockVal = (s.price ?? s.cost) * s.shares;
-        const stockWeight = stockVal / totalVal;
-        // ★ 修正大小上限太容易頂到的問題：原本倍率1.3，9.6%的持股就已經跟37.7%的0050
-        // 一樣大，完全看不出身家差距。改成0.28，要接近40%單一持股才會頂滿，
-        // 讓實際常見的1~40%持股範圍都能有感的大小差異。
-        const size = 0.045 + Math.min(0.11, stockWeight * 0.28);
-
-        // ★ 修正小球太陽春的問題：改用八面體(稜角分明的幾何造型)取代純圓球
-        // 視覺放大，跟中球/核心球一樣的邏輯
-        const moonGeo = new THREE.OctahedronGeometry(size * VISUAL_SCALE, 0);
-        const moon = new THREE.Group();
-        const moonSolidMesh = new THREE.Mesh(moonGeo, new THREE.MeshBasicMaterial({ color: moonColorDark }));
-        moon.add(moonSolidMesh);
-        const moonEdges = new THREE.EdgesGeometry(moonGeo);
-        moon.add(new THREE.LineSegments(moonEdges, new THREE.LineBasicMaterial({ color: moonColor })));
-        moon.userData.spinSpeed = 0.01 + Math.random() * 0.015; // 這是小球自轉(展示切面用)，跟公轉方向是兩回事，維持各自不同沒關係
-        // ★ 修正小球沒有遮擋功能的問題：之前只有大中球被列入遮擋物清單，小球完全沒有，
-        // 導致小球後面的文字永遠透視穿過看得到。補上小球自己的實心網格。
-        this._occluders.push(moonSolidMesh);
-        sys.occluders.push(moonSolidMesh);
-
-        const angle = (j / stocks.length) * Math.PI * 2; // 已經是等間距分佈
-        const speed = MOON_SPEED * direction; // 跟母球同方向、固定速率
-        planetGroup.add(moon);
-        const spokeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.22 });
-        const spoke = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(moonOrbitR,0,0)]), spokeMat);
-        planetGroup.add(spoke);
-        return { mesh: moon, solidMesh: moonSolidMesh, spoke, angle, radius: moonOrbitR, speed, code: s.code, name: s.name, chgPct };
+        const isUp = chgPct >= 0;
+        const tint = (isUp ? new THREE.Color(0x9A4640) : new THREE.Color(0x2A7A55)).lerp(isUp ? new THREE.Color(0xFF5A4E) : new THREE.Color(0x22C17A), intensity);
+        const rs = stockR(st);
+        const ball = this._makeCoreSphere(rs * VISUAL_SCALE, tint.getHex(), 256, [32, 24]);
+        const group = new THREE.Group();
+        group.add(ball);
+        orbitHolder.add(group);
+        this._occluders.push(ball.userData.solidMesh);
+        sys.occluders.push(ball.userData.solidMesh);
+        const angle = baseAngle + j * Math.PI * 2 / stocks.length;
+        sys.planetGroups.push({ group, orbitHolder, orbitR, angle, speed: 0.001 * direction, moons: [], sector, solidMesh: ball.userData.solidMesh, orbitGradient, ball, code: st.code, name: st.name, chgPct, spin: 0.01 + Math.random() * 0.01 });
       });
-
-      // ★ 黑金改版：產業球外圍加一圈「今日漲跌」虛線環（紅=漲、綠=跌，依持股市值加權），永遠面向鏡頭
-      let secVal = 0, secChg = 0;
-      stocks.forEach((s, k) => { const v = (s.price ?? s.cost) * s.shares; secVal += v; secChg += v * moons[k].chgPct; });
-      secChg = secVal ? secChg / secVal : 0;
-      const ringR = sphereSize * VISUAL_SCALE + 0.09;
-      const ringPts = [];
-      for (let a = 0; a < 96; a++) { const t = a / 96 * Math.PI * 2; ringPts.push(new THREE.Vector3(Math.cos(t) * ringR, Math.sin(t) * ringR, 0)); }
-      const changeRing = new THREE.LineLoop(
-        new THREE.BufferGeometry().setFromPoints(ringPts),
-        new THREE.LineDashedMaterial({ color: secChg >= 0 ? 0xFF5A4E : 0x22C17A, dashSize: 0.045, gapSize: 0.06, transparent: true, opacity: Math.abs(secChg) < 0.05 ? 0.35 : 0.9 })
-      );
-      changeRing.computeLineDistances();
-      planetGroup.add(changeRing);
-
-      orbitHolder.add(planetGroup);
-      // ★ 同一方向組內轉速要一致，相對角度差才會鎖死不變——這正是驗證時的假設，
-      // 不能再用之前的 i*0.0001 遞增差異
-      sys.planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: angleFor(i), speed: 0.001 * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh, orbitGradient, moonRingGradient, changeRing });
     });
     this._buildTimeRing();
   },
@@ -809,7 +728,10 @@ const Theater = {
       sys.planetGroups.forEach(p => {
         const label = document.createElement('div');
         label.className = 'theater-3d-label';
-        label.textContent = p.sector;
+        const nm = market === 'US' ? p.code : (p.name || p.code);
+        p.labelText = nm;
+        label.innerHTML = `${nm}<br><span style="font-size:0.72em;font-weight:600;color:${p.chgPct >= 0 ? '#FF5A4E' : '#22C17A'}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(1)}%</span>`;
+        label.style.textAlign = 'center'; label.style.lineHeight = '1.2';
         // ★ 修正字級沒有真正跟著滾輪縮放的問題：之前用「世界座標半徑」算字級，
         // 但球體在螢幕上的實際大小會隨鏡頭縮放(this._zoomDistance)即時改變，
         // 兩者沒有真正綁在一起。改成字級/最大寬度都移到_updateLabels()裡，
@@ -1088,12 +1010,12 @@ const Theater = {
           // 這樣同一顆球的字級才會穩定，不同球之間的相對大小也才會真正反映球體大小。
           const sphereRadius = p.solidMesh?.geometry?.parameters?.radius || 0.3;
           const zoomFactor = 9.5 / (this._zoomDistance ?? 9.5); // 用預設縮放距離當基準
-          const maxWidthPx = sphereRadius * 260 * zoomFactor;
-          const idealFontPx = Math.max(8, Math.min(40, Math.round(sphereRadius * 55 * zoomFactor)));
+          const maxWidthPx = sphereRadius * 150 * zoomFactor;
+          const idealFontPx = Math.max(8, Math.min(26, Math.round(sphereRadius * 34 * zoomFactor)));
           // ★ 修正長產業名稱被省略號截斷的問題：不要截斷，改成依文字長度動態縮小字級，
           // 讓完整文字剛好塞進球體的可視寬度內。中文字大約跟字級等寬，用文字長度概估寬度，
           // 算出來的字級如果比「理想字級」小，就用縮小過的，確保完整顯示不被裁切。
-          const textLen = p.sector.length;
+          const textLen = (p.labelText || p.sector).length;
           const estWidthPerChar = 0.95; // 中文字寬度約略等於字級本身
           const fitFontPx = Math.floor(maxWidthPx / (textLen * estWidthPerChar));
           const fontPx = Math.max(6, Math.min(idealFontPx, fitFontPx));
@@ -1146,11 +1068,12 @@ const Theater = {
         sys.core.rotation.y += (sys.core.userData.spinSpeed || 0.0008) * this._speedMul;
         if (sys.core.userData.mat) sys.core.userData.mat.uniforms.rot.value += (sys.core.userData.spinSpeed || 0.0008) * 2.5 * this._speedMul;
       }
+      const ringAngles = new Map();
       sys.planetGroups.forEach(p => {
         p.angle += p.speed * this._speedMul;
         p.group.position.x = Math.cos(p.angle) * p.orbitR;
         p.group.position.z = Math.sin(p.angle) * p.orbitR;
-        p.group.rotation.y += 0.002 * this._speedMul;
+        if (p.ball && p.ball.userData.mat) p.ball.userData.mat.uniforms.rot.value += (p.spin || 0.012) * this._speedMul;
         p.moons.forEach(m => {
           m.angle += m.speed * this._speedMul;
           m.mesh.position.x = Math.cos(m.angle) * m.radius;
@@ -1165,9 +1088,9 @@ const Theater = {
           p.changeRing.quaternion.copy(pq.invert().multiply(this._camera.quaternion));
         }
         // ★ 依目前角度更新軌道漸層：中球軌道用中球自己的角度；小球環用「這個環上全部小球」的角度
-        if (p.orbitGradient) this._updateOrbitGradient(p.orbitGradient, [p.angle]);
-        if (p.moonRingGradient) this._updateOrbitGradient(p.moonRingGradient, p.moons.map(m => m.angle));
+        if (p.orbitGradient) { if (!ringAngles.has(p.orbitGradient)) ringAngles.set(p.orbitGradient, []); ringAngles.get(p.orbitGradient).push(p.angle); }
       });
+      ringAngles.forEach((angles, grad) => this._updateOrbitGradient(grad, angles));
     });
     if (this._stars) this._stars.rotation.y += 0.00015 * this._speedMul;
     // ★ 修正美股星系右側出現灰色弧形陰影：星雲球/星空原本固定在台股原點，
