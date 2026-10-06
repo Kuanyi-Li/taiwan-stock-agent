@@ -295,22 +295,29 @@
     <div class="calendar-page-content" id="calendar-page-content" style="display:none">
       <div class="cal-page-header">
         <div class="cal-page-nav">
-          <button class="cal-nav-btn" onclick="TradeCalendar.prevMonth()">◀</button>
-          <span class="cal-page-title" id="cal-page-title">2026年8月</span>
-          <button class="cal-nav-btn" onclick="TradeCalendar.nextMonth()">▶</button>
+          <span class="cal-page-title serif-h" id="cal-page-title">2026 年 10 月</span>
+          <button class="cal-nav-btn" onclick="TradeCalendar.prevMonth()" aria-label="上個月">‹</button>
           <button class="cal-nav-btn" onclick="TradeCalendar.goToday()">今天</button>
+          <button class="cal-nav-btn" onclick="TradeCalendar.nextMonth()" aria-label="下個月">›</button>
+          <span class="cal-mk" id="cal-market-label"></span>
         </div>
         <div class="cal-page-legend">
           <span class="cal-legend-item"><span class="cal-dot buy"></span>買進</span>
           <span class="cal-legend-item"><span class="cal-dot sell"></span>賣出</span>
           <span class="cal-legend-item"><span class="cal-dot div"></span>除權息</span>
+          <span class="cal-legend-item"><span class="cal-dot hol"></span>休市</span>
           <button class="dashboard-toggle-btn" onclick="openAddTradeModal()">＋ 新增交易</button>
         </div>
       </div>
-      <div class="cal-weekday-row">
-        <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+      <div class="cal-body">
+        <div class="cal-main">
+          <div class="cal-weekday-row">
+            <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+          </div>
+          <div id="cal-grid" class="cal-grid"></div>
+        </div>
+        <aside class="cal-aside" id="cal-aside"></aside>
       </div>
-      <div id="cal-grid" class="cal-grid"></div>
     </div>
 
     <!-- ── 個股詳細 ── -->
