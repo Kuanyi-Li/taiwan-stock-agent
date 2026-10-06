@@ -636,6 +636,52 @@ const SIGNAL = {
 
 // ── DASHBOARD module（總覽：所有持股K線+成交量+訊號卡片）──
 // 三個主畫面（總覽/個股詳細/績效）互斥切換的共用函式
+// ── UI：簡易動畫工具（頁面淡入、數字滾動、FLIP 位移）──────────────
+const UI = {
+  reduced: () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+  // 區塊淡入（重新播放 CSS 動畫）
+  enter(el) {
+    if (!el || this.reduced()) return;
+    el.classList.remove('view-enter'); void el.offsetWidth; el.classList.add('view-enter');
+  },
+  // 數字平滑滾動到新文字（保留前後綴與小數位數）
+  setNum(el, text) {
+    const re = /-?\d[\d,]*\.?\d*/;
+    const prevText = el.textContent, a = prevText.match(re), b = text.match(re);
+    cancelAnimationFrame(el._tw);
+    if (this.reduced() || !a || !b || prevText === text || !el.isConnected || el.offsetParent === null) { el.textContent = text; return; }
+    const num = x => parseFloat(x.replace(/,/g, ''));
+    const from = num(a[0]), to = num(b[0]);
+    if (!isFinite(from) || !isFinite(to) || from === to) { el.textContent = text; return; }
+    const dec = (b[0].split('.')[1] || '').length, grouped = b[0].includes(',');
+    const t0 = performance.now(), D = 550;
+    const step = now => {
+      const k = Math.min(1, (now - t0) / D), e = 1 - Math.pow(1 - k, 3);
+      let v = (from + (to - from) * e).toFixed(dec);
+      if (grouped) v = Number(v).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+      el.textContent = k < 1 ? text.replace(re, v) : text;
+      if (k < 1) el._tw = requestAnimationFrame(step);
+    };
+    el._tw = requestAnimationFrame(step);
+  },
+  // FLIP：記下元素位置 → 改順序 → 滑到新位置
+  snap(els) { const m = new Map(); els.forEach(e => m.set(e, e.getBoundingClientRect())); return m; },
+  flip(before, ms = 380) {
+    if (this.reduced()) return;
+    before.forEach((r0, el) => {
+      if (!el.isConnected) return;
+      const r1 = el.getBoundingClientRect(), dx = r0.left - r1.left, dy = r0.top - r1.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+      el.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0 0' }], { duration: ms, easing: 'cubic-bezier(.2,.7,.2,1)' });
+    });
+  },
+  syncMarket() {
+    const sw = document.querySelector('.market-switch');
+    if (sw) sw.dataset.active = APP.activeMarket;
+  },
+};
+document.addEventListener('DOMContentLoaded', () => UI.syncMarket());
+
 function showMainView(view) {
   const dv = document.getElementById('dashboard-content');
   const detail = document.getElementById('detail-content');
@@ -645,12 +691,14 @@ function showMainView(view) {
   const theater = document.getElementById('theater-content');
   const sidebar = document.querySelector('.sidebar');
   const layout = document.querySelector('.app-layout');
-  if (dv) dv.style.display = view === 'dashboard' ? '' : 'none';
-  if (detail) detail.style.display = view === 'detail' ? '' : 'none';
-  if (perf) perf.style.display = view === 'performance' ? '' : 'none';
-  if (cal) cal.style.display = view === 'calendar' ? '' : 'none';
-  if (bt) bt.style.display = view === 'backtest' ? '' : 'none';
-  if (theater) theater.style.display = view === 'theater' ? '' : 'none';
+  const showIf = (el, name) => {
+    if (!el) return;
+    const was = el.style.display !== 'none';
+    el.style.display = view === name ? '' : 'none';
+    if (view === name && !was && view !== 'theater') UI.enter(el); // 新顯示的頁面淡入
+  };
+  showIf(dv, 'dashboard'); showIf(detail, 'detail'); showIf(perf, 'performance');
+  showIf(cal, 'calendar'); showIf(bt, 'backtest'); showIf(theater, 'theater');
   // 改版：側邊欄改成頁面導覽，只有劇場模式（全螢幕3D）才隱藏
   const hideSidebar = view === 'theater';
   document.querySelectorAll('#pnav .navlink').forEach(a => {
@@ -1092,6 +1140,7 @@ const SKY = {
       outer.innerHTML = ro.map((d, i) => `<path d="${d}" fill="none" stroke="${st[i][0]}" stroke-width="${st[i][1]}" opacity="${st[i][2]}"/>`).join('');
       const inn = this._layers(n * 2, 3, 1100, 100, amp);
       const st2 = [[G, 0.45, 0.9], [tint, 0.4, 0.55], [G, 0.4, 0.6]];
+      if (!UI.reduced()) ['sky-outer', 'sky-inner'].forEach(id => { const g = document.getElementById(id); g.classList.remove('sky-morph'); void g.getBoundingClientRect(); g.classList.add('sky-morph'); });
       document.getElementById('sky-inner').innerHTML = inn.map((d, i) => `<path d="${d}" fill="none" stroke="${st2[i][0]}" stroke-width="${st2[i][1]}" opacity="${st2[i][2]}"/>`).join('');
       const bz = document.getElementById('sky-bezel');
       if (bz && !bz.getAttribute('d')) {
@@ -1146,7 +1195,7 @@ const SKY = {
       if (lane === -1) { lanes.push(p); lane = lanes.length - 1; } else lanes[lane] = p;
       const size = Math.round(12 + Math.sqrt(x.val / total * 100) * 3.2);
       const c = x.pct > 0 ? '#FF5A4E' : x.pct < 0 ? '#22C17A' : '#8E8E96';
-      return `<button class="sky-dot" style="left:${X(p).toFixed(2)}%;bottom:${BASE + lane * LANE}px;--s:${size}px" title="${x.name} ${x.pct >= 0 ? '+' : ''}${x.pct.toFixed(2)}%" onclick="NAV.pickStock('${x.code}')">
+      return `<button class="sky-dot" data-code="${x.code}" style="left:${X(p).toFixed(2)}%;bottom:${BASE + lane * LANE}px;--s:${size}px" title="${x.name} ${x.pct >= 0 ? '+' : ''}${x.pct.toFixed(2)}%" onclick="NAV.pickStock('${x.code}')">
         <svg width="${size}" height="${size}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="#000" stroke="${c}" stroke-width="1.2"/><circle cx="10" cy="10" r="5.5" fill="none" stroke="${c}" stroke-width="0.6" stroke-dasharray="1 1.4"/><circle cx="10" cy="10" r="2" fill="${c}"/></svg>
         <span>${x.name}</span></button>`;
     });
@@ -1165,8 +1214,15 @@ const SKY = {
       `<i class="sky-bench" style="left:${X(bp).toFixed(2)}%;height:${H - 36 - 14}px"></i>
        <i class="sky-bench-tri" style="left:${X(bp).toFixed(2)}%;bottom:${H - 14}px"></i>
        <span class="sky-bench-lab" style="left:${X(bp).toFixed(2)}%;bottom:${H - 26}px">${bname} <span class="num">${bp >= 0 ? '+' : ''}${bp.toFixed(2)}%</span></span>`;
+    const dotSnap = new Map();
+    el.querySelectorAll('.sky-dot').forEach(d => dotSnap.set(d.dataset.code, d.getBoundingClientRect()));
     el.style.height = (H + 6) + 'px';
     el.innerHTML = `<i class="sky-axis"></i>${ruler}${labels}${bench}${dots.join('')}`;
+    if (dotSnap.size && !UI.reduced()) el.querySelectorAll('.sky-dot').forEach(d => {
+      const r0 = dotSnap.get(d.dataset.code); if (!r0) return;
+      const r1 = d.getBoundingClientRect(), dx = r0.left - r1.left, dy = r0.top - r1.top;
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) d.animate([{ translate: `${dx}px ${dy}px` }, { translate: '0 0' }], { duration: 600, easing: 'cubic-bezier(.2,.7,.2,1)' });
+    });
     // 今日 vs 大盤
     const nm = document.getElementById('sky-bench-name');
     if (nm) nm.textContent = bname;
@@ -1192,7 +1248,11 @@ window.addEventListener('resize', () => { clearTimeout(_skyResizeT); _skyResizeT
 const INTEL = {
   _allSectors: false,
   render() {
-    this.renderAI(); this.renderSectors(); this.renderInst();
+    // 類股漲跌、三大法人只有台股資料，切到美股就隱藏
+    const us = APP.activeMarket === 'US';
+    ['intel-sec-panel', 'intel-inst-panel'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = us ? 'none' : ''; });
+    this.renderAI();
+    if (!us) { this.renderSectors(); this.renderInst(); }
   },
   async renderAI() {
     const el = document.getElementById('intel-ai');
@@ -1927,6 +1987,7 @@ const Dashboard = {
       if (!tbody) return;
       const trs = [...tbody.querySelectorAll('tr.lg-row')];
       if (!trs.length) return;
+      const flipSnap = Date.now() - (this._renderedAt || 0) > 900 ? UI.snap([...tbody.children]) : null; // 排序前的位置
       const val = tr => {
         const r = this._rows[tr.dataset.code] || {};
         return { chg: r.chgPct, sig: r.tier, pnl: r.pnl, code: tr.dataset.code }[st?.key];
@@ -1949,6 +2010,7 @@ const Dashboard = {
         tbody.appendChild(tr);
         if (x) tbody.appendChild(x);
       });
+      if (flipSnap) UI.flip(flipSnap);
     });
   },
 
@@ -1985,6 +2047,7 @@ const Dashboard = {
   },
 
   async _renderOnce() {
+    this._renderedAt = Date.now();
     const holdBody = document.querySelector('#ledger-hold tbody');
     const watchBody = document.querySelector('#ledger-watch tbody');
     if (!holdBody || !watchBody) return;
@@ -2210,7 +2273,12 @@ const Dashboard = {
     const chg = price - prev, chgPct = prev ? chg / prev * 100 : 0;
     r.price = price; r.chgPct = chgPct;
     const cc = chgColorClass(chg);
-    tr.querySelector('.lg-price').textContent = price.toFixed(2);
+    const priceEl = tr.querySelector('.lg-price'), newTxt = price.toFixed(2), oldP = parseFloat(priceEl.textContent);
+    priceEl.textContent = newTxt;
+    if (isFinite(oldP) && oldP !== price && !UI.reduced()) {
+      const cls = price > oldP ? 'flash-up' : 'flash-dn';
+      priceEl.classList.remove('flash-up', 'flash-dn'); void priceEl.offsetWidth; priceEl.classList.add(cls);
+    }
     const chgEl = tr.querySelector('.lg-chg');
     chgEl.className = 'num lg-chg ' + cc;
     chgEl.textContent = `${chg > 0 ? '▲' : chg < 0 ? '▼' : ''} ${Math.abs(chgPct).toFixed(2)}%`;
@@ -4451,6 +4519,7 @@ const APP = {
     document.querySelectorAll('.market-switch-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.market === market);
     });
+    UI.syncMarket();
     // ★ 劇場模式下：不要跑一般模式的重置邏輯，改成攝影機動畫飛到對應的星系
     if (typeof Theater !== 'undefined' && Theater._isActive) {
       Theater._marketChangedInTheater = true; // 離開劇場時補跑完整切換
@@ -4488,6 +4557,9 @@ const APP = {
     // 若總覽頁正顯示，切換市場後重新渲染（不同市場持股不同）
     const dv = document.getElementById('dashboard-content');
     if (dv && dv.style.display !== 'none') Dashboard.render();
+    ['dashboard-content', 'detail-content', 'performance-content', 'calendar-page-content', 'backtest-content'].forEach(id => {
+      const el = document.getElementById(id); if (el && el.style.display !== 'none') UI.enter(el); // 換市場：目前頁面重新淡入
+    });
   },
 
   _updateMarketStatus() {
@@ -5642,14 +5714,15 @@ function setNotification() {
 function setText(id, text, cls) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.textContent = text;
+  if (el.classList.contains('num')) UI.setNum(el, text); else el.textContent = text;
   if (cls !== undefined) el.className = el.className.replace(/\b(up|dn|neutral)\b/g,'') + ' ' + cls;
 }
 function setSignedText(id, val, fmtFn) {
   const el = document.getElementById(id);
   if (!el) return;
   const isUp = val >= 0;
-  el.textContent = (isUp ? '+' : '') + fmtFn(val);
+  const txt = (isUp ? '+' : '') + fmtFn(val);
+  if (el.classList.contains('num')) UI.setNum(el, txt); else el.textContent = txt;
   el.className = el.className.replace(/\b(up|dn|neutral)\b/g,'') + (isUp ? ' up' : ' dn');
 }
 let toastTimer = null;
