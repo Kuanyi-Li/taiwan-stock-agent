@@ -1494,10 +1494,6 @@ const Performance = {
           <div id="perf-trade-stats"></div>
         </div>
         <div class="perf-card">
-          <div class="perf-card-title">產業集中度</div>
-          <div id="perf-sector-breakdown" class="perf-sector-bar-wrap"></div>
-        </div>
-        <div class="perf-card">
           <div class="perf-card-title">單筆最佳／最差</div>
           <div id="perf-best-worst"></div>
         </div>
@@ -1506,13 +1502,15 @@ const Performance = {
           <div id="perf-period-pnl"></div>
         </div>
       </div>
-      <div class="perf-card" style="margin-bottom:14px">
-        <div class="perf-card-title">月度已實現損益</div>
-        <div class="perf-big-canvas-wrap" style="height:160px"><canvas id="perf-monthly-canvas"></canvas></div>
-      </div>
-      <div class="perf-card">
-        <div class="perf-card-title">個股累計損益</div>
-        <div id="perf-stock-ranking"></div>
+      <div class="perf-grid perf-grid-2">
+        <div class="perf-card">
+          <div class="perf-card-title">月度已實現損益</div>
+          <div class="perf-big-canvas-wrap" style="height:200px"><canvas id="perf-monthly-canvas"></canvas></div>
+        </div>
+        <div class="perf-card">
+          <div class="perf-card-title">個股累計損益</div>
+          <div id="perf-stock-ranking"></div>
+        </div>
       </div>
       <div class="perf-card" style="margin-top:14px">
         <div class="perf-card-title">AI循環階段（基建 vs 應用端輪動）</div>
@@ -1532,7 +1530,6 @@ const Performance = {
 
     this._drawNetWorthChart();
     this._renderTradeStats();
-    this._renderSectorBreakdown();
     this._renderBestWorst();
     this._renderPeriodPnl();
     this._drawMonthlyPnlChart();
@@ -1674,7 +1671,7 @@ const Performance = {
     const canvas = document.getElementById('perf-monthly-canvas');
     if (!canvas) return;
     const wrap = canvas.parentElement;
-    const W = wrap.clientWidth || 600, H = 160;
+    const W = wrap.clientWidth || 600, H = wrap.clientHeight || 200;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = W * dpr; canvas.height = H * dpr;
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
@@ -1891,22 +1888,6 @@ const Performance = {
       <div class="perf-stat-row"><span class="perf-stat-name">平均持有天數</span><span class="perf-stat-num">${avgHold!=null?avgHold+'天':'—'}</span></div>`;
   },
 
-  _renderSectorBreakdown() {
-    const el = document.getElementById('perf-sector-breakdown');
-    if (!el) return;
-    const portfolio = APP.portfolio;
-    if (!portfolio.length) { el.innerHTML = '<div class="empty-state" style="padding:10px 0">尚無持股</div>'; return; }
-    const bySectorPct = calcSectorWeights('ALL');
-    const sorted = Object.entries(bySectorPct).map(([sector,weight])=>({sector,pct:weight*100})).sort((a,b)=>b.pct-a.pct);
-    const colors = ['#FF5A4E','#eab308','#37adf0','#22C17A','#a78bfa','#f97316'];
-    el.innerHTML = sorted.map((s,i) => `
-      <div class="perf-sector-row">
-        <span class="perf-sector-name">${s.sector}</span>
-        <div class="perf-sector-track"><div class="perf-sector-fill" style="width:${s.pct}%;background:${colors[i%colors.length]}"></div></div>
-        <span class="perf-sector-pct">${s.pct.toFixed(0)}%</span>
-      </div>`).join('');
-  },
-
   _renderBestWorst() {
     const el = document.getElementById('perf-best-worst');
     if (!el) return;
@@ -1917,7 +1898,7 @@ const Performance = {
     const worst = sorted.slice(-3).reverse().filter(t => !best.includes(t));
     const row = (t, isBest) => `<div class="perf-trade-item"><span>${t.code} ${t.name}</span><span style="color:${isBest?'#FF5A4E':'#22C17A'};font-weight:700">${t.realizedPnl>=0?'+':''}${t.realizedPnl.toFixed(0)}元</span></div>`;
     el.innerHTML = `
-      <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">🥇 最佳</div>
+      <div style="font-size:11px;color:var(--text-3);margin-bottom:4px">單筆最佳</div>
       ${best.map(t => row(t, true)).join('') || '<div class="empty-state" style="padding:4px 0">—</div>'}
       <div style="font-size:11px;color:var(--text-3);margin:10px 0 4px">單筆最差</div>
       ${worst.map(t => row(t, false)).join('') || '<div class="empty-state" style="padding:4px 0">—</div>'}`;
