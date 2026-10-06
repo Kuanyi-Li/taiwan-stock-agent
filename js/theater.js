@@ -203,13 +203,13 @@ const Theater = {
       starPositions[i*3+2] = r * Math.sin(phi) * Math.sin(theta);
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-    const starMat = new THREE.PointsMaterial({ color: 0x9aa8ba, size: 0.06, map: starTexture, transparent: true, opacity: 0.7, depthWrite: false });
+    const starMat = new THREE.PointsMaterial({ color: 0xB4B4BC, size: 0.06, map: starTexture, transparent: true, opacity: 0.7, depthWrite: false });
     this._stars = new THREE.Points(starGeo, starMat);
     this._scene.add(this._stars);
 
     // 遠景星雲光暈：一顆極大半徑、極低透明度的實心球，從內部包住整個場景，製造深邃感
     const nebulaGeo = new THREE.SphereGeometry(28, 16, 16);
-    const nebulaMat = new THREE.MeshBasicMaterial({ color: 0x1a2540, transparent: true, opacity: 0.18, side: THREE.BackSide });
+    const nebulaMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, side: THREE.BackSide }); // 黑金改版：純黑底，不要藍色星雲
     this._nebula = new THREE.Mesh(nebulaGeo, nebulaMat);
     this._scene.add(this._nebula);
 
@@ -623,10 +623,24 @@ const Theater = {
         return { mesh: moon, solidMesh: moonSolidMesh, spoke, angle, radius: moonOrbitR, speed, code: s.code, name: s.name, chgPct };
       });
 
+      // ★ 黑金改版：產業球外圍加一圈「今日漲跌」虛線環（紅=漲、綠=跌，依持股市值加權），永遠面向鏡頭
+      let secVal = 0, secChg = 0;
+      stocks.forEach((s, k) => { const v = (s.price ?? s.cost) * s.shares; secVal += v; secChg += v * moons[k].chgPct; });
+      secChg = secVal ? secChg / secVal : 0;
+      const ringR = sphereSize * VISUAL_SCALE + 0.09;
+      const ringPts = [];
+      for (let a = 0; a < 96; a++) { const t = a / 96 * Math.PI * 2; ringPts.push(new THREE.Vector3(Math.cos(t) * ringR, Math.sin(t) * ringR, 0)); }
+      const changeRing = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints(ringPts),
+        new THREE.LineDashedMaterial({ color: secChg >= 0 ? 0xFF5A4E : 0x22C17A, dashSize: 0.045, gapSize: 0.06, transparent: true, opacity: Math.abs(secChg) < 0.05 ? 0.35 : 0.9 })
+      );
+      changeRing.computeLineDistances();
+      planetGroup.add(changeRing);
+
       orbitHolder.add(planetGroup);
       // ★ 同一方向組內轉速要一致，相對角度差才會鎖死不變——這正是驗證時的假設，
       // 不能再用之前的 i*0.0001 遞增差異
-      sys.planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: angleFor(i), speed: 0.001 * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh, orbitGradient, moonRingGradient });
+      sys.planetGroups.push({ group: planetGroup, orbitHolder, orbitR, angle: angleFor(i), speed: 0.001 * direction, moons, sector, solidMesh: industrySphere.userData.solidMesh, orbitGradient, moonRingGradient, changeRing });
     });
     this._buildTimeRing();
   },
@@ -971,6 +985,7 @@ const Theater = {
     const now = new Date();
     const day = now.getDay();
     if (day === 0 || day === 6) return false;
+    if (typeof HOLIDAYS !== 'undefined' && HOLIDAYS.isHolidayNow('TW')) return false; // 國定假日休市
     const h = now.getHours(), m = now.getMinutes();
     const mins = h * 60 + m;
     return mins >= 9*60 && mins <= 13*60+30;
@@ -1002,6 +1017,12 @@ const Theater = {
           m.mesh.rotation.y += (m.mesh.userData.spinSpeed || 0.012) * this._speedMul;
           m.mesh.rotation.x += (m.mesh.userData.spinSpeed || 0.012) * 0.6 * this._speedMul;
         });
+        // 漲跌虛線環：抵銷父層旋轉，讓圓環永遠正對鏡頭
+        if (p.changeRing && this._camera) {
+          p.group.updateWorldMatrix(true, false);
+          const pq = new THREE.Quaternion(); p.group.getWorldQuaternion(pq);
+          p.changeRing.quaternion.copy(pq.invert().multiply(this._camera.quaternion));
+        }
         // ★ 依目前角度更新軌道漸層：中球軌道用中球自己的角度；小球環用「這個環上全部小球」的角度
         if (p.orbitGradient) this._updateOrbitGradient(p.orbitGradient, [p.angle]);
         if (p.moonRingGradient) this._updateOrbitGradient(p.moonRingGradient, p.moons.map(m => m.angle));
