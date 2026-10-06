@@ -226,25 +226,23 @@
     </div>
 
     <!-- ── 回測沙盒（Backtest）── -->
-    <div class="performance-content" id="backtest-content" style="display:none">
-      <div class="perf-card" style="margin-bottom:14px">
-        <div class="perf-card-title">🧪 回測現有買賣訊號邏輯</div>
-        <div class="form-note" style="margin-bottom:10px">用你目前的持股，套用現有的買賣訊號邏輯回測歷史表現。</div>
-        <div style="display:flex;gap:8px;margin-bottom:10px">
-          <button class="bt-market-btn perf-period-btn active" data-market="TW" onclick="Backtest._setMarket('TW')">台股</button>
-          <button class="bt-market-btn perf-period-btn" data-market="US" onclick="Backtest._setMarket('US')">美股</button>
+    <div class="performance-content bt-page" id="backtest-content" style="display:none">
+      <div class="bt-head">
+        <div>
+          <h1 class="serif">回測</h1>
+          <p>用你目前的持股，套現有買賣訊號跑一次歷史</p>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-          <button class="bt-range-btn perf-period-btn" data-idx="0" onclick="Backtest._setRange(0)">近3個月</button>
-          <button class="bt-range-btn perf-period-btn active" data-idx="1" onclick="Backtest._setRange(1)">近6個月</button>
-          <button class="bt-range-btn perf-period-btn" data-idx="2" onclick="Backtest._setRange(2)">近1年</button>
+        <div class="bt-ctl">
+          <div class="bt-seg" role="group" aria-label="期間">
+            <button type="button" class="bt-range-btn" data-idx="0" aria-pressed="false" onclick="Backtest._setRange(0)">3 個月</button>
+            <button type="button" class="bt-range-btn" data-idx="1" aria-pressed="true" onclick="Backtest._setRange(1)">6 個月</button>
+            <button type="button" class="bt-range-btn" data-idx="2" aria-pressed="false" onclick="Backtest._setRange(2)">1 年</button>
+          </div>
+          <label class="bt-cool"><input type="checkbox" id="bt-use-cooldown" checked> 7 天冷卻期</label>
+          <button class="bt-run" onclick="Backtest.runFromUI()">開始回測</button>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-bottom:10px">
-          <input type="checkbox" id="bt-use-cooldown" checked> 套用7天冷卻期（賣出後短期內不重新買進，減少頻繁進出被巴）
-        </label>
-        <button class="btn-primary" style="width:100%" onclick="Backtest.runFromUI()">開始回測</button>
       </div>
-      <div id="bt-body"><div class="empty-state">選擇市場、回測期間後按「開始回測」</div></div>
+      <div id="bt-body"><div class="empty-state">選擇回測期間後按「開始回測」（市場跟隨上方台股／美股切換）</div></div>
     </div>
 
     <!-- ── 劇場模式（Theater）── -->

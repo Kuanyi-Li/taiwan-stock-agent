@@ -4050,24 +4050,18 @@ const Backtest = {
   },
 
   _setRange(idx) {
-    document.querySelectorAll('.bt-range-btn').forEach(b => b.classList.toggle('active', b.dataset.idx === String(idx)));
-  },
-
-  _setMarket(m) {
-    document.querySelectorAll('.bt-market-btn').forEach(b => b.classList.toggle('active', b.dataset.market === m));
+    document.querySelectorAll('.bt-range-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.idx === String(idx))));
   },
 
   async runFromUI() {
-    const rangeIdx = parseInt(document.querySelector('.bt-range-btn.active')?.dataset.idx ?? '1');
+    const rangeIdx = parseInt(document.querySelector('.bt-range-btn[aria-pressed="true"]')?.dataset.idx ?? '1');
     const rangeDays = this.RANGE_OPTIONS[rangeIdx].days;
-    const market = document.querySelector('.bt-market-btn.active')?.dataset.market ?? 'TW';
+    const market = APP.activeMarket === 'US' ? 'US' : 'TW';
     const useCooldown = document.getElementById('bt-use-cooldown')?.checked ?? true;
     const body = document.getElementById('bt-body');
     body.innerHTML = '<div class="empty-state">回測計算中，需要抓取每支持股的完整歷史資料，請稍候...</div>';
 
-    // ★ 修正：兩個模式改成依序執行，不要用 Promise.all 並行——
-    // 實測發現並行時，兩邊同時對同一批股票抓歷史資料，會互相干擾導致其中一個意外失敗
-    // （共用的資料快取機制沒有處理好同時重複請求同一支股票的情況）
+    // ★ 兩個模式依序執行，不要並行——並行時對同一批股票重複抓歷史資料會互相干擾
     const longResult = await this.run(rangeDays, 'long', market, useCooldown);
     const shortResult = await this.run(rangeDays, 'short', market, useCooldown);
 
@@ -4078,76 +4072,85 @@ const Backtest = {
     this._renderResults(longResult, shortResult, market, useCooldown);
   },
 
+  // 權益曲線 → 累積報酬 %（以投入本金為基準）
+  _pct(curve, cap) { return curve.map(p => (p.value / cap - 1) * 100); },
+
+  _chartSVG(L, S) {
+    const base = L || S;
+    const cap = base.totalCapital || 1;
+    const bh = this._pct(base.buyHoldCurve, cap);
+    const lg = L ? this._pct(L.equityCurve, cap) : null;
+    const sh = S ? this._pct(S.equityCurve, cap) : null;
+    const N = bh.length, W = 836, top = 12, bot = 236;
+    const all = [...bh, ...(lg || []), ...(sh || []), 0];
+    let hi = Math.max(...all), lo = Math.min(...all);
+    const padv = (hi - lo) * 0.08 || 5; hi += padv; lo -= padv;
+    const Y = v => top + (hi - v) / (hi - lo) * (bot - top), X = i => N > 1 ? i / (N - 1) * W : 0;
+    const path = a => a.map((v, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1)).join('');
+    // 長線回撤（水下圖）
+    let ddArea = '', ddMin = 0;
+    if (lg) {
+      let peak = -Infinity;
+      const dd = lg.map(v => { const eq = 1 + v / 100; peak = Math.max(peak, eq); return (eq / peak - 1) * 100; });
+      ddMin = Math.min(...dd) || -1;
+      const ddY = v => 252 + (v / (ddMin || -1)) * 66;
+      ddArea = 'M0 252' + dd.map((v, i) => 'L' + X(i).toFixed(1) + ' ' + ddY(v).toFixed(1)).join('') + `L${W} 252Z`;
+    }
+    let grid = '';
+    const step = (hi - lo) > 120 ? 50 : (hi - lo) > 50 ? 20 : 10;
+    for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) grid += `<path d="M0 ${Y(v).toFixed(1)}H${W}" stroke="#1E1E23"/><text x="${W + 6}" y="${(Y(v) + 4).toFixed(1)}" fill="#5A5A62" font-size="10" font-family="IBM Plex Sans">${v}%</text>`;
+    const last = a => a[a.length - 1];
+    const lbl = (v, c, t) => `<text x="${W + 6}" y="${(Y(v) + 4).toFixed(1)}" fill="${c}" font-size="12" font-family="IBM Plex Sans">${t}</text>`;
+    const f = v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+    return `<svg width="100%" viewBox="0 0 900 330" aria-hidden="true" style="display:block;height:auto">
+      <defs><pattern id="bt-dd" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="1" height="4" fill="#22C17A" opacity="0.8"/></pattern></defs>
+      ${grid}
+      <path d="M0 ${Y(0).toFixed(1)}H${W}" stroke="#5A5A62" stroke-dasharray="2 3"/>
+      <path d="${path(bh)}" stroke="#ECECEC" stroke-width="1.5" fill="none"/>
+      ${lg ? `<path d="${path(lg)}" stroke="#C9A55C" stroke-width="1.8" fill="none"/>` : ''}
+      ${sh ? `<path d="${path(sh)}" stroke="#C9A55C" stroke-width="1.4" fill="none" stroke-dasharray="5 3"/>` : ''}
+      ${lg ? `<path d="M0 252H${W}" stroke="#26262B"/><path d="${ddArea}" fill="url(#bt-dd)"/><text x="4" y="266" fill="#5A5A62" font-size="10" font-family="IBM Plex Sans">長線回撤</text><text x="${W + 6}" y="326" fill="#22C17A" font-size="11" font-family="IBM Plex Sans">−${Math.abs(ddMin).toFixed(1)}%</text>` : ''}
+      <path d="M${W} 0V330" stroke="#3A3A42"/>
+      ${lbl(last(bh), '#ECECEC', f(last(bh)))}
+      ${lg ? lbl(last(lg), '#C9A55C', f(last(lg))) : ''}
+      ${sh ? lbl(last(sh), '#C9A55C', f(last(sh))) : ''}
+    </svg>`;
+  },
+
   _renderResults(longResult, shortResult, market, useCooldown) {
     const body = document.getElementById('bt-body');
     const isUS = market === 'US';
-    const cur = isUS ? '$' : 'NT$';
-    const renderOne = (r, label) => {
-      if (!r) return `<div class="empty-state">${label}：資料不足</div>`;
-      const outperform = r.totalReturn - r.bhReturn;
-      return `
-        <div class="perf-card" style="margin-bottom:14px">
-          <div class="perf-card-title">${label}（${r.startDate} ～ ${r.endDate}）</div>
-          ${r.skipped?.length ? `<div class="form-note" style="margin-bottom:8px;color:#eab308">⚠️ ${r.skipped.join('、')} 這次資料抓取失敗，已排除在這次回測外（沒有用假資料湊數）</div>` : ''}
-          <div class="perf-grid" style="margin-bottom:10px">
-            <div class="perf-stat-row"><span class="perf-stat-name">訊號策略總報酬</span><span class="perf-stat-num" style="color:${r.totalReturn>=0?'#E24B4A':'#1D9E75'}">${r.totalReturn>=0?'+':''}${r.totalReturn.toFixed(1)}%</span></div>
-            <div class="perf-stat-row"><span class="perf-stat-name">單純買進持有（對照組）</span><span class="perf-stat-num" style="color:${r.bhReturn>=0?'#E24B4A':'#1D9E75'}">${r.bhReturn>=0?'+':''}${r.bhReturn.toFixed(1)}%</span></div>
-            <div class="perf-stat-row"><span class="perf-stat-name">超額報酬</span><span class="perf-stat-num" style="color:${outperform>=0?'#E24B4A':'#1D9E75'}">${outperform>=0?'+':''}${outperform.toFixed(1)}%</span></div>
-            <div class="perf-stat-row"><span class="perf-stat-name">交易次數（完整買賣一輪）</span><span class="perf-stat-num">${r.tradeCount}</span></div>
-            <div class="perf-stat-row"><span class="perf-stat-name">勝率</span><span class="perf-stat-num">${r.winRate!=null ? r.winRate.toFixed(0)+'%' : '—（無已平倉交易）'}</span></div>
-            <div class="perf-stat-row"><span class="perf-stat-name">最大回撤</span><span class="perf-stat-num" style="color:#1D9E75">-${r.maxDrawdown.toFixed(1)}%</span></div>
-          </div>
-          <div class="perf-big-canvas-wrap" style="height:180px"><canvas id="bt-canvas-${label}"></canvas></div>
-        </div>`;
+    const base = longResult || shortResult;
+    const up = v => v >= 0 ? 'var(--red)' : 'var(--green-l)';
+    const sg = v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+    const card = (r, title) => {
+      if (!r) return `<section class="bt-panel"><h2 class="serif">${title}</h2><div class="empty-state">資料不足</div></section>`;
+      const diff = r.totalReturn - r.bhReturn;
+      return `<section class="bt-panel"><h2 class="serif">${title}</h2>
+        ${r.skipped?.length ? `<div class="bt-warn">${r.skipped.join('、')} 資料抓取失敗，已排除在這次回測外（沒有用假資料湊數）</div>` : ''}
+        <div class="bt-big">
+          <div><div class="k">策略報酬</div><div class="v" style="color:${up(r.totalReturn)}">${sg(r.totalReturn)}</div></div>
+          <div><div class="k">${diff >= 0 ? '領先' : '落後'}買進持有</div><div class="v" style="color:${up(diff)}">${Math.abs(diff).toFixed(1)} 點</div></div>
+        </div>
+        <div class="bt-row"><span class="k">完整買賣次數</span><span class="num">${r.tradeCount}</span></div>
+        <div class="bt-row"><span class="k">勝率</span><span class="num">${r.winRate != null ? r.winRate.toFixed(0) + '%' : '—（無已平倉交易）'}</span></div>
+        <div class="bt-row"><span class="k">最大回撤</span><span class="num" style="color:var(--green-l)">−${r.maxDrawdown.toFixed(1)}%</span></div>
+      </section>`;
     };
-
     body.innerHTML = `
-      <div class="form-note" style="margin-bottom:14px">⚠️ 這是用你目前${isUS?'美股':'台股'}持股的歷史資料回測「現有買賣訊號邏輯」，不是另外訓練的模型。訊號在收盤後才算得出來，成交一律用「隔天開盤價」，避免用到不可能拿到的價格。這份資料也是調整訊號門檻時參考過的同一批歷史資料，好看的結果不能排除「湊巧貼合過去」，不保證對未來同樣有效。回測中VIX調整固定關閉（沒有逐日歷史VIX資料，用現在的VIX套用在過去會偷看未來，所以不用）——這代表即時系統看到的訊號，可能會比回測結果更容易觸發買進（如果現在剛好VIX偏高）。${isUS ? '美股假設無交易手續費、無交易稅（實際費用依券商而定，這裡是簡化假設）。' : '手續費、證交稅已計入。'}　${useCooldown ? `✅ 已套用${Backtest.COOLDOWN_DAYS}天冷卻期（賣出後短期內不重新買進）。` : '⬜ 未套用冷卻期（原始訊號邏輯）。'}</div>
-      ${renderOne(longResult, '長線模式')}
-      ${renderOne(shortResult, '短線模式')}
-    `;
-
-    if (longResult) this._drawEquityChart('bt-canvas-長線模式', longResult);
-    if (shortResult) this._drawEquityChart('bt-canvas-短線模式', shortResult);
-  },
-
-  _drawEquityChart(canvasId, r) {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
-    const wrap = canvas.parentElement;
-    const W = wrap.clientWidth || 600, H = 180;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W+'px'; canvas.style.height = H+'px';
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0,0,W,H);
-
-    const PAD = { l:56, r:12, t:10, b:20 };
-    const chartW = W-PAD.l-PAD.r, chartH = H-PAD.t-PAD.b;
-    const allVals = [...r.equityCurve.map(p=>p.value), ...r.buyHoldCurve.map(p=>p.value)];
-    const minV = Math.min(...allVals), maxV = Math.max(...allVals);
-    const range = (maxV-minV) || 1;
-    const n = r.equityCurve.length;
-    const xOf = i => PAD.l + (i/(n-1)) * chartW;
-    const yOf = v => PAD.t + chartH - ((v-minV)/range) * chartH;
-
-    const isDark = true; // 淺色模式已移除，固定深色
-    ctx.font = '11px sans-serif'; ctx.textAlign='right'; ctx.fillStyle = isDark?'#8b949e':'#57606a';
-    [0,0.5,1].forEach(f => {
-      const y = PAD.t + f*chartH;
-      ctx.strokeStyle = isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.1)';
-      ctx.beginPath(); ctx.moveTo(PAD.l,y); ctx.lineTo(W-PAD.r,y); ctx.stroke();
-      ctx.fillText(Math.round(maxV-f*range).toLocaleString(), PAD.l-6, y+4);
-    });
-
-    const drawLine = (curve, color) => {
-      ctx.beginPath();
-      curve.forEach((p,i) => { const x=xOf(i), y=yOf(p.value); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
-      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
-    };
-    drawLine(r.buyHoldCurve, '#8b949e');
-    drawLine(r.equityCurve, '#378ADD');
+      <section class="bt-panel bt-grid" aria-labelledby="bt-cmp">
+        <span class="crop tl"></span><span class="crop br"></span>
+        <div class="bt-ph"><h2 id="bt-cmp" class="serif">訊號策略 vs 買進持有</h2><span class="num sub" style="font-size:12px;color:var(--text-3)">${base.startDate} – ${base.endDate}</span></div>
+        <div class="bt-leg">
+          <span><i style="background:#ECECEC"></i>買進持有</span>
+          ${longResult ? '<span><i style="background:#C9A55C"></i>長線訊號</span>' : ''}
+          ${shortResult ? '<span><i class="dash"></i>短線訊號</span>' : ''}
+          ${longResult ? '<span><i class="hatch"></i>長線回撤</span>' : ''}
+        </div>
+        ${this._chartSVG(longResult, shortResult)}
+      </section>
+      <div class="bt-cards">${card(longResult, '長線模式')}${card(shortResult, '短線模式')}</div>
+      <p class="bt-note">成交一律用隔天開盤價，${isUS ? '美股假設無手續費與交易稅（簡化）' : '手續費與證交稅已計入'}。${useCooldown ? `已套用 ${Backtest.COOLDOWN_DAYS} 天冷卻期（賣出後短期內不重新買進）。` : '未套用冷卻期（原始訊號邏輯）。'}回測中 VIX 調整固定關閉（沒有逐日歷史 VIX，用現在的值會偷看未來），所以即時系統的訊號可能比回測更容易觸發買進。這批歷史資料也用來調過訊號門檻，好看的結果可能只是貼合過去，不保證對未來有效。</p>`;
   },
 };
 
