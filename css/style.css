@@ -1493,3 +1493,30 @@ body:not(.theater-active) .market-switch-btn.active { background: none; color: #
 .cal-up .num, .cal-tag { white-space: nowrap; }
 .cal-up .num { min-width: 78px; }
 .cal-aside { width: 280px; }
+
+/* ── 日曆 v2：休市斜線加深、字級加大、右欄對齊、右下花紋 ── */
+.cal-weekday-row { height: 34px; box-sizing: border-box; padding: 0; align-items: center; font-size: 14px; font-weight: 500; color: var(--text-2); margin-bottom: 4px; }
+.cal-aside { margin-top: 38px; position: relative; }
+.cal-aside-body { display: flex; flex-direction: column; gap: 12px; flex-shrink: 0; position: relative; z-index: 1; }
+.cal-deco { flex: 1; min-height: 140px; pointer-events: none;
+  background-repeat: repeat-x, repeat; background-position: left bottom 6px, left bottom 24px; background-size: 32px 18px, 120px 120px;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 12%, rgba(0,0,0,.55) 40%, rgba(0,0,0,.15) 70%, transparent 100%);
+          mask-image: linear-gradient(to top, #000 0%, #000 12%, rgba(0,0,0,.55) 40%, rgba(0,0,0,.15) 70%, transparent 100%); }
+.cal-day-cell.closed { background: repeating-linear-gradient(135deg, rgba(201,165,92,.20) 0 1.5px, transparent 1.5px 8px), var(--bg-1); }
+.cal-day-cell.holiday { background: repeating-linear-gradient(135deg, rgba(201,165,92,.34) 0 1.5px, rgba(201,165,92,.07) 1.5px 8px), var(--bg-1); border-color: rgba(201,165,92,.45); }
+.cal-day-cell.closed .cal-day-num { color: var(--text-2); }
+.cal-day-cell.other-month { opacity: .45; }
+.cal-day-num { font-size: 19px; font-weight: 600; }
+.cal-hol-name { font-size: 14px; font-weight: 500; color: var(--gold-l); }
+.cal-event { font-size: 14px; padding: 2px 7px; margin-top: 2px; }
+.cal-day-cell { padding: 7px 9px; }
+.cal-legend-item { font-size: 14px; }
+.cal-mk { font-size: 14px; }
+.cal-nav-btn { font-size: 16px; padding: 5px 14px; }
+.cal-page-title { font-size: 28px; }
+.cal-panel-title { font-size: 18px; }
+.cal-stat { font-size: 15px; padding: 6px 0; }
+.cal-up { font-size: 15px; padding: 7px 0; }
+.cal-up .num { min-width: 92px; }
+.cal-tag { font-size: 12px; padding: 0 6px; }
+.cal-aside { width: 310px; }

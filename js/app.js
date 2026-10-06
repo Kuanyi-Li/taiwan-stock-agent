@@ -925,11 +925,10 @@ const PORCELAIN = {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="18" viewBox="0 0 32 18"><path d="M0 1 H32 M0 17 H32" stroke="${c1}" stroke-width="1"/><path d="${p}" fill="none" stroke="${c1}" stroke-width="1.1"/></svg>`;
   },
   apply(variant) {
-    const el = document.getElementById('nav-porcelain');
-    if (!el) return;
     const [c1, c2] = this.COLORS[variant] || this.COLORS.gold;
     const enc = s => `url("data:image/svg+xml;utf8,${encodeURIComponent(s)}")`;
-    el.style.backgroundImage = `${enc(this._meander(c1))}, ${enc(this._svg(c1, c2))}`;
+    const img = `${enc(this._meander(c1))}, ${enc(this._svg(c1, c2))}`;
+    document.querySelectorAll('#nav-porcelain, .cal-deco').forEach(el => { el.style.backgroundImage = img; });
   },
 };
 
