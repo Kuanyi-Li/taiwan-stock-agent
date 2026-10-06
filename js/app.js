@@ -1416,9 +1416,21 @@ const HOLIDAYS = {
         if (m2) m = m2;
       }
       if (!m) continue;
-      out[this._ymd(+m[1], +m[2], +m[3])] = /無交易/.test(name) ? '休市' : (name.replace(/[（(].*$/, '') || '休市');
+      out[this._ymd(+m[1], +m[2], +m[3])] = this._short(name);
     }
     return out;
+  },
+  // 證交所名稱很長，縮成日曆放得下的簡稱
+  _short(name) {
+    const rules = [
+      [/無交易/, '休市'], [/光復/, '光復節'], [/開國|元旦/, '元旦'], [/春節|除夕/, '春節'],
+      [/和平紀念/, '和平紀念日'], [/兒童節|清明/, '清明'], [/掃墓/, '清明'], [/勞動/, '勞動節'],
+      [/端午/, '端午'], [/中秋/, '中秋'], [/孔子|教師/, '教師節'], [/國慶/, '國慶日'],
+      [/行憲/, '行憲日'], [/調整放假|補班/, '調整放假'],
+    ];
+    const hit = rules.find(([re]) => re.test(name));
+    if (hit) return hit[1];
+    return name.replace(/[（(].*$/, '').replace(/紀念日$/, '').slice(0, 6) || '休市';
   },
   async loadTW(year) {
     if (this._tw[year]) return this._tw[year];
