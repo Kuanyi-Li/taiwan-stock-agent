@@ -134,9 +134,7 @@ body {
 .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .logo { display: flex; align-items: center; gap: 10px; font-family: var(--font-serif); font-weight: 900; font-size: 18px; letter-spacing: 0.06em; white-space: nowrap; color: var(--text-1); }
 .logo-mark { width: 28px; height: 28px; color: var(--gold); flex-shrink: 0; }
-.logo-mark.spin { animation: logo-spin 60s linear infinite; }
 @keyframes logo-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .logo-mark.spin { animation: none; } }
 /* 台股／美股：金色分段按鈕 */
 .market-switch { display: flex; border: 1px solid #2E2E34; flex-shrink: 0; }
 .market-switch-btn { background: none; border: none; font: inherit; font-size: 13px; padding: 5px 14px; color: var(--text-2); cursor: pointer; white-space: nowrap; }
@@ -1178,9 +1176,6 @@ body.theater-active .market-switch-btn.active {
 .sky-rosette { flex: none; position: relative; width: 300px; height: 300px; }
 .sky-layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .sky-rot { position: absolute; inset: 0; }
-.sky-rot.spin { animation: logo-spin 60s linear infinite; }
-.sky-rot.spinr { animation: logo-spin 90s linear infinite reverse; }
-@media (prefers-reduced-motion: reduce) { .sky-rot.spin, .sky-rot.spinr { animation: none; } }
 .sky-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; }
 .sky-center-k { font-size: 12px; color: var(--text-3); }
 .sky-center-v { font-family: var(--font-serif); font-size: 26px; font-weight: 900; line-height: 1.2; max-width: 128px; overflow-wrap: anywhere; }
