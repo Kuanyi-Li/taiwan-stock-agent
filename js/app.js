@@ -1188,6 +1188,66 @@ const SKY = {
 let _skyResizeT = null;
 window.addEventListener('resize', () => { clearTimeout(_skyResizeT); _skyResizeT = setTimeout(() => SKY.renderSwarm(), 200); });
 
+// ── INTEL：總覽下方「市場情報」（AI 循環／類股漲跌／持股法人；由績效頁搬來，步驟 8）──
+const INTEL = {
+  _allSectors: false,
+  render() {
+    this.renderAI(); this.renderSectors(); this.renderInst();
+  },
+  async renderAI() {
+    const el = document.getElementById('intel-ai');
+    if (!el) return;
+    try {
+      const r = await AICycle.compute();
+      const p = r.phase;
+      const pc = v => v == null ? '<span class="num">—</span>' : `<span class="num ${v >= 0 ? 'up' : 'dn'}">${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%</span>`;
+      const n = Math.min(r.infraSeries.length, r.appSeries.length);
+      const a = r.infraSeries.slice(-n), b = r.appSeries.slice(-n);
+      const all = [...a, ...b], lo = Math.min(...all), hi = Math.max(...all), rg = (hi - lo) || 1;
+      const path = arr => arr.map((v, i) => `${i ? 'L' : 'M'}${(i / Math.max(1, n - 1) * 520).toFixed(1)} ${(110 - (v - lo) / rg * 100).toFixed(1)}`).join(' ');
+      el.innerHTML = `
+        <div class="in-phase"><span class="in-phase-n">${p.label}</span><span class="in-desc">${p.desc}</span></div>
+        <div class="in-two">
+          <div><div class="in-k">基建籃子　台積電／NVDA／ASML／AMD／費半</div><div class="da-row"><span>20 日</span>${pc(r.infraRet20)}</div><div class="da-row"><span>60 日</span>${pc(r.infraRet60)}</div></div>
+          <div><div class="in-k">應用籃子　GOOGL／AAPL／MSFT／META</div><div class="da-row"><span>20 日</span>${pc(r.appRet20)}</div><div class="da-row"><span>60 日</span>${pc(r.appRet60)}</div></div>
+        </div>
+        <svg viewBox="0 0 520 120" width="100%" height="120" preserveAspectRatio="none" aria-hidden="true"><path d="M0 60H520" stroke="#1E1E22"/><path d="${path(b)}" stroke="#8E8E96" stroke-width="1.4" fill="none" stroke-dasharray="5 3" vector-effect="non-scaling-stroke"/><path d="${path(a)}" stroke="#C9A55C" stroke-width="1.8" fill="none" vector-effect="non-scaling-stroke"/></svg>
+        <div class="in-legend"><span><i class="lg-gold"></i>基建</span><span><i class="lg-dash"></i>應用</span><span class="in-note">用股價相對強度推論的代理指標，非基本面分析，僅供留意</span></div>`;
+    } catch (e) { el.innerHTML = '<div class="da-empty">計算失敗，稍後重試</div>'; }
+  },
+  async renderSectors() {
+    const el = document.getElementById('intel-sec');
+    if (!el) return;
+    const list = await DATA.fetchSectorRanking();
+    const btn = document.getElementById('intel-sec-toggle');
+    if (!list.length) { el.innerHTML = '<div class="da-empty">暫無資料</div>'; if (btn) btn.style.display = 'none'; return; }
+    const rows = this._allSectors ? list : [...list.slice(0, 5), ...list.slice(-5)].filter((x, i, arr) => arr.indexOf(x) === i);
+    const mx = Math.max(...list.map(x => Math.abs(x.chgPct)), 1);
+    el.innerHTML = rows.map(x => {
+      const up = x.chgPct >= 0, w = Math.abs(x.chgPct) / mx * 50;
+      return `<div class="in-sr"><span>${x.name}</span><div class="in-dv"><i style="${up ? 'left' : 'right'}:50%;width:${w}%;background:${up ? 'var(--red)' : 'var(--green-l)'}"></i></div><span class="num ${up ? 'up' : 'dn'}">${up ? '+' : '−'}${Math.abs(x.chgPct).toFixed(2)}%</span></div>`;
+    }).join('');
+    if (btn) { btn.style.display = list.length > 10 ? '' : 'none'; btn.textContent = this._allSectors ? '只看前後 5 名' : `展開全部 ${list.length} 類 →`; }
+  },
+  toggleSectors() { this._allSectors = !this._allSectors; this.renderSectors(); },
+  async renderInst() {
+    const el = document.getElementById('intel-inst');
+    if (!el) return;
+    const pf = APP._twPortfolio;
+    const date = document.getElementById('intel-inst-date');
+    if (!pf.length) { el.innerHTML = '<div class="da-empty">尚無台股持股</div>'; if (date) date.textContent = ''; return; }
+    const inst = await DATA.fetchInstitutional();
+    if (!inst) { el.innerHTML = '<div class="da-empty">暫無資料</div>'; return; }
+    const rows = pf.map(s => inst.byCode[s.code] ? { name: s.name, code: s.code, ...inst.byCode[s.code] } : null).filter(Boolean).sort((a, b) => b.total - a.total);
+    if (date) date.textContent = `資料日 ${inst.date}`;
+    if (!rows.length) { el.innerHTML = '<div class="da-empty">暫無資料（可能還沒收盤公布）</div>'; return; }
+    const lot = n => Math.round(n / 1000);
+    const mx = Math.max(1, ...rows.flatMap(r => [r.foreign, r.trust, r.dealer].map(v => Math.abs(lot(v)))));
+    const cell = (k, v, op) => { const l = lot(v), up = l >= 0; return `<div><div class="in-k">${k} <span class="num ${up ? 'up' : 'dn'}">${up ? '+' : '−'}${Math.abs(l).toLocaleString('en-US')}</span></div><div class="in-dv"><i style="${up ? 'left' : 'right'}:50%;width:${Math.abs(l) / mx * 50}%;background:${up ? 'var(--red)' : 'var(--green-l)'};opacity:${op}"></i></div></div>`; };
+    el.innerHTML = rows.map(r => { const t = lot(r.total); return `<div class="in-ir"><div><b>${r.name}</b> <span class="num in-k">${r.code}</span></div>${cell('外資', r.foreign, 1)}${cell('投信', r.trust, 0.8)}${cell('自營商', r.dealer, 0.6)}<div class="num in-tot ${t >= 0 ? 'up' : 'dn'}">${t >= 0 ? '+' : '−'}${Math.abs(t).toLocaleString('en-US')} 張</div></div>`; }).join('');
+  },
+};
+
 // ── NAV：左側頁面導覽（改版步驟4）──────────────────────
 const NAV = {
   _visible(id) { const el = document.getElementById(id); return el && el.style.display !== 'none'; },
@@ -1511,22 +1571,8 @@ const Performance = {
           <div class="perf-card-title">個股累計損益</div>
           <div id="perf-stock-ranking"></div>
         </div>
-      </div>
-      <div class="perf-card" style="margin-top:14px">
-        <div class="perf-card-title">AI循環階段（基建 vs 應用端輪動）</div>
-        <div class="form-note" style="margin-bottom:10px">⚠️ 用股價相對強度動能推論的代理指標，非產業基本面分析，僅供留意訊號參考，不構成投資建議。</div>
-        <div id="ai-cycle-body"><div class="empty-state">計算中...</div></div>
-      </div>
-      <div class="perf-card" style="margin-top:14px">
-        <div class="perf-card-title">今日台股類股漲跌 <span class="snapshot-badge" title="一天更新一次的快照資料，非即時">📅快照</span></div>
-        <div class="form-note" style="margin-bottom:10px">TWSE官方36種產業分類，只有今日快照，無歷史走勢。</div>
-        <div id="sector-ranking-body"><div class="empty-state">載入中...</div></div>
-      </div>
-      <div class="perf-card" style="margin-top:14px">
-        <div class="perf-card-title">持股三大法人買賣超（今日）<span class="snapshot-badge" title="一天更新一次的快照資料，非即時">📅快照</span></div>
-        <div class="form-note" style="margin-bottom:10px">外資、投信、自營商買賣超股數，正值＝買超、負值＝賣超。</div>
-        <div id="inst-flow-body"><div class="empty-state">載入中...</div></div>
       </div>`;
+
 
     this._drawNetWorthChart();
     this._renderTradeStats();
@@ -1534,136 +1580,6 @@ const Performance = {
     this._renderPeriodPnl();
     this._drawMonthlyPnlChart();
     this._renderStockRanking();
-    this._renderAICycle();
-    this._renderSectorRanking();
-    this._renderInstFlow();
-  },
-
-  async _renderSectorRanking() {
-    const el = document.getElementById('sector-ranking-body');
-    if (!el) return;
-    const list = await DATA.fetchSectorRanking();
-    if (!list.length) { el.innerHTML = '<div class="empty-state">暫無資料</div>'; return; }
-    const maxAbs = Math.max(...list.map(s => Math.abs(s.chgPct)), 1);
-    el.innerHTML = list.map(s => {
-      const color = s.chgPct >= 0 ? '#FF5A4E' : '#22C17A';
-      const pct = Math.abs(s.chgPct) / maxAbs * 100;
-      return `
-        <div class="perf-sector-row" style="margin-bottom:5px">
-          <span class="perf-sector-name" style="width:100px">${s.name}</span>
-          <div class="perf-sector-track"><div class="perf-sector-fill" style="width:${pct}%;background:${color}"></div></div>
-          <span class="perf-sector-pct" style="width:60px;color:${color}">${s.chgPct>=0?'+':''}${s.chgPct.toFixed(2)}%</span>
-        </div>`;
-    }).join('');
-  },
-
-  async _renderInstFlow() {
-    const el = document.getElementById('inst-flow-body');
-    if (!el) return;
-    const portfolio = APP._twPortfolio;
-    if (!portfolio.length) { el.innerHTML = '<div class="empty-state">尚無台股持股</div>'; return; }
-    const inst = await DATA.fetchInstitutional();
-    if (!inst) { el.innerHTML = '<div class="empty-state">暫無資料</div>'; return; }
-    const rows = portfolio.map(s => {
-      const d = inst.byCode[s.code];
-      if (!d) return null;
-      return { code: s.code, name: s.name, ...d };
-    }).filter(Boolean).sort((a,b) => b.total - a.total);
-    if (!rows.length) { el.innerHTML = '<div class="empty-state">暫無資料（可能還沒收盤公布）</div>'; return; }
-    const fmtShares = n => {
-      const abs = Math.abs(n);
-      const str = abs >= 10000 ? (abs/1000).toFixed(0)+'張' : abs.toLocaleString()+'股';
-      return (n>=0?'+':'-') + str;
-    };
-    el.innerHTML = `
-      <div style="font-size:10px;color:var(--text-3);margin-bottom:8px">資料日期：${inst.date}</div>
-      ${rows.map(r => `
-        <div class="perf-trade-item">
-          <span>${r.code} ${r.name}</span>
-          <span style="display:flex;gap:10px;font-size:11px">
-            <span style="color:var(--text-2)">外資 <b style="color:${r.foreign>=0?'#FF5A4E':'#22C17A'}">${fmtShares(r.foreign)}</b></span>
-            <span style="color:var(--text-2)">投信 <b style="color:${r.trust>=0?'#FF5A4E':'#22C17A'}">${fmtShares(r.trust)}</b></span>
-            <span style="color:${r.total>=0?'#FF5A4E':'#22C17A'};font-weight:700">合計 ${fmtShares(r.total)}</span>
-          </span>
-        </div>`).join('')}
-    `;
-  },
-
-  async _renderAICycle() {
-    const body = document.getElementById('ai-cycle-body');
-    if (!body) return;
-    try {
-      const r = await AICycle.compute();
-      const p = r.phase;
-      const fmtPct = v => v == null ? '—' : `${v>=0?'+':''}${v.toFixed(1)}%`;
-      body.innerHTML = `
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-          <span style="font-size:22px;font-weight:700;color:${p.color}">${p.label}</span>
-        </div>
-        <div style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.6">${p.desc}</div>
-        <div class="perf-grid" style="margin-bottom:14px">
-          <div>
-            <div class="perf-stat-row"><span class="perf-stat-name">🔧 基建籃子 20日</span><span class="perf-stat-num" style="color:${(r.infraRet20??0)>=0?'#FF5A4E':'#22C17A'}">${fmtPct(r.infraRet20)}</span></div>
-            <div class="perf-stat-row"><span class="perf-stat-name">🔧 基建籃子 60日</span><span class="perf-stat-num" style="color:${(r.infraRet60??0)>=0?'#FF5A4E':'#22C17A'}">${fmtPct(r.infraRet60)}</span></div>
-          </div>
-          <div>
-            <div class="perf-stat-row"><span class="perf-stat-name">💰 應用籃子 20日</span><span class="perf-stat-num" style="color:${(r.appRet20??0)>=0?'#FF5A4E':'#22C17A'}">${fmtPct(r.appRet20)}</span></div>
-            <div class="perf-stat-row"><span class="perf-stat-name">💰 應用籃子 60日</span><span class="perf-stat-num" style="color:${(r.appRet60??0)>=0?'#FF5A4E':'#22C17A'}">${fmtPct(r.appRet60)}</span></div>
-          </div>
-        </div>
-        <div style="display:flex;gap:14px;margin-bottom:8px;font-size:12px">
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:50%;background:#f97316;display:inline-block"></span>基建籃子（台積電/NVDA/ASML/AMD/費半）</span>
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;border-radius:50%;background:#37adf0;display:inline-block"></span>應用籃子（GOOGL/AAPL/MSFT/META）</span>
-        </div>
-        <div class="perf-big-canvas-wrap" style="height:180px"><canvas id="ai-cycle-canvas"></canvas></div>`;
-      this._drawAICycleChart(r.infraSeries, r.appSeries);
-    } catch(e) {
-      body.innerHTML = `<div class="empty-state">計算失敗，稍後重試</div>`;
-    }
-  },
-
-  _drawAICycleChart(infraSeries, appSeries) {
-    const canvas = document.getElementById('ai-cycle-canvas');
-    if (!canvas || !infraSeries.length || !appSeries.length) return;
-    const wrap = canvas.parentElement;
-    const W = wrap.clientWidth || 600, H = 180;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, W, H);
-
-    const isDark = true; // 淺色模式已移除，固定深色
-    const axisColor = isDark ? '#8b949e' : '#57606a';
-    const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)';
-
-    const PAD = { l:44, r:12, t:10, b:10 };
-    const chartW = W - PAD.l - PAD.r, chartH = H - PAD.t - PAD.b;
-    const n = Math.min(infraSeries.length, appSeries.length);
-    const all = [...infraSeries.slice(-n), ...appSeries.slice(-n)];
-    const minV = Math.min(...all), maxV = Math.max(...all);
-    const range = (maxV - minV) || 1;
-    const xOf = i => PAD.l + (i / (n-1)) * chartW;
-    const yOf = v => PAD.t + chartH - ((v - minV) / range) * chartH;
-
-    ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
-    [0, 0.5, 1].forEach(f => {
-      const y = PAD.t + f * chartH;
-      ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(W - PAD.r, y); ctx.stroke();
-      ctx.fillStyle = axisColor;
-      ctx.fillText((maxV - f * range).toFixed(0), PAD.l - 6, y + 4);
-    });
-
-    const drawLine = (series, color) => {
-      ctx.beginPath();
-      series.slice(-n).forEach((v, i) => { const x=xOf(i), y=yOf(v); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
-      ctx.strokeStyle = color; ctx.lineWidth = 2;
-      ctx.stroke();
-    };
-    drawLine(infraSeries, '#f97316');
-    drawLine(appSeries, '#37adf0');
   },
 
   // ── 月度已實現損益長條圖（近12個月）─────────────────
@@ -2083,6 +1999,7 @@ const Dashboard = {
     this._renderIndexStrip(indexCodes);
     ALLOC.render();
     EVTL.loadExDiv();
+    INTEL.render();
 
     const order = this.getOrder();
     const byOrder = list => order.length
