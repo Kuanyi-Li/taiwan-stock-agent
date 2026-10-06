@@ -1417,7 +1417,6 @@ body.theater-active .market-switch-btn.active {
 @media (max-width: 900px) { .perf-grid, .perf-grid.perf-grid-2 { grid-template-columns: 1fr; } }
 
 /* ── 總覽：市場情報（步驟 8）── */
-.intel-row .ov-panel:first-child { flex: 1.35 1 420px; }
 .intel-inst { margin-bottom: 22px; }
 .in-phase { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
 .in-phase-n { font-family: var(--font-serif); font-size: 30px; font-weight: 900; color: var(--gold); }
@@ -1437,3 +1436,21 @@ body.theater-active .market-switch-btn.active {
 .in-tot { text-align: right; font-weight: 600; }
 .in-foot { margin-top: 10px; font-size: 12px; color: var(--text-3); }
 @media (max-width: 900px) { .in-two { grid-template-columns: 1fr; } .in-ir { grid-template-columns: 1fr 1fr; } .in-sr { grid-template-columns: 80px 1fr 60px; } }
+
+/* ── 簡易動畫（尊重「減少動態效果」設定）── */
+@keyframes viewEnter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.view-enter { animation: viewEnter .28s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes flashUp { 0% { background: rgba(255,90,78,.40); } 100% { background: transparent; } }
+@keyframes flashDn { 0% { background: rgba(34,193,122,.40); } 100% { background: transparent; } }
+.lg-price.flash-up { animation: flashUp .9s ease-out; } .lg-price.flash-dn { animation: flashDn .9s ease-out; }
+@keyframes skyMorph { from { opacity: .15; } to { opacity: 1; } }
+.sky-morph { animation: skyMorph .6s ease-out; }
+.sky-dot { transition: opacity .3s; }
+/* 台股／美股切換：金色底塊滑動（劇場模式維持原樣） */
+body:not(.theater-active) .market-switch { position: relative; }
+body:not(.theater-active) .market-switch::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: var(--gold); transition: transform .28s cubic-bezier(.4,0,.2,1); }
+body:not(.theater-active) .market-switch[data-active="US"]::before { transform: translateX(100%); }
+body:not(.theater-active) .market-switch-btn { position: relative; z-index: 1; flex: 1 1 0; text-align: center; transition: color .2s; }
+body:not(.theater-active) .market-switch-btn.active { background: none; color: #000; }
+.al-seg, .in-dv i, .meter-bar { transition: width .5s cubic-bezier(.2,.7,.2,1); }
+@media (prefers-reduced-motion: reduce) { .view-enter, .sky-morph, .lg-price.flash-up, .lg-price.flash-dn { animation: none; } body:not(.theater-active) .market-switch::before { transition: none; } }
