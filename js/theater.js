@@ -693,18 +693,35 @@ const Theater = {
         orbitHolder.add(group);
         this._occluders.push(ball.userData.solidMesh);
         sys.occluders.push(ball.userData.solidMesh);
-        // 漲跌幅弧環：淡色整圈=±10%，弧長=|漲跌幅|/10，12 點鐘方向順時針；永遠正對鏡頭
         const arcCol = isUp ? 0xFF5A4E : 0x22C17A;
-        const r0 = rs * VISUAL_SCALE * 1.14, r1 = r0 + Math.max(0.025, rs * 0.07);
-        const changeRing = new THREE.Group();
-        const baseMat = new THREE.MeshBasicMaterial({ color: arcCol, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
-        changeRing.add(new THREE.Mesh(new THREE.RingGeometry(r0, r1, 64), baseMat));
-        const arcLen = Math.min(1, Math.abs(chgPct) / 10) * Math.PI * 2;
-        if (arcLen > 0.02) {
-          const arcMat = new THREE.MeshBasicMaterial({ color: arcCol, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
-          const arc = new THREE.Mesh(new THREE.RingGeometry(r0, r1 + (r1 - r0) * 0.3, Math.max(4, Math.ceil(arcLen / 0.1)), 1, Math.PI / 2 - arcLen, arcLen), arcMat);
-          changeRing.add(arc);
+        // 漲跌幅弧環（金色雕刻錶圈）：金色雙線＋刻度底圈；紅綠弧＝|漲跌幅|/10 圈，12 點鐘起順時針，弧上點綴金色連珠；永遠正對鏡頭
+        const RB = rs * VISUAL_SCALE, HALF = 1.28;
+        const rcv = document.createElement('canvas'); rcv.width = rcv.height = 512;
+        const rc = rcv.getContext('2d'), RS = 256, u = RS / HALF * RB / RB; // px per ball-radius
+        const cx0 = RS, rr = 1.143 * u, band = 0.057 * u;
+        const arcHex = '#' + new THREE.Color(arcCol).getHexString();
+        rc.lineWidth = 3; rc.strokeStyle = '#E0BC70';
+        [rr + band, rr - band].forEach(r => { rc.beginPath(); rc.arc(cx0, cx0, r, 0, Math.PI * 2); rc.stroke(); });
+        for (let k = 0; k < 100; k++) {
+          const ang = k / 100 * Math.PI * 2, l = k % 10 === 0 ? 0.06 * u : 0.03 * u;
+          rc.lineWidth = k % 10 === 0 ? 3 : 1.8;
+          rc.beginPath(); rc.moveTo(cx0 + (rr - band) * Math.cos(ang), cx0 + (rr - band) * Math.sin(ang));
+          rc.lineTo(cx0 + (rr - band - l) * Math.cos(ang), cx0 + (rr - band - l) * Math.sin(ang)); rc.stroke();
         }
+        const frac = Math.min(1, Math.abs(chgPct) / 10), a0 = -Math.PI / 2, a1 = a0 + frac * Math.PI * 2 * 0.999;
+        if (frac > 0.003) {
+          rc.lineWidth = 0.075 * u; rc.strokeStyle = arcHex; rc.lineCap = 'butt';
+          rc.beginPath(); rc.arc(cx0, cx0, rr, a0, a1); rc.stroke();
+          rc.fillStyle = '#E6C98A';
+          const nb = Math.max(2, Math.round(frac * 200));
+          for (let k = 0; k <= nb; k++) {
+            const ang = a0 + (a1 - a0) * k / nb;
+            rc.beginPath(); rc.arc(cx0 + rr * Math.cos(ang), cx0 + rr * Math.sin(ang), 2.6, 0, Math.PI * 2); rc.fill();
+          }
+        }
+        const rtex = new THREE.CanvasTexture(rcv); rtex.anisotropy = 4;
+        const changeRing = new THREE.Mesh(new THREE.PlaneGeometry(2 * HALF * RB, 2 * HALF * RB),
+          new THREE.MeshBasicMaterial({ map: rtex, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
         changeRing.renderOrder = 5;
         group.add(changeRing);
         const angle = baseAngle + j * Math.PI * 2 / stocks.length;
