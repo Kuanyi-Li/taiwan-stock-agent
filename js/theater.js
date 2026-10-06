@@ -462,6 +462,14 @@ const Theater = {
   // 做出「圓錐體」般兩端尖細、中間粗的視覺效果，不只是顏色深淺。
   _updateOrbitGradient(grad, currentAngles) {
     const base = grad.baseColor;
+    // 後半段（離鏡頭較遠的那半圈）變暗，做出前後景深：算每個角度的頂點相對環中心的鏡頭深度
+    let depthEl = null, zc = 0;
+    if (grad.holder && this._camera) {
+      grad.holder.updateWorldMatrix(true, false);
+      this._camera.updateMatrixWorld();
+      depthEl = new THREE.Matrix4().multiplyMatrices(this._camera.matrixWorldInverse, grad.holder.matrixWorld).elements;
+      zc = depthEl[14];
+    }
     const hotZone = Math.PI / 2.2;
     const posAttr = grad.geos[0].attributes.position;
     for (let a = 0; a <= grad.segments; a++) {
@@ -473,7 +481,11 @@ const Theater = {
         if (d < minDist) minDist = d;
       }
       const raw = Math.max(0, 1 - minDist / hotZone);
-      const brightness = Math.max(0.22, Math.pow(raw, 1.6));
+      let brightness = Math.max(0.22, Math.pow(raw, 1.6));
+      if (depthEl) {
+        const dz = (depthEl[2] * Math.cos(t) * grad.radius + depthEl[10] * Math.sin(t) * grad.radius + depthEl[14] - zc) / grad.radius; // +1=最近 −1=最遠
+        brightness *= 0.38 + 0.62 * Math.max(0, Math.min(1, 0.5 + 0.5 * dz));
+      }
       // 粗細跟著同一個brightness縮放：最粗是基準寬度，最細縮到基準的25%（不會細到完全消失）
       // ★ 修正上次公式的錯誤：brightness本身有0.22的下限，沒有正規化的話，
       // 常數項幾乎不影響最終最細值（0.22×1.5=0.33已經是主要來源）。
@@ -572,7 +584,7 @@ const Theater = {
     const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
     const nowMin = (+parts.find(x => x.type === 'hour').value % 24) * 60 + +parts.find(x => x.type === 'minute').value;
     const open = isUS ? 9 * 60 + 30 : 9 * 60, close = isUS ? 16 * 60 : 13 * 60 + 30;
-    const frac = Math.max(0, Math.min(1, (nowMin - open) / (close - open)));
+    const frac = this._isOpenFor(market) ? Math.max(0, Math.min(1, (nowMin - open) / (close - open))) : 1; // 休市：指針停在收盤刻度
     const ang = (f) => (-135 + 270 * f) * Math.PI / 180;           // 0度=正上方，順時針
     const P = (r, f) => [256 + r * Math.sin(ang(f)), 256 - r * Math.cos(ang(f))];
     const GOLD = '#C9A55C', GL = '#E6C98A';
@@ -740,6 +752,7 @@ const Theater = {
       const brassWidth = 0.025 + Math.min(0.04, sectorShare * 0.1);
       const orbitGradient = this._makeGradientOrbit(orbitR, 0xC9A55C, 64, brassWidth);
       orbitGradient.line.material.opacity = 0.9;
+      orbitGradient.holder = orbitHolder;
       orbitHolder.add(orbitGradient.line);
 
       // ★ 方向由所在半區決定，同一環上的球同方向、同速率、等間距
@@ -1142,6 +1155,18 @@ const Theater = {
 
   // ★ 判斷開盤狀態，只用來決定「目標速度」，不會像之前那樣拿去決定要不要設定位置
   // （那正是上次bug的根源：讓某個條件同時控制「動不動」和「有沒有初始化」兩件事）
+  // 各市場自己的開盤判斷（台股：台北 9:00–13:30；美股：紐約 9:30–16:00；週末/國定假日休市）
+  _isOpenFor(market) {
+    const isUS = market === 'US';
+    const tz = isUS ? 'America/New_York' : 'Asia/Taipei';
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+    const g = (t) => parts.find(x => x.type === t).value;
+    const wd = g('weekday'); if (wd === 'Sat' || wd === 'Sun') return false;
+    if (typeof HOLIDAYS !== 'undefined' && HOLIDAYS.isHolidayNow(isUS ? 'US' : 'TW')) return false;
+    const mins = (+g('hour') % 24) * 60 + +g('minute');
+    return isUS ? (mins >= 570 && mins <= 960) : (mins >= 540 && mins <= 810);
+  },
+
   _isMarketOpen() {
     const now = new Date();
     const day = now.getDay();
@@ -1159,28 +1184,37 @@ const Theater = {
     // ★ 開盤收盤漸進加減速：不是瞬間切換，每一幀都往「目標速度」逼近一點點，
     // 收盤時逐漸放慢到10%速度（不是完全停止，避免重蹈上次「完全停掉」的bug覆轍），
     // 開盤時逐漸加速回100%
-    const targetMul = this._isMarketOpen() ? 1 : 0.1;
-    if (this._speedMul == null) this._speedMul = targetMul;
-    this._speedMul += (targetMul - this._speedMul) * 0.003;
+    // 劇場第6步：每個市場各自開休市——開盤中軌道緩慢轉動；休市則完全靜止、金邊變暗（漸進過渡）
+    const starMul = this._isMarketOpen() ? 1 : 0.1;
+    this._starMul = this._starMul == null ? starMul : this._starMul + (starMul - this._starMul) * 0.003;
+    this._speedMul = this._starMul; // 其餘（含舊程式）沿用此值作為備援
 
     // ★ 遍歷全部星系（台股+美股），各自的核心球自轉、公轉、漸層更新都要跑一遍
-    Object.values(this._systems || {}).forEach(sys => {
+    Object.entries(this._systems || {}).forEach(([mk, sys]) => {
+      const open = this._isOpenFor(mk);
+      const tgt = open ? 1 : 0;
+      sys.speedMul = sys.speedMul == null ? tgt : sys.speedMul + (tgt - sys.speedMul) * 0.01;
+      if (Math.abs(sys.speedMul - tgt) < 0.002) sys.speedMul = tgt;
+      const sm = sys.speedMul;
+      const dim = 0.5 + 0.5 * sm; // 休市：金邊亮度降到約一半
+      if (sys.dial && sys.dial.material) sys.dial.material.opacity = 0.55 + 0.45 * sm;
+      if (sys.openState !== open) { sys.openState = open; this._drawDial(sys); }
       if (sys.core) {
-        sys.core.rotation.y += (sys.core.userData.spinSpeed || 0.0008) * this._speedMul;
-        if (sys.core.userData.mat) sys.core.userData.mat.uniforms.rot.value += (sys.core.userData.spinSpeed || 0.0008) * 2.5 * this._speedMul;
+        sys.core.rotation.y += (sys.core.userData.spinSpeed || 0.0008) * sm;
+        if (sys.core.userData.mat) sys.core.userData.mat.uniforms.rot.value += (sys.core.userData.spinSpeed || 0.0008) * 2.5 * sm;
       }
       const ringAngles = new Map();
       sys.planetGroups.forEach(p => {
-        p.angle += p.speed * this._speedMul;
+        p.angle += p.speed * sm;
         p.group.position.x = Math.cos(p.angle) * p.orbitR;
         p.group.position.z = Math.sin(p.angle) * p.orbitR;
-        if (p.ball && p.ball.userData.mat) p.ball.userData.mat.uniforms.rot.value += (p.spin || 0.012) * this._speedMul;
+        if (p.ball && p.ball.userData.mat) p.ball.userData.mat.uniforms.rot.value += (p.spin || 0.012) * sm;
         p.moons.forEach(m => {
-          m.angle += m.speed * this._speedMul;
+          m.angle += m.speed * sm;
           m.mesh.position.x = Math.cos(m.angle) * m.radius;
           m.mesh.position.z = Math.sin(m.angle) * m.radius;
-          m.mesh.rotation.y += (m.mesh.userData.spinSpeed || 0.012) * this._speedMul;
-          m.mesh.rotation.x += (m.mesh.userData.spinSpeed || 0.012) * 0.6 * this._speedMul;
+          m.mesh.rotation.y += (m.mesh.userData.spinSpeed || 0.012) * sm;
+          m.mesh.rotation.x += (m.mesh.userData.spinSpeed || 0.012) * 0.6 * sm;
         });
         // 漲跌虛線環：抵銷父層旋轉，讓圓環永遠正對鏡頭
         if (p.changeRing && this._camera) {
@@ -1188,6 +1222,7 @@ const Theater = {
           const pq = new THREE.Quaternion(); p.group.getWorldQuaternion(pq);
           p.changeRing.quaternion.copy(pq.invert().multiply(this._camera.quaternion));
         }
+        if (p.orbitGradient && p.orbitGradient.line) p.orbitGradient.line.material.opacity = 0.9 * dim;
         // ★ 依目前角度更新軌道漸層：中球軌道用中球自己的角度；小球環用「這個環上全部小球」的角度
         if (p.orbitGradient) { if (!ringAngles.has(p.orbitGradient)) ringAngles.set(p.orbitGradient, []); ringAngles.get(p.orbitGradient).push(p.angle); }
       });
