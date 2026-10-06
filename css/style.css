@@ -1554,3 +1554,18 @@ body.theater-active .market-switch-btn:hover { background: rgba(201,165,92,.12);
 body.theater-active .market-switch-btn.active { background: var(--gold); color: #000; }
 .theater-panel { overflow: visible; }
 .theater-3d-label-event { color: var(--gold-l); }
+
+/* ── 劇場背景設計：遠景花紋、角標、左下星圖註記 ── */
+.theater-deco { position: absolute; left: 0; right: 0; bottom: 0; height: 34%; z-index: 0; pointer-events: none; opacity: .38;
+  background-repeat: repeat-x, repeat; background-position: left bottom 6px, left bottom 24px; background-size: 32px 18px, 120px 120px;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,.6) 35%, transparent 100%); mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,.6) 35%, transparent 100%); }
+.theater-wrap::before { content: ""; position: absolute; inset: 12px; z-index: 2; pointer-events: none;
+  --c: var(--gold); --l: 16px;
+  background:
+    linear-gradient(var(--c), var(--c)) top left / var(--l) 1px no-repeat, linear-gradient(var(--c), var(--c)) top left / 1px var(--l) no-repeat,
+    linear-gradient(var(--c), var(--c)) top right / var(--l) 1px no-repeat, linear-gradient(var(--c), var(--c)) top right / 1px var(--l) no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom left / var(--l) 1px no-repeat, linear-gradient(var(--c), var(--c)) bottom left / 1px var(--l) no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom right / var(--l) 1px no-repeat, linear-gradient(var(--c), var(--c)) bottom right / 1px var(--l) no-repeat; opacity: .7; }
+.theater-corner { position: absolute; left: 32px; bottom: 28px; z-index: 3; font-size: 12px; color: var(--text-3); line-height: 1.7; pointer-events: none; }
+.theater-corner .tc-title { color: var(--gold); letter-spacing: .14em; font-size: 11px; }
+.theater-corner .tc-state.on { color: var(--green-l); }

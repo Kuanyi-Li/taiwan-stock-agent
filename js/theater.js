@@ -83,6 +83,8 @@ const Theater = {
     this._setCameraToMarket(this._currentMarket, false); // 進入時直接定位，不用動畫
     this._applySystemVisibility(); // ★ 只顯示目前市場的星系
     this._startPanels();
+    this._updateCorner();
+    clearInterval(this._cornerTimer); this._cornerTimer = setInterval(() => this._updateCorner(), 30000);
     if (!this._animId) this._animate();
     const btn = document.getElementById('theater-lock-btn');
     if (btn) btn.textContent = this._dragLocked ? '已鎖定視角' : '拖曳旋轉';
@@ -90,6 +92,7 @@ const Theater = {
 
   onExit() {
     this._isActive = false;
+    clearInterval(this._cornerTimer);
     document.body.classList.remove('theater-active');
     // 把切換按鈕搬回原本在topbar裡的位置
     const marketSwitch = document.querySelector('.market-switch');
@@ -120,10 +123,27 @@ const Theater = {
   // ★ 修正台股模式會同時看到美股星系(反之亦然)的問題：只顯示目前市場的星系，
   // 另一個設成不可見。飛行動畫進行中例外——兩個都先顯示，這樣飛過去的路上才有東西可看，
   // 不是穿過一片空無一物的黑，抵達後再把離開的那個藏起來。
+  // 左下角星圖註記：市場／產業與持股數／開休市狀態
+  _updateCorner() {
+    const el = document.getElementById('theater-corner');
+    if (!el) return;
+    const isUS = (this._currentMarket || APP.activeMarket) === 'US';
+    const pf = (isUS ? APP._usPortfolio : APP._twPortfolio) || [];
+    const sectors = new Set(pf.map(s => isUS ? '美股' : ((typeof getStockSector === 'function') ? getStockSector(s.code) : '其他')));
+    let state;
+    if (isUS) state = (typeof APP.isUSMarketOpen === 'function' && APP.isUSMarketOpen()) ? '開盤中' : '休市';
+    else {
+      const hol = (typeof HOLIDAYS !== 'undefined') ? HOLIDAYS.name('TW', new Date().toISOString().slice(0, 10)) : null;
+      state = this._isMarketOpen() ? '開盤中' : (hol ? `休市・${hol}` : '已收盤');
+    }
+    el.innerHTML = `<div class="tc-title">STAR CHART ・ 星圖</div><div>${isUS ? '美股' : '台股'}　${sectors.size} 個產業　${pf.length} 檔持股</div><div class="tc-state ${state === '開盤中' ? 'on' : ''}">${state}</div>`;
+  },
+
   _applySystemVisibility(showBoth) {
     Object.entries(this._systems || {}).forEach(([market, sys]) => {
       const visible = showBoth || market === this._currentMarket;
       if (sys.core) sys.core.visible = visible;
+      if (sys.dial) sys.dial.visible = visible;
       sys.planetGroups.forEach(p => { p.orbitHolder.visible = visible; });
     });
   },
@@ -173,7 +193,7 @@ const Theater = {
     const w = container.clientWidth || 900, h = container.clientHeight || 600;
 
     this._scene = new THREE.Scene();
-    this._scene.background = new THREE.Color(0x000000);
+    this._scene.background = null; // 透明：讓底下的 CSS 花紋透出來
     // ★ 修正縮小時中大球消失的問題：霧化範圍(22)太近，縮放距離最大到20+星系本身的展開範圍，
     // 很容易就超過22整個被霧蓋住看不見。大幅拉遠霧化終點，確保縮放範圍內都不會被霧吃掉。
     this._scene.fog = new THREE.Fog(0x000000, 15, 55);
@@ -218,7 +238,8 @@ const Theater = {
     this._camera.position.set(0, 1.3, 9.5);
     this._camera.lookAt(0, -0.9, 0);
 
-    this._renderer = new THREE.WebGLRenderer({ antialias: true });
+    this._renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this._renderer.setClearColor(0x000000, 0);
     this._renderer.setSize(w, h);
     this._renderer.setPixelRatio(window.devicePixelRatio);
     container.innerHTML = '';
@@ -407,6 +428,24 @@ const Theater = {
     grad.geos.forEach(geo => { geo.attributes.color.needsUpdate = true; });
   },
 
+  // ── 星盤：同心圓＋放射線＋外環刻度（單位半徑 1，位於 XZ 平面）──
+  _makeDial() {
+    const g = new THREE.Group();
+    const mk = (pts, opacity) => {
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xC9A55C, transparent: true, opacity, depthWrite: false }));
+    };
+    const circle = (r, n = 128) => { const p = []; for (let i = 0; i < n; i++) { const a0 = i / n * Math.PI * 2, a1 = (i + 1) / n * Math.PI * 2; p.push(new THREE.Vector3(Math.cos(a0) * r, 0, Math.sin(a0) * r), new THREE.Vector3(Math.cos(a1) * r, 0, Math.sin(a1) * r)); } return p; };
+    const spokes = (r0, r1, stepDeg) => { const p = []; for (let d = 0; d < 360; d += stepDeg) { const a = d * Math.PI / 180; p.push(new THREE.Vector3(Math.cos(a) * r0, 0, Math.sin(a) * r0), new THREE.Vector3(Math.cos(a) * r1, 0, Math.sin(a) * r1)); } return p; };
+    g.add(mk([...circle(0.36), ...circle(0.58), ...circle(0.8)], 0.12));   // 淡同心圓
+    g.add(mk(spokes(0.2, 1, 30), 0.1));                                       // 放射線（每 30°）
+    g.add(mk(circle(1, 192), 0.5));                                           // 外環
+    g.add(mk(spokes(0.985, 1, 2), 0.35));                                     // 細刻度（每 2°）
+    g.add(mk(spokes(0.965, 1, 10), 0.55));                                    // 中刻度（每 10°）
+    g.add(mk(spokes(0.93, 1, 30), 0.8));                                      // 主刻度（每 30°）
+    return g;
+  },
+
   _makeWireSphere(radius, color, opacity, detail = 2) {
     const group = new THREE.Group();
     const geo = new THREE.IcosahedronGeometry(radius, detail);
@@ -434,6 +473,7 @@ const Theater = {
     if (old) {
       old.planetGroups.forEach(p => this._scene.remove(p.orbitHolder));
       if (old.core) this._scene.remove(old.core);
+      if (old.dial) this._scene.remove(old.dial);
       if (old.groupWrapper) this._scene.remove(old.groupWrapper);
     }
     const sys = { core: null, planetGroups: [], occluders: [], offset };
@@ -454,6 +494,11 @@ const Theater = {
     this._scene.add(sys.core);
     sys.occluders.push(sys.core.userData.solidMesh);
     this._occluders.push(sys.core.userData.solidMesh);
+    // 星盤刻度環＋極座標淡網格（單位半徑，之後依最外圈軌道縮放）
+    sys.dial = this._makeDial();
+    sys.dial.position.set(offset.x, offset.y, offset.z);
+    sys.dial.scale.setScalar(4);
+    this._scene.add(sys.dial);
 
     // ★ 依market讀取對應的持股（美股目前沒有產業分類資料，先全部歸在「美股」一個分類）
     const portfolio = (isUS ? (APP._usPortfolio || []) : (APP._twPortfolio || [])).filter(s => s.price);
@@ -529,6 +574,7 @@ const Theater = {
       }
     });
 
+    sys.dial.scale.setScalar(orbitRList[orbitRList.length - 1] + sizeInfo[sizeInfo.length - 1].moonOrbitR + 1.1);
     sectors.forEach(([sector, stocks], i) => {
       const orbitR = orbitRList[i];
       // ★ 修正軌道視覺太亂的問題：傾斜角範圍縮小，讓所有軌道傾斜方向比較收斂
