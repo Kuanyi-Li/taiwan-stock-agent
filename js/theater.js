@@ -450,38 +450,42 @@ const Theater = {
     return pts;
   },
   _makeCoreSphere(radius, tintHex) {
-    const W = 2048, H = 1024, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    // ★ 修正花紋變形：等距圓柱貼圖貼在球面上，花紋會被拉成歪斜的橢圓。改成「視角貼圖」(matcap 概念)：
+    // 用法線在「螢幕平面」的分量當貼圖座標，所以不管鏡頭怎麼轉，看到的永遠是一張正面的花紋圓盤
+    // (跟總覽頁一樣)，球面邊緣自然被壓縮、並加上明暗跟金色邊緣光，就有球體的立體感。花紋靠旋轉座標轉動。
+    const S = 1024, cv = document.createElement('canvas'); cv.width = cv.height = S;
     const g = cv.getContext('2d');
-    g.fillStyle = '#050505'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#050505'; g.fillRect(0, 0, S, S);
     const GOLD = '#C9A55C', tint = '#' + new THREE.Color(tintHex).getHexString();
-    // 緯線細格（淡金）
-    g.lineWidth = 1; g.strokeStyle = 'rgba(201,165,92,0.25)';
-    for (let lat = -80; lat <= 80; lat += 10) { const y = H / 2 - lat / 90 * H / 2; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
-    const rosette = (cx, cy, R, n, layers, sx) => {
-      for (let k = 0; k < layers; k++) {
-        const pts = this._epiPts(cx, cy, R, n, k, 360, sx);
+    const layers = (R, n, cnt, lw) => {
+      for (let k = 0; k < cnt; k++) {
+        const pts = this._epiPts(S / 2, S / 2, R, n, k, 720, 1);
         g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
-        g.strokeStyle = k % 2 === 0 ? GOLD : tint; g.globalAlpha = 1 - k * 0.07; g.lineWidth = 2.6; g.stroke();
+        g.strokeStyle = k % 2 === 0 ? GOLD : tint; g.globalAlpha = 1 - k * 0.07; g.lineWidth = lw; g.stroke();
       }
       g.globalAlpha = 1;
     };
-    const rows = [[0, 7, 150, 1], [42, 5, 100, 1 / Math.cos(42 * Math.PI / 180)], [-42, 5, 100, 1 / Math.cos(42 * Math.PI / 180)]];
-    rows.forEach(([lat, cnt, R, sx], ri) => {
-      const y = H / 2 - lat / 90 * H / 2;
-      for (let i = 0; i < cnt; i++) rosette((i + 0.5 + (ri ? 0.5 : 0)) / cnt * W, y, R, 6 + ri, 6, sx);
-    });
+    layers(S * 0.47, 8, 7, 4.5);          // 外圈大玫瑰
+    layers(S * 0.25, 4, 3, 5);          // 內圈小玫瑰
+    g.strokeStyle = GOLD; g.lineWidth = 3; g.globalAlpha = 0.8;
+    [0.49, 0.30].forEach(f => { g.beginPath(); g.arc(S / 2, S / 2, S * f, 0, Math.PI * 2); g.stroke(); });
+    g.globalAlpha = 1;
     const tex = new THREE.CanvasTexture(cv);
     tex.anisotropy = this._renderer ? this._renderer.capabilities.getMaxAnisotropy() : 4;
-    const geo = new THREE.SphereGeometry(radius, 48, 32);
-    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex }));
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { map: { value: tex }, rot: { value: 0 } },
+      vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: 'uniform sampler2D map; uniform float rot; varying vec3 vN;' +
+        'void main(){ vec2 p = vN.xy; float c = cos(rot), s = sin(rot); p = vec2(c*p.x - s*p.y, s*p.x + c*p.y);' +
+        'vec3 col = texture2D(map, p*0.5+0.5).rgb; float f = clamp(vN.z, 0.0, 1.0);' +
+        'col *= 0.45 + 0.55*pow(f, 0.6); float rim = pow(1.0 - f, 3.0); col += vec3(0.90,0.79,0.54) * rim * 0.75;' +
+        'gl_FragColor = vec4(col, 1.0); }'
+    });
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 32), mat);
     const group = new THREE.Group();
     group.add(mesh);
-    // 金色赤道細環，讓球體輪廓更有「儀器」感
-    const ring = new THREE.LineLoop(
-      new THREE.BufferGeometry().setFromPoints(Array.from({ length: 128 }, (_, i) => { const a = i / 128 * Math.PI * 2; return new THREE.Vector3(Math.cos(a) * radius * 1.004, 0, Math.sin(a) * radius * 1.004); })),
-      new THREE.LineBasicMaterial({ color: 0xE6C98A, transparent: true, opacity: 0.7 }));
-    group.add(ring);
     group.userData.solidMesh = mesh;
+    group.userData.mat = mat;
     return group;
   },
 
@@ -491,7 +495,7 @@ const Theater = {
     const cv = document.createElement('canvas'); cv.width = cv.height = 512;
     const tex = new THREE.CanvasTexture(cv);
     const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-    const R = coreRadius * 1.4;
+    const R = coreRadius * 1.6;
     spr.scale.set(R * 2, R * 2, 1);
     spr.userData = { cv, tex, market };
     return spr;
@@ -519,10 +523,10 @@ const Theater = {
       g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
     }
     g.fillStyle = GL; g.font = '600 30px "IBM Plex Sans", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    for (let h = Math.ceil(open / 60); h * 60 <= close; h++) { const [x, y] = P(190, (h * 60 - open) / (close - open)); g.fillText(String(h), x, y); }
+    for (let h = Math.ceil(open / 60); h * 60 <= close; h++) { const [x, y] = P(192, (h * 60 - open) / (close - open)); g.fillText(String(h), x, y); }
     // 指針
     const [hx, hy] = P(226, frac);
-    g.strokeStyle = GOLD; g.lineWidth = 5; g.beginPath(); g.moveTo(...P(150, frac)); g.lineTo(hx, hy); g.stroke();
+    g.strokeStyle = GOLD; g.lineWidth = 5; g.beginPath(); g.moveTo(...P(172, frac)); g.lineTo(hx, hy); g.stroke();
     const up = (sys.idxChgPct || 0) >= 0;
     g.fillStyle = up ? '#FF5A4E' : '#22C17A'; g.beginPath(); g.arc(hx, hy, 8, 0, Math.PI * 2); g.fill();
     tex.needsUpdate = true;
@@ -646,7 +650,7 @@ const Theater = {
     const orbitRList = [];
     sizeInfo.forEach((info, i) => {
       // ★ 核心球大小隨大盤漲跌幅浮動(最大到1.0)，第一圈半徑要動態算，不能寫死
-      if (i === 0) { orbitRList.push(coreSize + info.moonOrbitR + 0.35); return; }
+      if (i === 0) { orbitRList.push(Math.max(coreSize + info.moonOrbitR + 0.35, coreSize * VISUAL_SCALE * 1.6 + 0.2)); return; }
       const isBoundary = directionFor(i) !== directionFor(i-1);
       if (isBoundary) {
         orbitRList.push(orbitRList[i-1] + sizeInfo[i-1].moonOrbitR + info.moonOrbitR + GROUP_BOUNDARY_MARGIN);
@@ -1138,7 +1142,10 @@ const Theater = {
 
     // ★ 遍歷全部星系（台股+美股），各自的核心球自轉、公轉、漸層更新都要跑一遍
     Object.values(this._systems || {}).forEach(sys => {
-      if (sys.core) sys.core.rotation.y += (sys.core.userData.spinSpeed || 0.0008) * this._speedMul;
+      if (sys.core) {
+        sys.core.rotation.y += (sys.core.userData.spinSpeed || 0.0008) * this._speedMul;
+        if (sys.core.userData.mat) sys.core.userData.mat.uniforms.rot.value += (sys.core.userData.spinSpeed || 0.0008) * 2.5 * this._speedMul;
+      }
       sys.planetGroups.forEach(p => {
         p.angle += p.speed * this._speedMul;
         p.group.position.x = Math.cos(p.angle) * p.orbitR;
