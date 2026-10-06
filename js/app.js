@@ -828,14 +828,14 @@ const SESSION = {
     const now = new Date();
     if (APP.activeMarket !== 'US') {
       const day = now.getDay();
-      return { open: 9 * 60, close: 13 * 60 + 30, nowMin: now.getHours() * 60 + now.getMinutes(), weekday: day >= 1 && day <= 5, label: '台股' };
+      return { open: 9 * 60, close: 13 * 60 + 30, nowMin: now.getHours() * 60 + now.getMinutes(), weekday: day >= 1 && day <= 5 && !HOLIDAYS.isHolidayNow('TW'), label: '台股' };
     }
     // 美東時間與台灣時間差（分鐘）
     const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
     const diff = Math.round((now - et) / 60000); // 夏令 +720、冬令 +780
     const etMin = et.getHours() * 60 + et.getMinutes();
     const etDay = et.getDay();
-    return { open: 570 + diff, close: 960 + diff, nowMin: etMin + diff, weekday: etDay >= 1 && etDay <= 5, label: '美股' };
+    return { open: 570 + diff, close: 960 + diff, nowMin: etMin + diff, weekday: etDay >= 1 && etDay <= 5 && !HOLIDAYS.isHolidayNow('US'), label: '美股' };
   },
   _fmt(min) { min = ((min % 1440) + 1440) % 1440; return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`; },
   _dur(min) { const h = Math.floor(min / 60), m = min % 60; return h ? `${h} 時 ${m} 分` : `${m} 分`; },
@@ -1395,7 +1395,120 @@ const NAV = {
   },
 };
 
-// ── Performance module（績效分析獨立頁面）──────────────
+// ── HOLIDAYS：休市日（台股用證交所公布的年度休市表，含補假；美股依 NYSE 規則計算）──
+const HOLIDAYS = {
+  _tw: {},      // { year: { 'YYYY-MM-DD': name } }
+  _twAsked: {},
+  _ymd(y, m, d) { return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; },
+
+  // ── 台股 ──
+  _twKey: y => `twsa-twholiday-${y}`,
+  _twParse(json) {
+    const out = {};
+    const rows = (json && json.data) || [];
+    for (const r of rows) {
+      const name = String(r[1] || '').trim();
+      // 非休市的註記列（開始交易日、最後交易日）要排除；「市場無交易，僅辦理結算交割」是休市日
+      if (/開始交易|最後交易/.test(name)) continue;
+      let ds = String(r[0] || '').replace(/[年月]/g, '-').replace(/日/g, '');
+      let m = ds.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (!m) { // 民國年或 YYYYMMDD
+        const m2 = String(r[0]).match(/^(\d{4})(\d{2})(\d{2})$/);
+        if (m2) m = m2;
+      }
+      if (!m) continue;
+      out[this._ymd(+m[1], +m[2], +m[3])] = /無交易/.test(name) ? '休市' : (name.replace(/[（(].*$/, '') || '休市');
+    }
+    return out;
+  },
+  async loadTW(year) {
+    if (this._tw[year]) return this._tw[year];
+    try {
+      const raw = localStorage.getItem(this._twKey(year));
+      if (raw) {
+        const c = JSON.parse(raw);
+        // 當年度 7 天更新一次（補假可能臨時公告），過去年度永久
+        if (year < new Date().getFullYear() || Date.now() - c.ts < 7 * 86400000) { this._tw[year] = c.map; return c.map; }
+      }
+    } catch (e) {}
+    if (this._twAsked[year]) return {};
+    this._twAsked[year] = true;
+    try {
+      const url = `https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule?date=${year}&response=json`;
+      const res = await DATA._fetch(url);
+      const map = this._twParse(await res.json());
+      if (Object.keys(map).length) {
+        this._tw[year] = map;
+        try { localStorage.setItem(this._twKey(year), JSON.stringify({ ts: Date.now(), map })); } catch (e) {}
+        return map;
+      }
+    } catch (e) {}
+    this._twAsked[year] = false;
+    return {};
+  },
+
+  // ── 美股（NYSE）：固定規則計算 ──
+  _nth(y, m, wd, n) { // 該月第 n 個星期 wd（0=日）
+    const first = new Date(y, m - 1, 1).getDay();
+    return 1 + ((wd - first + 7) % 7) + (n - 1) * 7;
+  },
+  _lastMon(y, m) { const last = new Date(y, m, 0); return last.getDate() - ((last.getDay() + 6) % 7); },
+  _easter(y) { // Anonymous Gregorian algorithm
+    const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4;
+    const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(y, month - 1, day);
+  },
+  _usCache: {},
+  us(year) {
+    if (this._usCache[year]) return this._usCache[year];
+    const map = {};
+    const add = (d, name) => { map[this._ymd(d.getFullYear(), d.getMonth() + 1, d.getDate())] = name; };
+    // 固定日期：週六 → 前一個週五休；週日 → 次一個週一休（元旦遇週六不補）
+    const fixed = (m, d, name, noSatShift) => {
+      const dt = new Date(year, m - 1, d), wd = dt.getDay();
+      if (wd === 6) { if (noSatShift) return; dt.setDate(d - 1); }
+      else if (wd === 0) dt.setDate(d + 1);
+      add(dt, name);
+    };
+    fixed(1, 1, '元旦', true);
+    add(new Date(year, 0, this._nth(year, 1, 1, 3)), '馬丁路德金恩日');
+    add(new Date(year, 1, this._nth(year, 2, 1, 3)), '總統日');
+    const es = this._easter(year); es.setDate(es.getDate() - 2); add(es, '耶穌受難日');
+    add(new Date(year, 4, this._lastMon(year, 5)), '陣亡將士紀念日');
+    if (year >= 2022) fixed(6, 19, '六月節');
+    fixed(7, 4, '美國獨立紀念日');
+    add(new Date(year, 8, this._nth(year, 9, 1, 1)), '勞動節');
+    add(new Date(year, 10, this._nth(year, 11, 4, 4)), '感恩節');
+    fixed(12, 25, '聖誕節');
+    return (this._usCache[year] = map);
+  },
+
+  // ── 查詢（同步；台股需先 loadTW 過才有資料）──
+  name(market, dateStr) {
+    const y = +dateStr.slice(0, 4);
+    return market === 'US' ? (this.us(y)[dateStr] || null) : ((this._tw[y] || {})[dateStr] || null);
+  },
+  isClosed(market, dateStr) {
+    const wd = new Date(dateStr + 'T12:00:00').getDay();
+    return wd === 0 || wd === 6 || !!this.name(market, dateStr);
+  },
+  // 今天是否為「平日但休市」→ 供盤勢時鐘判斷（美股以美東日期為準）
+  isHolidayNow(market) {
+    const now = new Date();
+    if (market === 'US') {
+      const p = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      return !!this.name('US', this._ymd(p.getFullYear(), p.getMonth() + 1, p.getDate()));
+    }
+    return !!this.name('TW', this._ymd(now.getFullYear(), now.getMonth() + 1, now.getDate()));
+  },
+};
+// 啟動時預載今年與明年（明年表通常 1 月前就會公布，失敗則忽略）
+HOLIDAYS.loadTW(new Date().getFullYear()).then(() => { try { SESSION.render(); } catch (e) {} });
+HOLIDAYS.loadTW(new Date().getFullYear() + 1);
+
 // ── TradeCalendar module（交易與除權息日曆，月檢視）──────
 const TradeCalendar = {
   _year: new Date().getFullYear(),
@@ -1421,60 +1534,105 @@ const TradeCalendar = {
 
   async render() {
     const title = document.getElementById('cal-page-title');
-    if (title) title.textContent = `${this._year}年${this._month + 1}月`;
+    if (title) title.textContent = `${this._year} 年 ${this._month + 1} 月`;
+    const mk = APP.activeMarket === 'US' ? 'US' : 'TW';
+    const mkLabel = document.getElementById('cal-market-label');
+    if (mkLabel) mkLabel.textContent = mk === 'US' ? '美股 NYSE' : '台股 TWSE';
 
-    // 抓該月的除權息事件（僅台股，用 TWSE 公開資料裡符合該月份的部分；美股用估算）
+    // 休市表（台股需先載入該月前後可能跨年的年度表）
+    if (mk === 'TW') await Promise.all([HOLIDAYS.loadTW(this._year), HOLIDAYS.loadTW(this._year + (this._month === 11 ? 1 : 0)), HOLIDAYS.loadTW(this._year - (this._month === 0 ? 1 : 0))]);
     await this._loadDivEventsForMonth();
 
     const grid = document.getElementById('cal-grid');
     if (!grid) return;
 
+    const pad = n => String(n).padStart(2, '0');
     const firstDay = new Date(this._year, this._month, 1);
-    const startWeekday = firstDay.getDay(); // 0=Sun
+    const startWeekday = firstDay.getDay();
     const daysInMonth = new Date(this._year, this._month + 1, 0).getDate();
     const daysInPrevMonth = new Date(this._year, this._month, 0).getDate();
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const nowD = new Date();
+    const todayStr = `${nowD.getFullYear()}-${pad(nowD.getMonth() + 1)}-${pad(nowD.getDate())}`;
 
     const trades = TRADES.get();
+    const macros = typeof MacroEvents !== 'undefined' ? MacroEvents._allEvents() : [];
     const cells = [];
-    // 上個月補齊
     for (let i = startWeekday - 1; i >= 0; i--) {
       const d = daysInPrevMonth - i;
       const m = this._month === 0 ? 12 : this._month;
       const y = this._month === 0 ? this._year - 1 : this._year;
-      cells.push({ day: d, dateStr: `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`, otherMonth: true });
+      cells.push({ day: d, dateStr: `${y}-${pad(m)}-${pad(d)}`, otherMonth: true });
     }
-    // 本月
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${this._year}-${String(this._month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      cells.push({ day: d, dateStr, otherMonth: false });
-    }
-    // 下個月補齊到湊滿整週
+    for (let d = 1; d <= daysInMonth; d++) cells.push({ day: d, dateStr: `${this._year}-${pad(this._month + 1)}-${pad(d)}`, otherMonth: false });
     let nextDay = 1;
     while (cells.length % 7 !== 0) {
       const m = this._month === 11 ? 1 : this._month + 2;
       const y = this._month === 11 ? this._year + 1 : this._year;
-      cells.push({ day: nextDay, dateStr: `${y}-${String(m).padStart(2,'0')}-${String(nextDay).padStart(2,'0')}`, otherMonth: true });
+      cells.push({ day: nextDay, dateStr: `${y}-${pad(m)}-${pad(nextDay)}`, otherMonth: true });
       nextDay++;
     }
 
-    grid.innerHTML = cells.map(c => {
+    grid.innerHTML = cells.map((c, idx) => {
       const dayTrades = trades.filter(t => t.date === c.dateStr);
-      const dayDivs = (this._divCache || []).filter(e => e.date === c.dateStr);
-      const dayMacros = (typeof MacroEvents !== 'undefined' ? MacroEvents._allEvents() : []).filter(e => e.date === c.dateStr);
-      const macroIcon = t => t === 'FOMC' ? '🏦' : t === 'CBC' ? '🇹🇼' : t === 'NFP' ? '👷' : t === 'PCE' ? '💵' : '📊';
+      const dayDivs = (this._divAll || []).filter(e => e.date === c.dateStr);
+      const dayMacros = macros.filter(e => e.date === c.dateStr);
+      const wd = idx % 7;
+      const hol = HOLIDAYS.name(mk, c.dateStr);
+      const closed = wd === 0 || wd === 6 || !!hol;
       const events = [
-        ...dayTrades.map(t => `<div class="cal-event ${t.action}">${t.action==='buy'?'買':'賣'} ${t.code} ${t.shares}股</div>`),
-        ...dayDivs.map(e => `<div class="cal-event div">💰 ${e.code}${e.estimated?'(估)':''}</div>`),
-        ...dayMacros.map(e => `<div class="cal-event macro">${macroIcon(e.type)} ${e.label}</div>`),
+        ...dayTrades.map(t => `<div class="cal-event ${t.action}">${t.action === 'buy' ? '買進' : '賣出'} ${t.code} ${t.shares}</div>`),
+        ...dayDivs.map(e => `<div class="cal-event div">除權息 ${e.code}${e.estimated ? '（估）' : ''}</div>`),
+        ...dayMacros.map(e => `<div class="cal-event macro">${e.label}</div>`),
       ];
       const isToday = c.dateStr === todayStr;
       return `
-        <div class="cal-day-cell ${c.otherMonth?'other-month':''} ${isToday?'today':''}" onclick="TradeCalendar.onDayClick('${c.dateStr}')">
-          <div class="cal-day-num">${c.day}</div>
+        <div class="cal-day-cell ${c.otherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''} ${closed ? 'closed' : ''} ${hol ? 'holiday' : ''}" onclick="TradeCalendar.onDayClick('${c.dateStr}')">
+          <div class="cal-day-head"><span class="cal-day-num num">${c.day}</span>${hol ? `<span class="cal-hol-name">${hol}</span>` : ''}</div>
           <div class="cal-day-events">${events.join('')}</div>
         </div>`;
     }).join('');
+
+    this._renderAside(mk, trades, macros, cells, todayStr);
+  },
+
+  _renderAside(mk, trades, macros, cells, todayStr) {
+    const el = document.getElementById('cal-aside');
+    if (!el) return;
+    const pad = n => String(n).padStart(2, '0');
+    const prefix = `${this._year}-${pad(this._month + 1)}`;
+    const mt = trades.filter(t => t.date.startsWith(prefix));
+    const buys = mt.filter(t => t.action === 'buy').length, sells = mt.length - buys;
+    const monthCells = cells.filter(c => !c.otherMonth);
+    const closedDays = monthCells.filter(c => { const w = new Date(c.dateStr + 'T12:00:00').getDay(); return w !== 0 && w !== 6 && HOLIDAYS.name(mk, c.dateStr); });
+    const divN = (this._divAll || []).filter(e => e.date.startsWith(prefix)).length;
+    const row = (k, v, cls = '') => `<div class="cal-stat"><span>${k}</span><b class="num ${cls}">${v}</b></div>`;
+
+    // 接下來：今天起 45 天內的假日／除權息／總經
+    const end = new Date(); end.setDate(end.getDate() + 45);
+    const endStr = `${end.getFullYear()}-${pad(end.getMonth() + 1)}-${pad(end.getDate())}`;
+    const up = [];
+    for (const y of [new Date().getFullYear(), new Date().getFullYear() + 1]) {
+      const map = mk === 'US' ? HOLIDAYS.us(y) : (HOLIDAYS._tw[y] || {});
+      Object.entries(map).forEach(([d, n]) => up.push({ date: d, tag: '休市', name: n, cls: 'hol' }));
+    }
+    (this._divAll || []).forEach(e => up.push({ date: e.date, tag: '除權息', name: e.code, cls: 'div' }));
+    macros.forEach(e => up.push({ date: e.date, tag: '總經', name: e.label, cls: 'macro' }));
+    // 台股休市表含週末補班之類不會出現；同日同名去重
+    const seen = new Set();
+    const list = up.filter(e => e.date >= todayStr && e.date <= endStr)
+      .filter(e => { const k = e.date + e.tag + e.name; if (seen.has(k)) return false; seen.add(k); return true; })
+      .sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8);
+    const WK = ['日', '一', '二', '三', '四', '五', '六'];
+    el.innerHTML = `
+      <div class="cal-panel"><div class="cal-panel-title">本月</div>
+        ${row('買進', buys + ' 筆', buys ? 'up' : '')}
+        ${row('賣出', sells + ' 筆', sells ? 'dn' : '')}
+        ${row('除權息', divN + ' 檔')}
+        ${row('休市（平日）', closedDays.length + ' 天')}
+      </div>
+      <div class="cal-panel"><div class="cal-panel-title">接下來</div>
+        ${list.length ? list.map(e => { const d = new Date(e.date + 'T12:00:00'); return `<div class="cal-up"><span class="num">${d.getMonth() + 1}/${d.getDate()}（${WK[d.getDay()]}）</span><i class="cal-tag ${e.cls}">${e.tag}</i><em>${e.name}</em></div>`; }).join('') : '<div class="cal-empty">45 天內沒有事件</div>'}
+      </div>`;
   },
 
   async _loadDivEventsForMonth() {
@@ -1483,8 +1641,9 @@ const TradeCalendar = {
       const twEvents = await ExDividend.getTWUpcoming(APP._twPortfolio.map(s=>s.code));
       const usEvents = (await Promise.all(APP._usPortfolio.map(s => ExDividend.getUSEstimate(s.code)))).filter(Boolean);
       const monthPrefix = `${this._year}-${String(this._month+1).padStart(2,'0')}`;
-      this._divCache = [...twEvents, ...usEvents].filter(e => e.date.startsWith(monthPrefix));
-    } catch(e) { this._divCache = []; }
+      this._divAll = [...twEvents, ...usEvents];
+      this._divCache = this._divAll.filter(e => e.date.startsWith(monthPrefix));
+    } catch(e) { this._divCache = []; this._divAll = []; }
   },
 
   onDayClick(dateStr) {
@@ -4512,7 +4671,7 @@ const APP = {
     const now = new Date();
     const h = now.getHours(), m = now.getMinutes();
     const day = now.getDay();
-    return day >= 1 && day <= 5
+    return day >= 1 && day <= 5 && !HOLIDAYS.isHolidayNow('TW')
       && (h > 9 || (h === 9 && m >= 0))
       && (h < 13 || (h === 13 && m <= 30));
   },
@@ -4530,6 +4689,7 @@ const APP = {
     // 週一凌晨（h<5）對應的是週五晚上已收盤，不算開盤
     // 週六、週日完全不開
     if (day === 0 || day === 6) return false; // 週末
+    if (HOLIDAYS.isHolidayNow('US')) return false; // 美股休市日
     if (day === 1 && beforeClose) return false; // 週一凌晨（週五已收）
     return afterOpen || beforeClose;
   },
