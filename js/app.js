@@ -700,7 +700,7 @@ function showMainView(view) {
   showIf(dv, 'dashboard'); showIf(detail, 'detail'); showIf(perf, 'performance');
   showIf(cal, 'calendar'); showIf(bt, 'backtest'); showIf(theater, 'theater');
   // 改版：側邊欄改成頁面導覽，只有劇場模式（全螢幕3D）才隱藏
-  const hideSidebar = view === 'theater';
+  const hideSidebar = false; // 劇場模式也保留頁面導覽（與其他頁一致）
   document.querySelectorAll('#pnav .navlink').forEach(a => {
     if (a.dataset.view === view) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');

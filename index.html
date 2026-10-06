@@ -253,6 +253,9 @@
       <div id="theater-corner" class="theater-corner"></div>
       <div id="theater-status" class="theater-status"></div>
 
+      <div id="theater-m-summary" class="theater-m-summary" onclick="document.getElementById('theater-content').classList.toggle('sheet-open')"></div>
+      <div id="theater-hud">
+      <div class="theater-m-handle" onclick="document.getElementById('theater-content').classList.remove('sheet-open')">▾ 收起</div>
       <div class="theater-panel" id="theater-panel-asset">
         <span class="crop tl"></span><span class="crop br"></span><div class="theater-panel-title">資產表現</div>
         <canvas class="theater-panel-chart" id="theater-panel-asset-chart"></canvas>
@@ -273,6 +276,8 @@
         <div class="theater-panel-content" id="theater-panel-flow-content">載入中...</div>
         <div class="theater-panel-dots" id="theater-panel-flow-dots"></div>
       </div>
+
+      </div><!-- /theater-hud -->
 
       <div id="theater-lock-wrap">
         <button id="theater-lock-btn" onclick="Theater.toggleDragLock()">拖曳旋轉</button>
