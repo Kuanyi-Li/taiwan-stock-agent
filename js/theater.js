@@ -682,7 +682,6 @@ const Theater = {
 
     // ★ 修正相鄰軌道顏色太接近的問題：換一組刻意拉開色相差異的調色盤（借鑑常見的
     // 「定性色彩配置」設計原則），確保相鄰索引的顏色不會長得像
-    const sectorColors = [0x4e79a7, 0xf28e2b, 0x59a14f, 0xb07aa1, 0xe15759, 0x76b7b2, 0xedc948, 0xff9da7, 0x9c755f, 0xbab0ac];
     // ★ 修正中球容易撞在一起的問題：不是把所有間距都推寬（會讓整個星系變太大），
     // 改成聰明排列順序——先按持股權重從大到小排，再用「偶數位置放前半、奇數位置放後半」
     // 的方式重新分配軌道順序，讓權重最大的前幾名彼此不會被排在相鄰軌道，
@@ -803,7 +802,7 @@ const Theater = {
         changeRing.renderOrder = 5;
         group.add(changeRing);
         const angle = baseAngle + j * Math.PI * 2 / stocks.length;
-        sys.planetGroups.push({ group, orbitHolder, orbitR, angle, speed: 0.001 * direction, moons: [], sector, solidMesh: ball.userData.solidMesh, orbitGradient, ball, changeRing, wTotal: ((st.price ?? st.cost) * st.shares) / totalVal, wSector: ((st.price ?? st.cost) * st.shares) / (sectorVal || 1), market, code: st.code, name: st.name, chgPct, spin: 0.01 + Math.random() * 0.01 });
+        sys.planetGroups.push({ group, orbitHolder, orbitR, angle, speed: 0.001 * direction, sector, solidMesh: ball.userData.solidMesh, orbitGradient, ball, changeRing, wTotal: ((st.price ?? st.cost) * st.shares) / totalVal, wSector: ((st.price ?? st.cost) * st.shares) / (sectorVal || 1), market, code: st.code, name: st.name, chgPct, spin: 0.01 + Math.random() * 0.01 });
       });
     });
     this._buildTimeRing();
@@ -853,24 +852,6 @@ const Theater = {
 
         // ★ 修正小球沒有代號跟漲跌幅的問題+改成名字在上、漲幅在下：
         // 拆成兩個獨立的標籤元素，各自定位在小球的上方跟下方
-        p.moons.forEach(m => {
-          const nameLabel = document.createElement('div');
-          nameLabel.className = 'theater-3d-label theater-3d-label-moon';
-          // 美股公司全名太長(例如 Space Exploration Technologies)會互相疊在一起，美股改顯示代號
-          nameLabel.textContent = market === 'US' ? m.code : (m.name || m.code);
-          nameLabel.style.color = m.chgPct >= 0 ? '#FF5A4E' : '#22C17A';
-          nameLabel.style.textShadow = '0 0 3px #000, 0 0 3px #000';
-          labelLayer.appendChild(nameLabel);
-          m.nameLabelEl = nameLabel;
-
-          const pctLabel = document.createElement('div');
-          pctLabel.className = 'theater-3d-label theater-3d-label-moon';
-          pctLabel.textContent = `${m.chgPct>=0?'+':''}${m.chgPct.toFixed(1)}%`;
-          pctLabel.style.color = m.chgPct >= 0 ? '#FF5A4E' : '#22C17A';
-          pctLabel.style.textShadow = '0 0 3px #000, 0 0 3px #000';
-          labelLayer.appendChild(pctLabel);
-          m.pctLabelEl = pctLabel;
-        });
       });
     });
   },
@@ -1038,13 +1019,6 @@ const Theater = {
           const pDist = this._camera.position.distanceTo(pWorldPos);
           const pRadius = p.solidMesh?.geometry?.parameters?.radius || 0.2;
           list.push({ worldPos: pWorldPos, dist: pDist, screenPos: projectPoint(pWorldPos), radius: pRadius });
-          p.moons.forEach(m => {
-            const mWorldPos = new THREE.Vector3();
-            m.mesh.getWorldPosition(mWorldPos);
-            const mDist = this._camera.position.distanceTo(mWorldPos);
-            const mRadius = m.solidMesh?.geometry?.parameters?.radius || 0.05;
-            list.push({ worldPos: mWorldPos, dist: mDist, screenPos: projectPoint(mWorldPos), radius: mRadius });
-          });
         });
       });
       return list;
@@ -1098,10 +1072,6 @@ const Theater = {
         sys.planetGroups.forEach(p => {
           if (p.labelEl) p.labelEl.style.display = 'none';
           p.screen = null;
-          p.moons.forEach(m => {
-            if (m.nameLabelEl) m.nameLabelEl.style.display = 'none';
-            if (m.pctLabelEl) m.pctLabelEl.style.display = 'none';
-          });
         });
         return;
       }
@@ -1139,16 +1109,6 @@ const Theater = {
           p.labelEl.style.overflow = 'visible';
           p.labelEl.style.textOverflow = 'clip';
         }
-        p.moons.forEach(m => {
-          if (!m.nameLabelEl || !m.pctLabelEl) return;
-          const mpos = project(m.mesh, m.solidMesh);
-          const visible = !(mpos.behind || mpos.occluded);
-          // ★ 名字在上方、漲幅在下方，不是都堆疊在同一側
-          m.nameLabelEl.style.transform = `translate(${mpos.x}px, ${mpos.y - 14}px) translate(-50%, -50%)`;
-          m.nameLabelEl.style.display = visible ? 'block' : 'none';
-          m.pctLabelEl.style.transform = `translate(${mpos.x}px, ${mpos.y + 14}px) translate(-50%, -50%)`;
-          m.pctLabelEl.style.display = visible ? 'block' : 'none';
-        });
       });
     });
   },
@@ -1209,13 +1169,6 @@ const Theater = {
         p.group.position.x = Math.cos(p.angle) * p.orbitR;
         p.group.position.z = Math.sin(p.angle) * p.orbitR;
         if (p.ball && p.ball.userData.mat) p.ball.userData.mat.uniforms.rot.value += (p.spin || 0.012) * sm;
-        p.moons.forEach(m => {
-          m.angle += m.speed * sm;
-          m.mesh.position.x = Math.cos(m.angle) * m.radius;
-          m.mesh.position.z = Math.sin(m.angle) * m.radius;
-          m.mesh.rotation.y += (m.mesh.userData.spinSpeed || 0.012) * sm;
-          m.mesh.rotation.x += (m.mesh.userData.spinSpeed || 0.012) * 0.6 * sm;
-        });
         // 漲跌虛線環：抵銷父層旋轉，讓圓環永遠正對鏡頭
         if (p.changeRing && this._camera) {
           p.group.updateWorldMatrix(true, false);
