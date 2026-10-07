@@ -1210,21 +1210,41 @@ const SKY = {
       return { name: s.name || s.code, code: s.code, pct: prev ? (price - prev) / prev * 100 : 0, val: price * s.shares * fx };
     });
     const total = items.reduce((a, x) => a + x.val, 0) || 1;
+    // 自選股：沒有持股比重，固定小點；已在持股內的不重複畫
+    const held = new Set(items.map(x => x.code));
+    APP.watchlist.forEach(s => {
+      if (held.has(s.code) || !(s.price > 0)) return;
+      const prev = s.prevClose ?? s.price;
+      items.push({ name: s.name || s.code, code: s.code, pct: prev ? (s.price - prev) / prev * 100 : 0, val: 0, watch: true });
+    });
     const W = el.clientWidth || 600;
     const lim = 10, X = p => (Math.max(-lim, Math.min(lim, p)) + lim) / (2 * lim) * 100;
     // 依漲跌幅由小到大放進「車道」，同一車道內左右要隔開（點＋名稱約 80px）
-    const gap = 84 / W * 2 * lim, lanes = [], LANE = 34, BASE = 50;
-    const dots = [...items].sort((a, b) => a.pct - b.pct).map(x => {
+    const gap = 84 / W * 2 * lim, lanes = [], BASE = 50, MAXLANE = 4;
+    const placed = [...items].sort((a, b) => a.pct - b.pct).map(x => {
       const p = Math.max(-lim, Math.min(lim, x.pct));
       let lane = lanes.findIndex(last => p - last >= gap);
       if (lane === -1) { lanes.push(p); lane = lanes.length - 1; } else lanes[lane] = p;
-      const size = Math.round(12 + Math.sqrt(x.val / total * 100) * 3.2);
+      return { x, p, lane };
+    });
+    // 高度固定為 4 車道；點太多時壓縮車道間距，不讓區塊長高
+    const LANE = lanes.length > MAXLANE ? 34 * MAXLANE / lanes.length : 34;
+    const dots = placed.map(({ x, p, lane }) => {
       const c = x.pct > 0 ? '#FF5A4E' : x.pct < 0 ? '#22C17A' : '#8E8E96';
-      return `<button class="sky-dot" data-code="${x.code}" style="left:${X(p).toFixed(2)}%;bottom:${BASE + lane * LANE}px;--s:${size}px" title="${x.name} ${x.pct >= 0 ? '+' : ''}${x.pct.toFixed(2)}%" onclick="NAV.pickStock('${x.code}')">
+      const pos = `left:${X(p).toFixed(2)}%;bottom:${BASE + lane * LANE}px`;
+      const tip = `${x.name} ${x.pct >= 0 ? '+' : ''}${x.pct.toFixed(2)}%${x.watch ? '（自選）' : ''}`;
+      if (x.watch) {
+        const s = 12;
+        return `<button class="sky-dot watch" data-code="${x.code}" style="${pos};--s:${s}px" title="${tip}" onclick="NAV.pickStock('${x.code}')">
+        <svg width="${s}" height="${s}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="${c}" stroke-width="1.4" stroke-dasharray="2.4 2.2" opacity="0.85"/></svg>
+        <span>${x.name}</span></button>`;
+      }
+      const size = Math.round(12 + Math.sqrt(x.val / total * 100) * 3.2);
+      return `<button class="sky-dot" data-code="${x.code}" style="${pos};--s:${size}px" title="${tip}" onclick="NAV.pickStock('${x.code}')">
         <svg width="${size}" height="${size}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="#000" stroke="${c}" stroke-width="1.2"/><circle cx="10" cy="10" r="5.5" fill="none" stroke="${c}" stroke-width="0.6" stroke-dasharray="1 1.4"/><circle cx="10" cy="10" r="2" fill="${c}"/></svg>
         <span>${x.name}</span></button>`;
     });
-    const H = BASE + Math.max(1, lanes.length) * LANE + 22;
+    const H = BASE + MAXLANE * 34 + 22;
     let ruler = '';
     for (let v = -lim; v <= lim; v++) {
       const major = v % 5 === 0;
@@ -5096,6 +5116,7 @@ const APP = {
   },
 
   renderWatchlist() {
+    if (typeof SKY !== 'undefined') SKY.renderSwarm(); // 自選股也畫在今日星位上
     const wrap = document.getElementById('watchlist');
     if (!wrap) return;
     if (!this.watchlist.length) { this._showEmptyWatchlist(); return; }
