@@ -1710,3 +1710,6 @@ body .market-switch-btn.active { background: none; color: #000; }
 .set-btn.gold { background: var(--gold); color: #000; font-weight: 600; }
 .set-btn.gold:hover { background: var(--gold-l); }
 @media (max-width: 680px) { .set-modal { max-height: 94vh; } .set-btn { flex: 1; padding: 10px; } }
+
+.sky-dot.watch span { color: var(--text-3); font-size: 11px; }
+.sky-dot.watch:hover span { color: var(--gold); }
