@@ -3472,6 +3472,22 @@ const SYNC = {
     } catch(e) { showToast(`下載失敗：${e.message}`); }
   },
 
+  // 設定視窗的按鈕：先存設定、保持視窗開啟，狀態列即時顯示結果
+  async uiUpload() {
+    saveSettings(true);
+    if (!document.getElementById('jsonbin-key')?.value.trim()) { showToast('請先填入 API Key'); return; }
+    await this.upload();
+    this.updateStatus();
+  },
+  async uiDownload() {
+    saveSettings(true);
+    const key = document.getElementById('jsonbin-key')?.value.trim();
+    if (!key) { showToast('請先填入 API Key'); return; }
+    if (!document.getElementById('jsonbin-bin')?.value.trim()) { if (!(await this.smartConnect(key))) return; }
+    await this.manualDownload();
+    this.updateStatus();
+  },
+
   _updateStatus(msg) {
     const el = document.getElementById('sync-status');
     if (el) { el.textContent = msg; el.style.color = 'var(--green-l)'; }
@@ -5437,7 +5453,11 @@ async function refreshAll() {
     if (btn) btn.classList.remove('spinning');
   }
 }
-function openSettings() { document.getElementById('settings-modal')?.classList.add('show'); }
+function openSettings() {
+  document.getElementById('settings-modal')?.classList.add('show');
+  document.getElementById('settings-btn')?.classList.add('active');
+  SYNC.updateStatus();
+}
 function runAnalysis() {
   const code = APP.activeSymbol;
   if (!code) { showToast('請先選擇股票'); return; }
@@ -5610,7 +5630,10 @@ function goToStock(code, idx, source) {
   setTimeout(() => CHART.draw(), 80);
 }
 
-function closeModal(id) { document.getElementById(id)?.classList.remove('show'); }
+function closeModal(id) {
+  document.getElementById(id)?.classList.remove('show');
+  if (id === 'settings-modal') document.getElementById('settings-btn')?.classList.remove('active');
+}
 function runRecommend() { RECOMMEND.run(); }
 
 function openBuyModal(code, idx) {
@@ -5801,12 +5824,9 @@ function addWatchlist() {
   });
 }
 
-function saveSettings() {
+function saveSettings(keepOpen) {
   const s = APP.settings;
   s.corsProxy   = document.getElementById('cors-proxy')?.value.trim();
-  s.ejsService  = document.getElementById('ejs-service')?.value.trim();
-  s.ejsTemplate = document.getElementById('ejs-template')?.value.trim();
-  s.ejsPubkey   = document.getElementById('ejs-pubkey')?.value.trim();
   s.jsonbinKey  = document.getElementById('jsonbin-key')?.value.trim();
   s.jsonbinBin  = document.getElementById('jsonbin-bin')?.value.trim();
   const gTarget = parseFloat(document.getElementById('goal-target-input')?.value) * 10000;
@@ -5823,10 +5843,9 @@ function saveSettings() {
   localStorage.setItem('twsa-settings', JSON.stringify(s));
   // ★ 同樣的修正：加進清單當備援，不要蓋掉可靠的預設代理
   if (s.corsProxy && !DATA.proxies.includes(s.corsProxy)) DATA.proxies.push(s.corsProxy);
-  closeModal('settings-modal');
+  if (!keepOpen) { closeModal('settings-modal'); showToast('設定已儲存'); }
   GOALS.updateDashboard();
   SYNC.updateStatus();
-  showToast('設定已儲存');
 }
 
 function saveCashSettings() {
@@ -5922,7 +5941,7 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('show'); });
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.show').forEach(m => m.classList.remove('show'));
+  if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.show').forEach(m => closeModal(m.id));
 });
 
 window.addEventListener('DOMContentLoaded', () => {

@@ -45,8 +45,8 @@
     <button class="icon-btn" onclick="refreshAll()" title="重新整理">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M12.5 2.5A6.5 6.5 0 1 1 7 .5C9.5.5 11.5 1.7 12.8 3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M10 3.5h3V.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
-    <button class="icon-btn" onclick="openSettings()" title="設定">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.2"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.6 2.6l1 1M10.4 10.4l1 1M11.4 2.6l-1 1M3.6 10.4l-1 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+    <button class="icon-btn" id="settings-btn" onclick="openSettings()" title="設定" aria-label="設定" aria-haspopup="dialog">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6.7 1.5h2.6l.4 1.7 1.2.7 1.7-.5 1.3 2.3-1.3 1.2v1.4l1.3 1.2-1.3 2.3-1.7-.5-1.2.7-.4 1.7H6.7l-.4-1.7-1.2-.7-1.7.5-1.3-2.3 1.3-1.2V7.4L2.1 6.2l1.3-2.3 1.7.5 1.2-.7z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.1"/></svg>
     </button>
   </div>
 </header>
@@ -538,7 +538,7 @@
           </div>
 
           <div class="notify-section">
-            <input type="email" id="notify-email" class="notify-email-input" placeholder="到價通知 Email（需設定 EmailJS）">
+            <input type="email" id="notify-email" class="notify-email-input" placeholder="到價通知 Email">
             <select id="notify-condition" class="notify-condition">
               <option value="reach">到達進場價</option>
               <option value="break-up">突破壓力</option>
@@ -887,68 +887,45 @@
 
 <!-- 設定 -->
 <div class="modal-overlay" id="settings-modal">
-  <div class="modal modal-wide">
-    <div class="modal-header"><h3>設定</h3><button class="modal-close" onclick="closeModal('settings-modal')">✕</button></div>
+  <div class="modal modal-wide set-modal" role="dialog" aria-modal="true" aria-labelledby="set-title">
+    <div class="modal-header"><h3 id="set-title">設定</h3><button class="modal-close" aria-label="關閉" onclick="closeModal('settings-modal')">✕</button></div>
     <div class="modal-body">
 
-      <div class="settings-section">
-        <div class="settings-title">🌌 介面</div>
-        <div class="toggle-row">
-          <span class="toggle-label">劇場模式（3D視覺化總覽）</span>
-          <label class="toggle"><input type="checkbox" id="theater-mode-toggle" onchange="Theater.toggle()"><span class="toggle-slider"></span></label>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <div class="settings-title">☁️ 雲端同步（跨裝置 - 全自動）</div>
-        <div style="font-size:11px;color:var(--text-3);margin-bottom:10px;line-height:1.6">
-          使用 <a href="https://jsonbin.io" target="_blank" style="color:var(--blue)">JSONBin.io</a> 免費服務。<strong>資料變更後 3 秒自動上傳</strong>，無需手動操作。<br>
-          ⚡ 開啟網頁時<strong>不</strong>自動下載（避免卡住），需要時請手動按「強制下載」。<br>
-          <strong>📱 手機設定只需兩步驟：</strong><br>
-          1. 電腦端：填入 API Key → 儲存（首次自動建立 Bin ID）<br>
-          2. 手機端：填入相同 API Key → 點「🔍 自動搜尋資料」→ 自動找到並下載
+      <section class="set-sec">
+        <div class="set-h"><span>雲端同步</span><span id="sync-status" class="set-status">未設定</span></div>
+        <p class="set-note">使用 <a href="https://jsonbin.io" target="_blank" rel="noopener">JSONBin.io</a> 免費服務，資料變更後 3 秒自動上傳。換裝置時：填入相同 API Key，按「下載」即可自動找到並還原資料。</p>
+        <div class="form-group">
+          <label class="form-label" for="jsonbin-key">API Key（Master Key）</label>
+          <input type="password" id="jsonbin-key" class="form-input" placeholder="$2a$10$..." autocomplete="off">
         </div>
         <div class="form-group">
-          <label class="form-label">API Key (Master Key)</label>
-          <input type="password" id="jsonbin-key" class="form-input" placeholder="$2a$10$...">
+          <label class="form-label" for="jsonbin-bin">Bin ID</label>
+          <input type="text" id="jsonbin-bin" class="form-input" placeholder="首次上傳後自動填入" autocomplete="off">
         </div>
-        <div class="form-group">
-          <label class="form-label">Bin ID（自動填入，無需手動輸入）</label>
-          <input type="text" id="jsonbin-bin" class="form-input" placeholder="首次上傳後自動填入">
+        <div class="set-actions">
+          <button class="set-btn gold" onclick="SYNC.uiUpload()">上傳</button>
+          <button class="set-btn" onclick="SYNC.uiDownload()">下載</button>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
-          <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="saveSettings();SYNC.upload()">⬆ 立即上傳</button>
-          <button class="btn-primary" style="font-size:12px;padding:6px 14px;background:var(--blue)" onclick="saveSettings();SYNC.smartConnect(document.getElementById('jsonbin-key').value).then(ok=>ok&&SYNC.manualDownload())">🔍 自動搜尋資料</button>
-          <button class="btn-cancel" style="font-size:12px;padding:6px 14px" onclick="SYNC.manualDownload()">⬇ 強制下載</button>
-        </div>
-        <div id="sync-status" style="font-size:11px;color:var(--text-3);margin-top:6px">未設定</div>
-      </div>
+      </section>
 
-      <div class="settings-section">
-        <div class="settings-title">✉️ EmailJS 到價通知</div>
-        <div class="form-group"><label class="form-label">Service ID</label><input type="text" id="ejs-service" class="form-input" placeholder="service_xxxxxxx"></div>
-        <div class="form-group"><label class="form-label">Template ID</label><input type="text" id="ejs-template" class="form-input" placeholder="template_xxxxxxx"></div>
-        <div class="form-group"><label class="form-label">Public Key</label><input type="text" id="ejs-pubkey" class="form-input" placeholder="xxxxxxxxxxxxxxx"></div>
-      </div>
-
-      <div class="settings-section">
-        <div class="settings-title">🌐 資料來源</div>
+      <section class="set-sec">
+        <div class="set-h"><span>資料來源</span></div>
         <div class="form-group">
-          <label class="form-label">CORS Proxy（主要）</label>
+          <label class="form-label" for="cors-proxy">CORS Proxy（主要）</label>
           <input type="text" id="cors-proxy" class="form-input" value="https://corsproxy.io/?">
           <div class="form-hint">失效時自動切換至 allorigins.win 備援</div>
         </div>
-      </div>
+      </section>
 
-      <div class="settings-section">
-        <div class="settings-title">💾 資料備份</div>
-        <div class="export-row">
-          <button class="export-btn" onclick="APP.exportData()">⬇ 匯出 JSON</button>
-          <button class="export-btn" onclick="document.getElementById('import-file2').click()">⬆ 匯入備份</button>
+      <section class="set-sec">
+        <div class="set-h"><span>資料備份</span></div>
+        <div class="set-actions">
+          <button class="set-btn" onclick="APP.exportData()">匯出 JSON</button>
+          <button class="set-btn" onclick="document.getElementById('import-file2').click()">匯入備份</button>
           <input type="file" id="import-file2" style="display:none" accept=".json" onchange="APP.importData(this.files[0])">
         </div>
-        <div class="form-hint" style="margin-top:8px">⚠️ 資料儲存在瀏覽器 localStorage，清除快取會遺失資料，建議定期匯出。</div>
-      </div>
+        <div class="form-hint" style="margin-top:8px">資料存在瀏覽器 localStorage，清除快取會遺失，建議定期匯出。</div>
+      </section>
 
     </div>
     <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('settings-modal')">取消</button><button class="btn-primary" onclick="saveSettings()">儲存設定</button></div>
@@ -958,7 +935,6 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="https://cdn.emailjs.com/dist/email.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="js/data.js"></script>
 <script src="js/chart.js"></script>

@@ -11,16 +11,12 @@ const Theater = {
   toggle() {
     const isShowing = document.getElementById('theater-content')?.style.display !== 'none';
     showMainView(isShowing ? 'dashboard' : 'theater');
-    const checkbox = document.getElementById('theater-mode-toggle');
-    if (checkbox) checkbox.checked = !isShowing;
     // ★ 記住劇場模式開關狀態：不用每次重新整理都要重新點一次
     localStorage.setItem('theater-mode-on', String(!isShowing));
   },
 
   goTo(target) {
     this.toggleNavMenu(false);
-    const checkbox = document.getElementById('theater-mode-toggle');
-    if (checkbox) checkbox.checked = false; // 透過選單離開一定是離開劇場模式
     localStorage.setItem('theater-mode-on', 'false');
     if (target === 'screener') { Screener.openModal(); return; }
     if (target === 'backtest') {
