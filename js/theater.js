@@ -11,13 +11,10 @@ const Theater = {
   toggle() {
     const isShowing = document.getElementById('theater-content')?.style.display !== 'none';
     showMainView(isShowing ? 'dashboard' : 'theater');
-    // ★ 記住劇場模式開關狀態：不用每次重新整理都要重新點一次
-    localStorage.setItem('theater-mode-on', String(!isShowing));
   },
 
   goTo(target) {
     this.toggleNavMenu(false);
-    localStorage.setItem('theater-mode-on', 'false');
     if (target === 'screener') { Screener.openModal(); return; }
     if (target === 'backtest') {
       showMainView('backtest');
