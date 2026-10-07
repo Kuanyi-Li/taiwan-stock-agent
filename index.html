@@ -247,6 +247,49 @@
       <div id="bt-body"><div class="empty-state">選擇市場、回測期間後按「開始回測」</div></div>
     </div>
 
+    <!-- ── 選股頁（Screener）── -->
+    <div class="performance-content sp-page" id="screener-page-content" style="display:none">
+      <div class="sp-head">
+        <h1 class="serif">選股</h1>
+        <p>只用今日快照（漲跌、本益比、殖利率、法人買賣超）評分，涵蓋上市股票，不含技術指標。分數是參考起點，不構成投資建議。</p>
+      </div>
+      <div class="sp-body">
+        <aside class="sp-panel sp-filters" aria-labelledby="sp-flt">
+          <h2 id="sp-flt" class="serif sp-ph">條件</h2>
+          <button class="sp-gold" onclick="Screener.runAutoRecommend()">自動推薦</button>
+          <p class="sp-hint">不用設條件，系統依四項評分排序</p>
+          <div class="sp-rule"></div>
+          <label for="scr-max-pe">本益比上限</label><input id="scr-max-pe" type="number" class="sp-field num" placeholder="不限">
+          <label for="scr-min-yield">殖利率下限（%）</label><input id="scr-min-yield" type="number" class="sp-field num" placeholder="不限">
+          <label>法人</label>
+          <div class="sp-seg" role="group" aria-label="法人">
+            <button type="button" id="scr-inst-buy" aria-pressed="false" onclick="Screener._setInst(true)">買超</button>
+            <button type="button" id="scr-inst-any" aria-pressed="true" onclick="Screener._setInst(false)">不限</button>
+          </div>
+          <details class="sp-more">
+            <summary>更多條件</summary>
+            <label>股價範圍（僅供篩選買得起整張）</label>
+            <div class="sp-pair"><input type="number" id="scr-min-price" class="sp-field num" placeholder="不限"><span>～</span><input type="number" id="scr-max-price" class="sp-field num" placeholder="不限"></div>
+            <label>今日漲跌幅 %</label>
+            <div class="sp-pair"><input type="number" id="scr-min-chg" class="sp-field num" placeholder="不限"><span>～</span><input type="number" id="scr-max-chg" class="sp-field num" placeholder="不限"></div>
+            <label for="scr-min-pe">本益比下限</label><input type="number" id="scr-min-pe" class="sp-field num" placeholder="不限">
+            <label for="scr-min-volume">最低成交量（張）</label><input type="number" id="scr-min-volume" class="sp-field num" placeholder="不限，例如 1000">
+            <label class="sp-check"><input type="checkbox" id="scr-trust-buying"> 投信買超</label>
+          </details>
+          <div style="margin-top:18px"><button class="sp-ghost" onclick="Screener.runFromModal()">依條件篩選</button></div>
+        </aside>
+        <section class="sp-results" aria-labelledby="sp-res">
+          <div class="sp-res-head">
+            <h2 id="sp-res" class="serif">推薦結果</h2>
+            <div class="sp-legend">
+              <span><i class="b1"></i> 法人買超</span><span><i class="b2"></i> 估值</span><span><i class="b3"></i> 殖利率</span><span><i class="b4"></i> 分散度</span>
+            </div>
+          </div>
+          <div id="screener-results"></div>
+        </section>
+      </div>
+    </div>
+
     <!-- ── 劇場模式（Theater）── -->
     <div class="theater-wrap" id="theater-content" style="display:none">
       <div id="theater-stage"></div>
@@ -810,70 +853,6 @@
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('add-trade-modal')">取消</button>
       <button class="btn-primary" onclick="saveAddTrade()">新增</button>
-    </div>
-  </div>
-</div>
-
-<!-- 全市場選股篩選器 -->
-<div class="modal-overlay" id="screener-modal">
-  <div class="modal" style="max-width:640px">
-    <div class="modal-header">
-      <h3>🔍 全市場選股篩選器</h3>
-      <button class="modal-close" onclick="closeModal('screener-modal')">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-note" style="margin-bottom:10px">⚠️ 只用「今日快照」資料判斷（價格變動、本益比、殖利率、法人買賣超），只涵蓋上市股票，不含技術指標（RSI/均線等），因為全市場逐支抓歷史K線資料量太大。評分是簡化的參考起點，不是嚴謹量化模型，不構成投資建議。</div>
-
-      <button class="btn-primary" style="width:100%;margin-bottom:10px;font-size:14px;padding:12px" onclick="Screener.runAutoRecommend()">🤖 自動推薦（不用設條件，系統評分排序）</button>
-
-      <div class="screener-advanced-toggle" onclick="document.getElementById('screener-advanced').classList.toggle('show')">
-        ⚙️ 進階：自己設條件手動篩選 ▾
-      </div>
-      <div class="screener-advanced" id="screener-advanced">
-        <div class="form-note" style="margin:8px 0">💡 全部欄位都是選填，留空就不會限制。股價高低本身不代表股票好壞，「股價範圍」只是給你篩「買不買得起整張」用的，不是評估機會的依據，可以留空不限制範圍。</div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label">股價範圍（選填，僅供篩選買得起整張）</label>
-            <div style="display:flex;gap:6px;align-items:center">
-              <input type="number" id="scr-min-price" class="form-input" placeholder="不限">
-              <span>～</span>
-              <input type="number" id="scr-max-price" class="form-input" placeholder="不限">
-            </div>
-          </div>
-          <div class="form-group"><label class="form-label">今日漲跌幅 %（選填）</label>
-            <div style="display:flex;gap:6px;align-items:center">
-              <input type="number" id="scr-min-chg" class="form-input" placeholder="不限">
-              <span>～</span>
-              <input type="number" id="scr-max-chg" class="form-input" placeholder="不限">
-            </div>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label">本益比範圍（選填）</label>
-            <div style="display:flex;gap:6px;align-items:center">
-              <input type="number" id="scr-min-pe" class="form-input" placeholder="不限">
-              <span>～</span>
-              <input type="number" id="scr-max-pe" class="form-input" placeholder="不限">
-            </div>
-          </div>
-          <div class="form-group"><label class="form-label">最低殖利率 %（選填）</label><input type="number" id="scr-min-yield" class="form-input" placeholder="不限，例如填3代表≥3%"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label">最低成交量-張（選填）</label><input type="number" id="scr-min-volume" class="form-input" placeholder="不限，例如填1000"></div>
-          <div class="form-group">
-            <label class="form-label">法人動向</label>
-            <div style="display:flex;gap:14px;padding-top:6px">
-              <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="checkbox" id="scr-foreign-buying"> 外資買超</label>
-              <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="checkbox" id="scr-trust-buying"> 投信買超</label>
-            </div>
-          </div>
-        </div>
-        <button class="btn-cancel" style="width:100%;margin:10px 0" onclick="Screener.runFromModal()">依上述條件手動篩選</button>
-      </div>
-
-      <div id="screener-results"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('screener-modal')">關閉</button>
     </div>
   </div>
 </div>

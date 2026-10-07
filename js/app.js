@@ -688,6 +688,7 @@ function showMainView(view) {
   const perf = document.getElementById('performance-content');
   const cal = document.getElementById('calendar-page-content');
   const bt = document.getElementById('backtest-content');
+  const scr = document.getElementById('screener-page-content');
   const theater = document.getElementById('theater-content');
   const sidebar = document.querySelector('.sidebar');
   const layout = document.querySelector('.app-layout');
@@ -698,7 +699,7 @@ function showMainView(view) {
     if (view === name && !was && view !== 'theater') UI.enter(el); // 新顯示的頁面淡入
   };
   showIf(dv, 'dashboard'); showIf(detail, 'detail'); showIf(perf, 'performance');
-  showIf(cal, 'calendar'); showIf(bt, 'backtest'); showIf(theater, 'theater');
+  showIf(cal, 'calendar'); showIf(bt, 'backtest'); showIf(scr, 'screener'); showIf(theater, 'theater');
   // 改版：側邊欄改成頁面導覽，只有劇場模式（全螢幕3D）才隱藏
   const hideSidebar = false; // 劇場模式也保留頁面導覽（與其他頁一致）
   document.querySelectorAll('#pnav .navlink').forEach(a => {
@@ -1356,7 +1357,7 @@ const NAV = {
     } else if (view === 'backtest') {
       if (!this._visible('backtest-content')) Backtest.toggle();
     } else if (view === 'screener') {
-      Screener.openModal();
+      if (!this._visible('screener-page-content')) { showMainView('screener'); Screener.openPage(); }
     } else if (view === 'theater') {
       if (!this._visible('theater-content')) Theater.toggle();
     }
@@ -3616,7 +3617,7 @@ const Screener = {
       score += diversifyScore;
     }
 
-    return { score: Math.round(score), breakdown, netInst };
+    return { score: Math.round(score), breakdown, netInst, parts: { inst: instScore, val: valScore, yld: yieldScore, div: Math.max(0, diversifyScore), pen: momentumPenalty + Math.max(0, -diversifyScore) } };
   },
 
   async autoRecommend() {
@@ -3641,7 +3642,7 @@ const Screener = {
         pe: pe?.pe ?? null, yield: pe?.yield ?? null,
         foreignFlow: flow?.foreign ?? null, trustFlow: flow?.trust ?? null,
         sector: (typeof getStockSector === 'function') ? getStockSector(code) : '其他',
-        score: scored.score, breakdown: scored.breakdown, netInst: scored.netInst,
+        score: scored.score, breakdown: scored.breakdown, netInst: scored.netInst, parts: scored.parts,
       });
     }
     results.sort((a, b) => b.score - a.score || (b.netInst ?? 0) - (a.netInst ?? 0));
@@ -3688,99 +3689,78 @@ const Screener = {
     return results;
   },
 
-  async openModal() {
-    const modal = document.getElementById('screener-modal');
-    modal.classList.add('show');
-    document.getElementById('screener-results').innerHTML = '<div class="empty-state">按上方「🤖 自動推薦」讓系統評分，或展開下方進階選項自己設條件</div>';
+  _instOnly: false,
+  _setInst(on) {
+    this._instOnly = !!on;
+    document.getElementById('scr-inst-buy')?.setAttribute('aria-pressed', String(this._instOnly));
+    document.getElementById('scr-inst-any')?.setAttribute('aria-pressed', String(!this._instOnly));
+  },
+
+  openPage() {
+    const el = document.getElementById('screener-results');
+    if (el && !el.innerHTML.trim()) el.innerHTML = '<div class="empty-state">按左側「自動推薦」讓系統評分，或設定條件後「依條件篩選」</div>';
+  },
+
+  // 評分印章的玫瑰線（與總覽的花紋同一套 epitrochoid）
+  _sealPath() {
+    if (this._seal) return this._seal;
+    const n = 16, R = 70, r = R / n, d = r * 2.4, sc = 29 / (R + r + d); let p = '';
+    for (let i = 0; i <= 480; i++) {
+      const t = i / 480 * Math.PI * 2;
+      const x = (R + r) * Math.cos(t) - d * Math.cos((R + r) / r * t), y = (R + r) * Math.sin(t) - d * Math.sin((R + r) / r * t);
+      p += (i ? 'L' : 'M') + (x * sc).toFixed(1) + ' ' + (y * sc).toFixed(1);
+    }
+    return (this._seal = p);
+  },
+
+  _rowsHTML(list, withScore) {
+    const lots = n => n == null ? '—' : `${n >= 0 ? '+' : '−'}${Math.abs(Math.round(n / 1000)).toLocaleString('en-US')} 張`;
+    const recommendCodes = new Set((typeof RECOMMEND !== 'undefined' ? RECOMMEND.CANDIDATES : []).map(c => c.code));
+    const head = `<div class="sp-row sp-th"><span>${withScore ? '評分' : ''}</span><span>名稱</span><span class="sp-r">現價</span><span class="sp-r">本益比</span><span class="sp-r">殖利率</span><span class="sp-r">外資</span><span>${withScore ? '評分組成' : ''}</span></div>`;
+    const rows = list.map(r => {
+      const up = r.chgPct >= 0, pt = r.parts;
+      const w = v => `${Math.max(0, Math.min(100, Math.round(v)))}%`;
+      const seal = withScore ? `<div class="sp-seal"><svg width="60" height="60" viewBox="-30 -30 60 60" aria-hidden="true"><path d="${this._sealPath()}" fill="none" stroke="#C9A55C" stroke-width="0.5" opacity="0.8"/><circle r="17" fill="#000" stroke="#C9A55C" stroke-width="0.8"/></svg><b>${r.score}</b></div>` : '<span></span>';
+      const bar = withScore && pt ? `<div><div class="sp-bar"><i class="b1" style="width:${w(pt.inst)}"></i><i class="b2" style="width:${w(pt.val)}"></i><i class="b3" style="width:${w(pt.yld)}"></i><i class="b4" style="width:${w(pt.div)}"></i></div><div class="sp-parts num">法人 ${Math.round(pt.inst)}　估值 ${Math.round(pt.val)}　殖利率 ${Math.round(pt.yld)}　分散 ${Math.round(pt.div)}${pt.pen ? `　扣 ${Math.round(pt.pen)}` : ''}</div></div>` : '<span></span>';
+      return `<div class="sp-row sp-hit" onclick="Screener.viewStock('${r.code}')">${seal}
+        <div><div class="sp-name">${r.name}${recommendCodes.has(r.code) ? '<span class="sp-badge" title="也在長期核心觀察清單裡">核心清單</span>' : ''}</div><div class="num sp-sub">${r.code}　${r.sector}</div></div>
+        <div class="sp-r"><div class="num">${r.close}</div><div class="num" style="font-size:12px;color:${up ? 'var(--red)' : 'var(--green-l)'}">${up ? '▲' : '▼'} ${Math.abs(r.chgPct).toFixed(2)}%</div></div>
+        <div class="num sp-r">${r.pe ?? '—'}</div><div class="num sp-r">${r.yield != null ? r.yield + '%' : '—'}</div>
+        <div class="num sp-r" style="color:${(r.foreignFlow ?? 0) >= 0 ? 'var(--red)' : 'var(--green-l)'}">${lots(r.foreignFlow)}</div>${bar}</div>`;
+    }).join('');
+    return `<div class="sp-scroll">${head}${rows}</div>`;
   },
 
   async runAutoRecommend() {
     const resultsEl = document.getElementById('screener-results');
+    document.getElementById('sp-res').textContent = '推薦結果';
     resultsEl.innerHTML = '<div class="empty-state">計算全市場評分中...</div>';
     const results = await this.autoRecommend();
-
-    if (!results.length) {
-      resultsEl.innerHTML = '<div class="empty-state">目前沒有評分>0的推薦標的</div>';
-      return;
-    }
-
-    // ★ 跟RECOMMEND（長期核心觀察清單）交叉比對：這裡回答的是「今天當下」的短期戰術訊號，
-    // RECOMMEND回答的是「體質好不好、適合長期核心持有」，兩者是不同問題，不是互相矛盾。
-    // 如果一支股票兩邊都出現，代表短期時機、長期體質都到位，特別標示出來讓你知道這個交集。
-    const recommendCodes = new Set((typeof RECOMMEND !== 'undefined' ? RECOMMEND.CANDIDATES : []).map(c => c.code));
-
-    const fmtShares = n => n == null ? '—' : `${n>=0?'+':''}${(n/1000).toFixed(0)}張`;
-    resultsEl.innerHTML = `
-      <div class="form-note" style="margin-bottom:8px">⚠️ 這是「今天當下」的短期戰術訊號（法人買超+估值+殖利率+動能+分散度），用批次快照資料算的簡化評分，不是嚴謹量化模型。跟「選股推薦」tab不一樣——那邊回答的是「體質好不好、適合長期核心持有」，這裡回答的是「今天時機好不好」，兩者是不同問題。排除你已持有的股票，顯示前30檔。</div>
-      ${results.slice(0, 30).map(r => `
-        <div class="screener-row" onclick="Screener.viewStock('${r.code}')">
-          <div class="screener-row-main">
-            <span class="screener-score">${r.score}分</span>
-            <span class="screener-code">${r.code}</span>
-            <span class="screener-name">${r.name}</span>
-            ${recommendCodes.has(r.code) ? '<span class="screener-core-badge" title="也在長期核心觀察清單裡，短期時機+長期體質都到位">✅ 核心清單</span>' : ''}
-            <span class="screener-sector">${r.sector}</span>
-          </div>
-          <div class="screener-row-stats">
-            <span class="${r.chgPct>=0?'up-color':'dn-color'}">${r.close} (${r.chgPct>=0?'+':''}${r.chgPct}%)</span>
-            <span>PE ${r.pe ?? '—'}</span>
-            <span>殖利率 ${r.yield ?? '—'}%</span>
-            <span style="color:${(r.foreignFlow??0)>=0?'#E24B4A':'#1D9E75'}">外資${fmtShares(r.foreignFlow)}</span>
-          </div>
-          <div class="screener-breakdown">${r.breakdown.join('　')}</div>
-        </div>`).join('')}
-    `;
+    if (!results.length) { resultsEl.innerHTML = '<div class="empty-state">目前沒有評分>0的推薦標的</div>'; return; }
+    resultsEl.innerHTML = `<p class="sp-note">這是「今天當下」的短期戰術訊號（法人買超＋估值＋殖利率＋分散度），用批次快照算的簡化評分，不是嚴謹量化模型；與「長期核心觀察清單」是不同問題。已排除你持有的股票，顯示前 30 檔。</p>${this._rowsHTML(results.slice(0, 30), true)}`;
   },
 
   async runFromModal() {
     const el = id => document.getElementById(id).value.trim();
     const num = v => v === '' ? null : parseFloat(v);
     const filters = {
-      minPrice: num(el('scr-min-price')),
-      maxPrice: num(el('scr-max-price')),
-      minChgPct: num(el('scr-min-chg')),
-      maxChgPct: num(el('scr-max-chg')),
-      minPE: num(el('scr-min-pe')),
-      maxPE: num(el('scr-max-pe')),
+      minPrice: num(el('scr-min-price')), maxPrice: num(el('scr-max-price')),
+      minChgPct: num(el('scr-min-chg')), maxChgPct: num(el('scr-max-chg')),
+      minPE: num(el('scr-min-pe')), maxPE: num(el('scr-max-pe')),
       minYield: num(el('scr-min-yield')),
-      foreignBuying: document.getElementById('scr-foreign-buying').checked,
+      foreignBuying: this._instOnly,
       trustBuying: document.getElementById('scr-trust-buying').checked,
       minVolume: num(el('scr-min-volume')),
     };
-
     const resultsEl = document.getElementById('screener-results');
+    document.getElementById('sp-res').textContent = '篩選結果';
     resultsEl.innerHTML = '<div class="empty-state">掃描全市場中...</div>';
     const results = await this.run(filters);
-
-    if (!results.length) {
-      resultsEl.innerHTML = '<div class="empty-state">沒有符合條件的股票，試著放寬篩選條件</div>';
-      return;
-    }
-
-    const fmtShares = n => n == null ? '—' : `${n>=0?'+':''}${(n/1000).toFixed(0)}張`;
-    const recommendCodes = new Set((typeof RECOMMEND !== 'undefined' ? RECOMMEND.CANDIDATES : []).map(c => c.code));
-    resultsEl.innerHTML = `
-      <div class="form-note" style="margin-bottom:8px">找到 ${results.length} 檔符合條件，顯示前50檔（依三大法人買超排序）</div>
-      ${results.slice(0, 50).map(r => `
-        <div class="screener-row" onclick="Screener.viewStock('${r.code}')">
-          <div class="screener-row-main">
-            <span class="screener-code">${r.code}</span>
-            <span class="screener-name">${r.name}</span>
-            ${recommendCodes.has(r.code) ? '<span class="screener-core-badge" title="也在長期核心觀察清單裡">✅ 核心清單</span>' : ''}
-            <span class="screener-sector">${r.sector}</span>
-          </div>
-          <div class="screener-row-stats">
-            <span class="${r.chgPct>=0?'up-color':'dn-color'}">${r.close} (${r.chgPct>=0?'+':''}${r.chgPct}%)</span>
-            <span>PE ${r.pe ?? '—'}</span>
-            <span>殖利率 ${r.yield ?? '—'}%</span>
-            <span style="color:${(r.foreignFlow??0)>=0?'#E24B4A':'#1D9E75'}">外資${fmtShares(r.foreignFlow)}</span>
-          </div>
-        </div>`).join('')}
-    `;
+    if (!results.length) { resultsEl.innerHTML = '<div class="empty-state">沒有符合條件的股票，試著放寬篩選條件</div>'; return; }
+    resultsEl.innerHTML = `<p class="sp-note">找到 ${results.length} 檔符合條件，顯示前 50 檔（依三大法人買超排序）。</p>${this._rowsHTML(results.slice(0, 50), false)}`;
   },
 
   viewStock(code) {
-    closeModal('screener-modal');
     openWatchlistModal();
     setTimeout(() => {
       const codeInput = document.getElementById('w-code');
@@ -4753,7 +4733,7 @@ const APP = {
     // 若總覽頁正顯示，切換市場後重新渲染（不同市場持股不同）
     const dv = document.getElementById('dashboard-content');
     if (dv && dv.style.display !== 'none') Dashboard.render();
-    ['dashboard-content', 'detail-content', 'performance-content', 'calendar-page-content', 'backtest-content'].forEach(id => {
+    ['dashboard-content', 'detail-content', 'performance-content', 'calendar-page-content', 'backtest-content', 'screener-page-content'].forEach(id => {
       const el = document.getElementById(id); if (el && el.style.display !== 'none') UI.enter(el); // 換市場：目前頁面重新淡入
     });
   },
