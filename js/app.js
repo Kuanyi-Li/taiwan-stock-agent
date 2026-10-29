@@ -5544,6 +5544,8 @@ function openEditTrade(id) {
   document.getElementById('et-price').value  = t.price;
   document.getElementById('et-date').value   = t.date || '';
   document.getElementById('et-fee').value    = t.fee || 0;
+  const pr = document.getElementById('et-pnl-row');
+  if (pr) { pr.style.display = t.action === 'sell' ? '' : 'none'; document.getElementById('et-pnl').value = t.realizedPnl != null ? Math.round(t.realizedPnl) : ''; }
   const tIsUS = (t.market || 'TW') === 'US';
   const note = document.getElementById('et-note');
   if (note) note.textContent = tIsUS
@@ -5560,7 +5562,10 @@ function saveEditTrade() {
   const date   = document.getElementById('et-date').value;
   const fee    = parseFloat(document.getElementById('et-fee').value) || 0;
   if (!shares || !price) { showToast('請填寫股數和價格'); return; }
-  TRADES.update(id, { shares, price, date, fee });
+  const upd = { shares, price, date, fee };
+  const pnlRaw = document.getElementById('et-pnl')?.value;
+  if (document.getElementById('et-pnl-row')?.style.display !== 'none' && pnlRaw !== '' && !isNaN(parseFloat(pnlRaw))) { upd.realizedPnl = parseFloat(pnlRaw); const ap = Math.abs(upd.realizedPnl); upd.note = `損益${upd.realizedPnl >= 0 ? '+' : '-'}${ap >= 10000 ? (ap / 10000).toFixed(2) + '萬' : ap.toFixed(0) + '元'}`; }
+  TRADES.update(id, upd);
   TRADES.recalcPortfolio();
   closeModal('edit-trade-modal');
   TRADES.render();
@@ -5706,10 +5711,10 @@ function openSellStockModal(code, idx) {
   const note = document.getElementById('sell-modal-note');
   if (note) note.textContent = isUS
     ? '美股一般無交易稅，僅計算手續費（各券商不同，預設$0）。'
-    : '⚠️ 手續費 0.1425%（最低$20）+ 交易稅（ETF 0.1%／個股 0.3%），自動計入紀錄。';
+    : '手續費、交易稅、成本已自動帶入，可直接改成券商的實際數字。損益 ＝ 賣出金額 − 手續費 − 交易稅 − 買進成本。';
   const sm = document.getElementById('sell-modal');
   sm._idx = idx; sm._code = s.code; sm._isUS = isUS;
-  sm._feeTouched = false; sm._taxTouched = false;
+  sm._feeTouched = false; sm._taxTouched = false; sm._costTouched = false; sm._avgCost = s.cost;
   ['sell-fee', 'sell-tax'].forEach(id => { const el = document.getElementById(id); if (el) el.closest('.form-group').style.display = isUS ? 'none' : ''; });
   updateSellCost();
   sm.classList.add('show');
@@ -5722,6 +5727,18 @@ function updateSellCost() {
   const f = document.getElementById('sell-fee'), t = document.getElementById('sell-tax');
   if (f && !sm._feeTouched) f.value = v > 0 ? calcFee(v) : '';
   if (t && !sm._taxTouched) t.value = v > 0 ? calcTax(v, sm._code) : '';
+  const c = document.getElementById('sell-cost');
+  if (c && !sm._costTouched) { const sh = parseFloat(document.getElementById('sell-shares')?.value) || 0; c.value = sh > 0 ? +(sm._avgCost * sh).toFixed(sm._isUS ? 2 : 0) : ''; }
+  // 即時預估淨損益
+  const box = document.getElementById('sell-pnl-preview');
+  if (box) {
+    const fee = sm._isUS ? 0 : (parseFloat(f?.value) || 0) + (parseFloat(t?.value) || 0);
+    const cost = parseFloat(c?.value) || 0;
+    if (v > 0 && cost > 0) {
+      const pnl = v - fee - cost;
+      box.innerHTML = `預估淨損益 <strong class="num ${pnl >= 0 ? 'up' : 'dn'}">${pnl >= 0 ? '+' : '−'}${Math.abs(pnl).toLocaleString('zh-TW', { maximumFractionDigits: sm._isUS ? 2 : 0 })}</strong>`;
+    } else box.textContent = '';
+  }
 }
 
 function addStock() {
@@ -5806,13 +5823,15 @@ function confirmSell() {
   if (shares > s.shares) { showToast(`超過持股數量（最多 ${s.shares} 股）`); return; }
   const isUS = APP.activeMarket === 'US';
   const tradeValue = price * shares;
-  const pnl = (price - s.cost) * shares;
   // 台股：手續費 0.1425% + 交易稅（ETF 0.1% / 一般股票 0.3%）；美股：無費用
   // 手續費、交易稅可在賣出視窗手動改成券商的實際數字；沒填就用自動計算
   const feeIn = document.getElementById('sell-fee')?.value, taxIn = document.getElementById('sell-tax')?.value;
   const sellTax = isUS ? 0 : (taxIn !== '' && taxIn != null && !isNaN(parseFloat(taxIn)) ? parseFloat(taxIn) : calcTax(tradeValue, s.code));
   const fee     = isUS ? 0 : (feeIn !== '' && feeIn != null && !isNaN(parseFloat(feeIn)) ? parseFloat(feeIn) : calcFee(tradeValue));
   const totalFee = fee + sellTax;
+  const costIn = parseFloat(document.getElementById('sell-cost')?.value);
+  const cost = !isNaN(costIn) && costIn >= 0 ? costIn : s.cost * shares;
+  const pnl = +(tradeValue - totalFee - cost).toFixed(2); // 淨損益：已扣手續費與交易稅
   const currency = isUS ? 'USD' : 'NT$';
   const pnlDisplay = isUS
     ? `$${Math.abs(pnl).toFixed(2)} USD`

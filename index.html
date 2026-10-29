@@ -737,11 +737,15 @@
         <div class="form-group"><label class="form-label" id="sell-price-label">賣出價格（元/股）<span class="required">*</span></label><input type="number" id="sell-price" class="form-input" step="0.01" oninput="updateSellCost()"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label" for="sell-fee">手續費（元）</label><input type="number" id="sell-fee" class="form-input" min="0" step="1" oninput="document.getElementById('sell-modal')._feeTouched=true"></div>
-        <div class="form-group"><label class="form-label" for="sell-tax">交易稅（元）</label><input type="number" id="sell-tax" class="form-input" min="0" step="1" oninput="document.getElementById('sell-modal')._taxTouched=true"></div>
+        <div class="form-group"><label class="form-label" for="sell-fee">手續費（元）</label><input type="number" id="sell-fee" class="form-input" min="0" step="1" oninput="document.getElementById('sell-modal')._feeTouched=true;updateSellCost()"></div>
+        <div class="form-group"><label class="form-label" for="sell-tax">交易稅（元）</label><input type="number" id="sell-tax" class="form-input" min="0" step="1" oninput="document.getElementById('sell-modal')._taxTouched=true;updateSellCost()"></div>
       </div>
-      <div class="form-group"><label class="form-label">交易日期</label><input type="date" id="sell-date" class="form-input"></div>
-      <div class="form-note" id="sell-modal-note">手續費、交易稅已依設定自動帶入，可直接改成券商的實際數字。</div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label" for="sell-cost">買進成本（元，總額）</label><input type="number" id="sell-cost" class="form-input" min="0" step="1" oninput="document.getElementById('sell-modal')._costTouched=true;updateSellCost()"><div class="form-hint">預設＝均價 × 股數；券商以批次計算時，改填券商的成本</div></div>
+        <div class="form-group"><label class="form-label">交易日期</label><input type="date" id="sell-date" class="form-input"></div>
+      </div>
+      <div class="sell-pnl" id="sell-pnl-preview" aria-live="polite"></div>
+      <div class="form-note" id="sell-modal-note">手續費、交易稅、成本已自動帶入，可直接改成券商的實際數字。損益 ＝ 賣出金額 − 手續費 − 交易稅 − 買進成本。</div>
     </div>
     <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('sell-modal')">取消</button><button class="btn-primary" style="background:var(--red)" onclick="confirmSell()">確認賣出</button></div>
   </div>
@@ -766,6 +770,9 @@
       <div class="form-row">
         <div class="form-group"><label class="form-label">交易日期</label><input type="date" id="et-date" class="form-input"></div>
         <div class="form-group"><label class="form-label">手續費/稅費</label><input type="number" id="et-fee" class="form-input" min="0" step="1"></div>
+      </div>
+      <div class="form-row" id="et-pnl-row" style="display:none">
+        <div class="form-group"><label class="form-label" for="et-pnl">已實現損益（元，淨額）</label><input type="number" id="et-pnl" class="form-input" step="1"><div class="form-hint">可直接改成券商顯示的損益；留空則維持原值</div></div>
       </div>
       <div class="form-note" id="et-note">⚠️ 修改後將重新計算持股均價，請確認數字正確。</div>
     </div>

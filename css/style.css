@@ -1713,3 +1713,6 @@ body .market-switch-btn.active { background: none; color: #000; }
 
 .sky-dot.watch span { color: var(--text-3); font-size: 11px; }
 .sky-dot.watch:hover span { color: var(--gold); }
+
+.sell-pnl { font-size: 13px; color: var(--text-2); margin: 2px 0 10px; min-height: 18px; }
+.sell-pnl strong { font-size: 16px; margin-left: 6px; }
