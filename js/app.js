@@ -2987,7 +2987,7 @@ const ORDER = {
       const batchPrice  = +(price * (1 + offsets[i])).toFixed(2);
       const shares = Math.max(1, Math.floor(batchBudget / batchPrice));
       const cost = shares * batchPrice;
-      const fee  = Math.max(20, Math.round(cost * 0.001425));
+      const fee  = calcFee(cost);
       totalCost += cost + fee; totalShares += shares;
       const sharesDisp = shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`;
       const costDisp = cost >= 10000 ? `${(cost/10000).toFixed(2)}萬` : `${cost.toFixed(0)}元`;
@@ -3131,7 +3131,7 @@ const ORDER = {
         const budget = totalBudget * ratio;
         const shares = Math.max(0, Math.floor(budget / s.price));
         const cost = shares * s.price;
-        const fee = Math.max(20, Math.round(cost * 0.001425));
+        const fee = calcFee(cost);
         const sharesDisp = shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`;
         const costDisp = this._fmtMoney(cost);
         const isBig = s.score >= 3;
@@ -3892,8 +3892,8 @@ const Backtest = {
     if (market === 'US') return { fee: 0, tax: 0 };
     const isETF = /^00\d{2,4}$/.test(code);
     const taxRate = isETF ? 0.001 : 0.003;
-    const fee = Math.max(20, Math.round(tradeValue * 0.001425));
-    const tax = Math.round(tradeValue * taxRate);
+    const fee = calcFee(tradeValue);
+    const tax = Math.floor(tradeValue * taxRate);
     return { fee, tax };
   },
 
@@ -4290,7 +4290,7 @@ const RECOMMEND = {
           const shares = Math.max(1, Math.floor(budgetPerStock / livePriceTWD));
           const costTWD = shares * livePriceTWD;
           const costUSD = isUS ? shares * livePrice : null;
-          const fee = isUS ? 0 : Math.max(20, Math.round(costTWD * 0.001425));
+          const fee = isUS ? 0 : calcFee(costTWD);
           const sd = isUS ? `${shares}股` : (shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`);
           const costDisp = isUS
             ? `US$${costUSD.toFixed(0)} (≈${costTWD >= 10000 ? (costTWD/10000).toFixed(1)+'萬' : costTWD.toFixed(0)+'元'})`
@@ -4685,6 +4685,7 @@ const APP = {
     // 載入設定欄位
     const s = this.settings;
     if (s.jsonbinKey) { const el = document.getElementById('jsonbin-key'); if(el) el.value = s.jsonbinKey; }
+    { const el = document.getElementById('fee-discount'); if (el) el.value = s.feeDiscount > 0 ? s.feeDiscount : 10; }
     if (s.jsonbinBin) { const el = document.getElementById('jsonbin-bin'); if(el) el.value = s.jsonbinBin; }
   },
 
@@ -5489,6 +5490,7 @@ function openSettings() {
   document.getElementById('settings-modal')?.classList.add('show');
   document.getElementById('settings-btn')?.classList.add('active');
   SYNC.updateStatus();
+  { const el = document.getElementById('fee-discount'); const d = APP.settings?.feeDiscount; if (el) el.value = d > 0 ? d : 10; }
 }
 function runAnalysis() {
   const code = APP.activeSymbol;
@@ -5705,8 +5707,21 @@ function openSellStockModal(code, idx) {
   if (note) note.textContent = isUS
     ? '美股一般無交易稅，僅計算手續費（各券商不同，預設$0）。'
     : '⚠️ 手續費 0.1425%（最低$20）+ 交易稅（ETF 0.1%／個股 0.3%），自動計入紀錄。';
-  document.getElementById('sell-modal')?.classList.add('show');
-  document.getElementById('sell-modal')._idx = idx;
+  const sm = document.getElementById('sell-modal');
+  sm._idx = idx; sm._code = s.code; sm._isUS = isUS;
+  sm._feeTouched = false; sm._taxTouched = false;
+  ['sell-fee', 'sell-tax'].forEach(id => { const el = document.getElementById(id); if (el) el.closest('.form-group').style.display = isUS ? 'none' : ''; });
+  updateSellCost();
+  sm.classList.add('show');
+}
+// 依股數／價格自動帶入手續費與交易稅；使用者手動改過的欄位不再被覆蓋
+function updateSellCost() {
+  const sm = document.getElementById('sell-modal');
+  if (!sm || sm._isUS) return;
+  const v = (parseFloat(document.getElementById('sell-shares')?.value) || 0) * (parseFloat(document.getElementById('sell-price')?.value) || 0);
+  const f = document.getElementById('sell-fee'), t = document.getElementById('sell-tax');
+  if (f && !sm._feeTouched) f.value = v > 0 ? calcFee(v) : '';
+  if (t && !sm._taxTouched) t.value = v > 0 ? calcTax(v, sm._code) : '';
 }
 
 function addStock() {
@@ -5727,7 +5742,7 @@ function addStock() {
     APP.portfolio.push({ code, name, shares, cost, date, price: cost, prevClose: cost, market: isUS ? 'US' : 'TW' });
   }
   // 台股才計算手續費，美股預設0
-  const fee = isUS ? 0 : Math.max(20, Math.round(cost * shares * 0.001425));
+  const fee = isUS ? 0 : calcFee(cost * shares);
   TRADES.add({ date: date||new Date().toISOString().split('T')[0], code, name, action:'buy', shares, price:cost, fee, market: isUS ? 'US' : 'TW' });
   APP.save(); APP.renderAll(); PIE.render(); closeModal('add-modal');
   showToast(`已新增 ${name} (${code}) × ${shares}股`);
@@ -5755,13 +5770,23 @@ function confirmBuy() {
   s.cost = +((s.cost * s.shares + price * shares) / totalShares).toFixed(4);
   s.shares = +totalShares.toFixed(0);
   const isUS = APP.activeMarket === 'US';
-  const fee = isUS ? 0 : Math.max(20, Math.round(price * shares * 0.001425));
+  const fee = isUS ? 0 : calcFee(price * shares);
   TRADES.add({ date, code:s.code, name:s.name, action:'buy', shares, price, fee, market: isUS ? 'US' : 'TW' });
   APP.save(); APP.renderAll(); PIE.render(); closeModal('buy-modal');
   showToast(`${s.name} 加碼 ${shares}股 @ ${isUS?'$':'NT$'}${price}，新均價 ${isUS?'$':'NT$'}${s.cost.toFixed(2)}`);
 }
 
 // 台股證交稅：ETF(00開頭代碼) 0.1%，一般股票 0.3%
+// 台股手續費：0.1425% × 券商折扣（設定裡的「手續費折扣」，單位：折，預設 10 折），最低 $20
+function calcFee(tradeValue) {
+  const d = parseFloat(APP.settings?.feeDiscount);
+  const disc = d > 0 && d <= 10 ? d / 10 : 1;
+  return Math.max(20, Math.round(tradeValue * 0.001425 * disc));
+}
+// 台股證交稅：券商為無條件捨去
+function calcTax(tradeValue, code) {
+  return Math.floor(tradeValue * sellTaxRate(code));
+}
 function isTWETF(code) {
   return /^00\d{2,4}$/.test(code);
 }
@@ -5783,8 +5808,10 @@ function confirmSell() {
   const tradeValue = price * shares;
   const pnl = (price - s.cost) * shares;
   // 台股：手續費 0.1425% + 交易稅（ETF 0.1% / 一般股票 0.3%）；美股：無費用
-  const sellTax = isUS ? 0 : Math.round(tradeValue * sellTaxRate(s.code));
-  const fee     = isUS ? 0 : Math.max(20, Math.round(tradeValue * 0.001425));
+  // 手續費、交易稅可在賣出視窗手動改成券商的實際數字；沒填就用自動計算
+  const feeIn = document.getElementById('sell-fee')?.value, taxIn = document.getElementById('sell-tax')?.value;
+  const sellTax = isUS ? 0 : (taxIn !== '' && taxIn != null && !isNaN(parseFloat(taxIn)) ? parseFloat(taxIn) : calcTax(tradeValue, s.code));
+  const fee     = isUS ? 0 : (feeIn !== '' && feeIn != null && !isNaN(parseFloat(feeIn)) ? parseFloat(feeIn) : calcFee(tradeValue));
   const totalFee = fee + sellTax;
   const currency = isUS ? 'USD' : 'NT$';
   const pnlDisplay = isUS
@@ -5859,6 +5886,7 @@ function addWatchlist() {
 function saveSettings(keepOpen) {
   const s = APP.settings;
   s.corsProxy   = document.getElementById('cors-proxy')?.value.trim();
+  { const d = parseFloat(document.getElementById('fee-discount')?.value); s.feeDiscount = d > 0 && d <= 10 ? d : 10; }
   s.jsonbinKey  = document.getElementById('jsonbin-key')?.value.trim();
   s.jsonbinBin  = document.getElementById('jsonbin-bin')?.value.trim();
   const gTarget = parseFloat(document.getElementById('goal-target-input')?.value) * 10000;
