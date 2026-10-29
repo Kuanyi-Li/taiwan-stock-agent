@@ -733,11 +733,15 @@
         <div class="form-group"><label class="form-label">名稱</label><input type="text" id="sell-name" class="form-input" readonly></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">賣出股數 <span class="required">*</span></label><input type="number" id="sell-shares" class="form-input" placeholder="100" min="1" value="100"><div class="form-hint" id="sell-max"></div></div>
-        <div class="form-group"><label class="form-label" id="sell-price-label">賣出價格（元/股）<span class="required">*</span></label><input type="number" id="sell-price" class="form-input" step="0.01"></div>
+        <div class="form-group"><label class="form-label">賣出股數 <span class="required">*</span></label><input type="number" id="sell-shares" class="form-input" placeholder="100" min="1" value="100" oninput="updateSellCost()"><div class="form-hint" id="sell-max"></div></div>
+        <div class="form-group"><label class="form-label" id="sell-price-label">賣出價格（元/股）<span class="required">*</span></label><input type="number" id="sell-price" class="form-input" step="0.01" oninput="updateSellCost()"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label" for="sell-fee">手續費（元）</label><input type="number" id="sell-fee" class="form-input" min="0" step="1" oninput="document.getElementById('sell-modal')._feeTouched=true"></div>
+        <div class="form-group"><label class="form-label" for="sell-tax">交易稅（元）</label><input type="number" id="sell-tax" class="form-input" min="0" step="1" oninput="document.getElementById('sell-modal')._taxTouched=true"></div>
       </div>
       <div class="form-group"><label class="form-label">交易日期</label><input type="date" id="sell-date" class="form-input"></div>
-      <div class="form-note" id="sell-modal-note">⚠️ 手續費 0.1425%（最低$20）+ 交易稅 0.3%，自動計入紀錄。</div>
+      <div class="form-note" id="sell-modal-note">手續費、交易稅已依設定自動帶入，可直接改成券商的實際數字。</div>
     </div>
     <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('sell-modal')">取消</button><button class="btn-primary" style="background:var(--red)" onclick="confirmSell()">確認賣出</button></div>
   </div>
@@ -905,6 +909,15 @@
         <div class="set-actions">
           <button class="set-btn gold" onclick="SYNC.uiUpload()">上傳</button>
           <button class="set-btn" onclick="SYNC.uiDownload()">下載</button>
+        </div>
+      </section>
+
+      <section class="set-sec">
+        <div class="set-h"><span>交易成本</span></div>
+        <div class="form-group">
+          <label class="form-label" for="fee-discount">手續費折扣（折）</label>
+          <input type="number" id="fee-discount" class="form-input" min="0.1" max="10" step="0.1" value="10">
+          <div class="form-hint">牌告 0.1425% 打幾折；10 = 不打折，例如 5.2 折填 5.2。僅台股，最低 $20。</div>
         </div>
       </section>
 
