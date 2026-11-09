@@ -1218,7 +1218,14 @@ const SKY = {
       items.push({ name: s.name || s.code, code: s.code, pct: prev ? (s.price - prev) / prev * 100 : 0, val: 0, watch: true });
     });
     const W = el.clientWidth || 600;
-    const lim = 10, X = p => (Math.max(-lim, Math.min(lim, p)) + lim) / (2 * lim) * 100;
+    // 橫軸依當天實際分布縮放（含 0 與大盤），不再固定 ±10%：全部偏漲時左半邊不會空著
+    const cap = isUS ? 20 : 10; // 台股漲跌停 ±10%
+    const bp0 = this._benchPct();
+    const pcts = items.map(x => x.pct).concat(bp0 == null ? [] : [bp0]);
+    const lo = Math.max(-cap, Math.min(-2, Math.floor(Math.min(...pcts) - 1)));
+    const hi = Math.min(cap, Math.max(2, Math.ceil(Math.max(...pcts) + 1)));
+    const clampP = p => Math.max(lo, Math.min(hi, p));
+    const X = p => (clampP(p) - lo) / (hi - lo) * 100;
     // 依漲跌幅由小到大放進「車道」，同一車道內左右要隔開（點＋名稱約 80px）
     const lanes = [], BASE = 50, MAXLANE = 4, CAP = 9; // CAP：車道上限（字高 15px 時固定高度內放得下的數量）
     // 依實際字寬排車道（中文 12px、英數約 6.5px）；自選股只顯示代號，避免名稱互相覆蓋
@@ -1226,10 +1233,13 @@ const SKY = {
     // 持股先排（一定有名稱），自選股後排；排不下的自選股只畫點、不顯示代號（hover 仍有提示）
     const order = [...items].sort((a, b) => (a.watch ? 1 : 0) - (b.watch ? 1 : 0) || a.pct - b.pct);
     const placed = order.map(x => {
-      const p = Math.max(-lim, Math.min(lim, x.pct));
+      const p = clampP(x.pct);
       const size = x.watch ? 12 : Math.round(12 + Math.sqrt(x.val / total * 100) * 3.2);
       const label = x.watch ? x.code : x.name;
-      const left = X(p) / 100 * W - size / 2, right = left + size + 6 + tw(label) + 6;
+      const px = X(p) / 100 * W, lw = tw(label);
+      // 靠右邊緣放不下名稱時，名稱改放在點的左側，避免被切掉
+      const flip = px + size / 2 + 6 + lw > W - 2;
+      const left = flip ? px - size / 2 - 6 - lw - 6 : px - size / 2, right = flip ? px + size / 2 : left + size + 6 + lw + 6;
       let lane = lanes.findIndex(lastRight => left >= lastRight);
       let hide = false;
       if (lane === -1 && lanes.length < CAP) { lanes.push(right); lane = lanes.length - 1; }
@@ -1237,35 +1247,41 @@ const SKY = {
         hide = true; lane = lanes.indexOf(Math.min(...lanes));
         lanes[lane] = Math.max(lanes[lane], left + size + 4);
       } else lanes[lane] = right;
-      return { x, p, lane, size, label, hide };
+      return { x, p, lane, size, label, hide, flip };
     });
     // 高度固定為 4 車道；點太多時壓縮車道間距，不讓區塊長高
     const LANE = lanes.length > MAXLANE ? Math.max(15, 34 * MAXLANE / lanes.length) : 34;
-    const dots = placed.map(({ x, p, lane, size, label, hide }) => {
+    const dots = placed.map(({ x, p, lane, size, label, hide, flip }) => {
       const c = x.pct > 0 ? '#FF5A4E' : x.pct < 0 ? '#22C17A' : '#8E8E96';
       const pos = `left:${X(p).toFixed(2)}%;bottom:${BASE + lane * LANE}px`;
       const tip = `${x.name} ${x.pct >= 0 ? '+' : ''}${x.pct.toFixed(2)}%${x.watch ? '（自選）' : ''}`;
       if (x.watch) {
         const s = size;
-        return `<button class="sky-dot watch" data-code="${x.code}" style="${pos};--s:${s}px" title="${tip}" onclick="NAV.pickStock('${x.code}')">
+        return `<button class="sky-dot watch${flip ? ' flip' : ''}" data-code="${x.code}" style="${pos};--s:${s}px" title="${tip}" onclick="NAV.pickStock('${x.code}')">
         <svg width="${s}" height="${s}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="${c}" stroke-width="1.4" stroke-dasharray="2.4 2.2" opacity="0.85"/></svg>
         ${hide ? '' : `<span>${label}</span>`}</button>`;
       }
-      return `<button class="sky-dot" data-code="${x.code}" style="${pos};--s:${size}px" title="${tip}" onclick="NAV.pickStock('${x.code}')">
+      return `<button class="sky-dot${flip ? ' flip' : ''}" data-code="${x.code}" style="${pos};--s:${size}px" title="${tip}" onclick="NAV.pickStock('${x.code}')">
         <svg width="${size}" height="${size}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="#000" stroke="${c}" stroke-width="1.2"/><circle cx="10" cy="10" r="5.5" fill="none" stroke="${c}" stroke-width="0.6" stroke-dasharray="1 1.4"/><circle cx="10" cy="10" r="2" fill="${c}"/></svg>
         <span>${x.name}</span></button>`;
     });
     const H = BASE + MAXLANE * 34 + 22;
     let ruler = '';
-    for (let v = -lim; v <= lim; v++) {
+    for (let v = Math.ceil(lo); v <= hi; v++) {
       const major = v % 5 === 0;
       ruler += `<i class="sky-tick" style="left:${X(v)}%;height:${major ? 10 : 5}px;background:${major ? '#ECECEC' : '#5A5A62'}"></i>`;
     }
-    const lab = isUS
-      ? [[-10, '−10%', '0%'], [-5, '−5%', '-50%'], [0, '0', '-50%'], [5, '+5%', '-50%'], [10, '+10%', '-100%']]
-      : [[-10, '跌停 −10%', '0%'], [-5, '−5%', '-50%'], [0, '0', '-50%'], [5, '+5%', '-50%'], [10, '漲停 +10%', '-100%']];
-    const labels = lab.map(([v, t, sh]) => `<span class="sky-lab num ${v < 0 ? 'dn' : v > 0 ? 'up' : ''}" style="left:${X(v)}%;transform:translateX(${sh})">${t}</span>`).join('');
-    const bp = this._benchPct(), bname = isUS ? 'S&P 500' : '加權';
+    // 刻度文字：0 與每 5% 一格；台股的 ±10% 標成漲停／跌停
+    const lab = [];
+    for (let v = Math.ceil(lo / 5) * 5; v <= hi; v += 5) {
+      const t = v === 0 ? '0' : `${v > 0 ? '+' : '−'}${Math.abs(v)}%`;
+      lab.push([v, !isUS && v === 10 ? '漲停 +10%' : !isUS && v === -10 ? '跌停 −10%' : t]);
+    }
+    const labels = lab.map(([v, t]) => {
+      const pos = X(v), sh = pos > 94 ? '-100%' : pos < 6 ? '0%' : '-50%';
+      return `<span class="sky-lab num ${v < 0 ? 'dn' : v > 0 ? 'up' : ''}" style="left:${pos}%;transform:translateX(${sh})">${t}</span>`;
+    }).join('');
+    const bp = bp0, bname = isUS ? 'S&P 500' : '加權';
     const bench = bp == null ? '' :
       `<i class="sky-bench" style="left:${X(bp).toFixed(2)}%;height:${H - 36 - 14}px"></i>
        <i class="sky-bench-tri" style="left:${X(bp).toFixed(2)}%;bottom:${H - 14}px"></i>
