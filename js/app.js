@@ -4880,7 +4880,7 @@ const APP = {
           if (!showChg) {
             changeEl.textContent = '+0.00 (休市)'; changeEl.className = 'chart-change neutral';
           } else if (Math.abs(chg) < 0.01) {
-            changeEl.textContent = isMarketOpen ? '+0.00 (待成交)' : '+0.00 (休市)'; changeEl.className = 'chart-change neutral';
+            changeEl.textContent = isOpen ? '+0.00 (待成交)' : '+0.00 (休市)'; changeEl.className = 'chart-change neutral';
           } else {
             changeEl.textContent = `${chg>=0?'+':''}${chg.toFixed(2)} (${chgPct>=0?'+':''}${chgPct.toFixed(2)}%)`;
             changeEl.className = 'chart-change ' + (chg >= 0 ? 'up-color' : 'dn-color');
