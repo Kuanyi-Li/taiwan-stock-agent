@@ -5881,19 +5881,24 @@ function autoFetchStockName(code, targetId) {
   // 台股最少4碼才觸發，美股最少1碼
   const minLen = isUS ? 1 : 4;
   if (code.length < minLen) return;
-  clearTimeout(_fetchNameTimer);
-  _fetchNameTimer = setTimeout(async () => {
-    nameEl.placeholder = '抓取中...';
+  clearTimeout(autoFetchStockName._timer);
+  autoFetchStockName._timer = setTimeout(async () => {
+    nameEl.placeholder = '抓取中…';
+    const manual = isUS ? '請手動輸入公司名稱' : '請手動輸入名稱';
     try {
-      const q = await DATA.fetchQuote(code);
-      if (q.ok && q.name && q.name !== code) {
-        nameEl.placeholder = q.name;
-        if (!nameEl.value || nameEl.value === code) nameEl.value = q.name;
-      } else {
-        nameEl.placeholder = isUS ? '請手動輸入公司名稱' : '請手動輸入名稱';
-      }
-    } catch(e) { nameEl.placeholder = '請手動輸入名稱'; }
-  }, 700);
+      const r = await DATA.lookupName(code);
+      // 使用者在等待期間改了代號就不要蓋掉
+      const codeEl = nameEl.closest('.modal, form, body').querySelector('input[oninput*="autoFetchStockName"]');
+      if (codeEl && codeEl.value.trim().toUpperCase() !== code) return;
+      if (r.name) {
+        nameEl.placeholder = r.name;
+        // 欄位是空的、只填了代號，或是上一次自動帶入的值，才覆寫；使用者自己打的不動
+        if (!nameEl.value || nameEl.value === code || nameEl.value === nameEl.dataset.auto) {
+          nameEl.value = r.name; nameEl.dataset.auto = r.name;
+        }
+      } else nameEl.placeholder = manual;
+    } catch(e) { nameEl.placeholder = manual; }
+  }, 500);
 }
 
 function addWatchlist() {

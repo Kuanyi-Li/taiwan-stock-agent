@@ -136,6 +136,44 @@ const DATA = {
     return /^[A-Za-z]{1,5}$/.test(code);
   },
 
+  // ── 股票中文名稱查詢（新增持股／交易／自選的名稱自動帶入用）──
+  // 美股沒有中文名稱來源，常見標的用內建對照表；其餘才退回英文名稱
+  US_ZH_NAMES: {
+    AAPL:'蘋果', MSFT:'微軟', NVDA:'輝達', GOOGL:'Alphabet', GOOG:'Alphabet', AMZN:'亞馬遜', META:'Meta', TSLA:'特斯拉',
+    AVGO:'博通', AMD:'超微', TSM:'台積電ADR', INTC:'英特爾', QCOM:'高通', MU:'美光', ARM:'安謀', ASML:'艾司摩爾',
+    AMAT:'應用材料', LRCX:'科林研發', KLAC:'科磊', TXN:'德州儀器', MRVL:'邁威爾', SMCI:'美超微', DELL:'戴爾',
+    ORCL:'甲骨文', CRM:'Salesforce', ADBE:'Adobe', NFLX:'網飛', PLTR:'Palantir', UBER:'Uber', COIN:'Coinbase',
+    COST:'好市多', WMT:'沃爾瑪', KO:'可口可樂', PEP:'百事', MCD:'麥當勞', SBUX:'星巴克', NKE:'耐吉', DIS:'迪士尼',
+    JPM:'摩根大通', BAC:'美國銀行', GS:'高盛', V:'Visa', MA:'萬事達卡', BRK:'波克夏', JNJ:'嬌生', PFE:'輝瑞',
+    LLY:'禮來', UNH:'聯合健康', XOM:'艾克森美孚', CVX:'雪佛龍', BA:'波音',
+    VOO:'Vanguard 標普500 ETF', SPY:'SPDR 標普500 ETF', IVV:'iShares 標普500 ETF', VTI:'Vanguard 整體股市 ETF',
+    QQQ:'Invesco 那斯達克100 ETF', QQQM:'Invesco 那斯達克100 ETF', SCHD:'Schwab 美國高股息 ETF', VT:'Vanguard 全世界股票 ETF',
+    SOXX:'iShares 半導體 ETF', SMH:'VanEck 半導體 ETF', TLT:'iShares 20年期以上美債 ETF', BND:'Vanguard 總體債券 ETF',
+  },
+  _hasCJK(s) { return /[\u4e00-\u9fff]/.test(s || ''); },
+  // 回傳 { name, zh }：zh=false 表示只找到英文名稱
+  async lookupName(code) {
+    code = (code || '').trim().toUpperCase();
+    if (!code) return { name: '', zh: false };
+    if (this.isUSCode(code)) {
+      if (this.US_ZH_NAMES[code]) return { name: this.US_ZH_NAMES[code], zh: true };
+      const q = await this.fetchQuote(code).catch(() => null);
+      const n = q?.ok && q.name && q.name !== code ? q.name : '';
+      return { name: n, zh: false };
+    }
+    // 台股：先用即時報價（證交所 MIS，中文名）；拿到英文或失敗時改查全市場快照
+    let fallback = '';
+    const q = await this.fetchQuote(code).catch(() => null);
+    if (q?.ok && q.name && q.name !== code) {
+      if (this._hasCJK(q.name)) return { name: q.name, zh: true };
+      fallback = q.name;
+    }
+    const snap = await this.fetchMarketSnapshot().catch(() => ({}));
+    const sn = snap?.[code]?.name?.trim();
+    if (sn) return { name: sn, zh: true };
+    return { name: fallback, zh: false };
+  },
+
   // ── 全市場每日快照（篩選器用，一次請求涵蓋全部上市股票，不用逐支抓）──
   marketSnapshotCache: null, // { date, byCode: {code: {name, close, chgPct, volume}} }
   async fetchMarketSnapshot() {
