@@ -4381,12 +4381,14 @@ const PriceAlert = {
   },
 
   openModal(code, market) {
-    const list = market === 'US' ? APP._usPortfolio : APP._twPortfolio;
-    const s = list.find(x => x.code === code);
+    // 持股和自選股都可以設到價提醒
+    const isUS = market === 'US';
+    const s = (isUS ? APP._usPortfolio : APP._twPortfolio).find(x => x.code === code)
+           || (isUS ? APP._usWatchlist : APP._twWatchlist).find(x => x.code === code);
     if (!s) return;
     const modal = document.getElementById('alert-modal');
     modal._code = code; modal._market = market;
-    document.getElementById('alert-stock-label').textContent = `${code} ${s.name}（現價 ${(market==='US'?'US$':'$')}${(s.price??s.cost).toFixed(2)}）`;
+    document.getElementById('alert-stock-label').textContent = `${code} ${s.name}（現價 ${(market==='US'?'US$':'$')}${(s.price || s.cost || 0).toFixed(2)}）`;
     const existing = this.get(code);
     document.getElementById('alert-above').value = existing?.above ?? '';
     document.getElementById('alert-below').value = existing?.below ?? '';
@@ -4402,6 +4404,8 @@ const PriceAlert = {
     this.set(code, { above, below });
     closeModal('alert-modal');
     APP.renderStockList();
+    // 總覽帳冊的鈴鐺狀態同步（不重畫整張表）
+    document.querySelectorAll(`.lg-act[onclick*="PriceAlert.openModal('${code}'"]`).forEach(b => b.classList.toggle('on', !!(above || below)));
     showToast(above || below ? `${code} 到價提醒已設定` : `${code} 到價提醒已取消`);
   },
 
@@ -5989,21 +5993,6 @@ function renderSellSignals(result) {
     const noteEl = document.getElementById('sell-plan-note');
     if (noteEl) noteEl.textContent = plan.note ?? '';
   }
-}
-
-function setNotification() {
-  const email = document.getElementById('notify-email')?.value;
-  const condition = document.getElementById('notify-condition')?.value;
-  if (!email) { showToast('請輸入 Email'); return; }
-  const stock = APP.getActiveStock();
-  if (!stock) { showToast('請先選擇股票'); return; }
-  const targetPrice = ORDER.suggestEntry || stock.price || 0;
-  APP.notifyRules = APP.notifyRules || [];
-  APP.notifyRules.push({ code:stock.code, name:stock.name, condition, targetPrice, triggered:false, createdAt:new Date().toISOString() });
-  localStorage.setItem('twsa-notify-rules', JSON.stringify(APP.notifyRules));
-  const fb = document.getElementById('notify-feedback');
-  if (fb) { fb.textContent = `✓ ${stock.name} ${condition} $${targetPrice} 通知已設定`; setTimeout(() => { fb.textContent = ''; }, 5000); }
-  showToast('通知規則已設定');
 }
 
 // ── Helpers ───────────────────────────────────────────

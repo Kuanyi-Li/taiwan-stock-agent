@@ -669,11 +669,6 @@ body {
 .alloc-empty { font-size: 12px; color: var(--text-3); text-align: center; padding: 16px; }
 
 /* Notify */
-.notify-section { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 4px; }
-.notify-email-input { background: var(--bg-2); border: 1px solid var(--border-md); border-radius: var(--radius-sm); color: var(--text-1); font-size: 12px; padding: 5px 10px; flex: 1; min-width: 140px; outline: none; }
-.notify-condition { background: var(--bg-2); border: 1px solid var(--border-md); border-radius: var(--radius-sm); color: var(--text-1); font-size: 12px; padding: 5px 8px; outline: none; }
-.set-notify-btn { font-size: 12px; padding: 5px 12px; background: var(--bg-3); border: 1px solid var(--border); color: var(--text-1); border-radius: var(--radius-sm); cursor: pointer; }
-.notify-feedback { font-size: 11px; color: var(--green-l); }
 
 /* ── Sell Card ── */
 .sell-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 8px; }
@@ -1330,8 +1325,8 @@ body.theater-active .dashboard-toggle-btn { display: none; }
 .serif-h { font-family: var(--font-serif); font-size: 18px; font-weight: 700; } .serif-h small { font-family: var(--font-sans); font-size: 12px; font-weight: 400; color: var(--text-3); margin-left: 6px; }
 .main-tabs { padding: 0 8px; } .main-tab-btn { min-height: 44px; font-size: 14px; color: var(--text-3); }
 .ai-title, .pa-title, .order-title, .rec-title-h { font-family: var(--font-serif); font-size: 18px; font-weight: 700; }
-.analyze-btn, .set-notify-btn, .export-btn { background: none; border: 1px solid var(--gold); color: var(--gold); border-radius: 0; }
-.analyze-btn:hover, .set-notify-btn:hover, .export-btn:hover { background: rgba(201,165,92,0.1); color: var(--gold-l); }
+.analyze-btn, .export-btn { background: none; border: 1px solid var(--gold); color: var(--gold); border-radius: 0; }
+.analyze-btn:hover, .export-btn:hover { background: rgba(201,165,92,0.1); color: var(--gold-l); }
 .export-btn.gold, .rec-run-btn { background: var(--gold); color: #000; border: 1px solid var(--gold); border-radius: 0; font-weight: 600; }
 .export-btn.gold:hover, .rec-run-btn:hover { background: var(--gold-l); color: #000; opacity: 1; }
 .confidence-chip, .confidence-chip.high, .confidence-chip.mid, .confidence-chip.low { background: none; border: 1px solid var(--border-md); border-radius: 0; color: var(--text-2); font-weight: 400; }
@@ -1339,7 +1334,7 @@ body.theater-active .dashboard-toggle-btn { display: none; }
 .signal-block { background: var(--bg-1); } .signal-block.signal-action-big { background: var(--bg-1); border-color: var(--border-md); border-top-color: var(--gold); }
 .signal-action-big .sig-value { font-family: var(--font-serif); font-size: 34px; font-weight: 900; }
 .ptag { border-radius: 0; } .meter-bar-wrap { border-radius: 0; height: 6px; border: none; } .meter-bar { border-radius: 0; }
-.budget-input-wrap, .strategy-select, .rec-filter, .notify-email-input, .notify-condition { background: var(--bg-1); border-radius: 0; border-color: var(--border-md); }
+.budget-input-wrap, .strategy-select, .rec-filter { background: var(--bg-1); border-radius: 0; border-color: var(--border-md); }
 /* 交易紀錄 */
 .trade-stats-grid { grid-template-columns: repeat(5, 1fr); gap: 12px; }
 .trade-stat-card { border: 1px solid var(--border-md); border-top-color: var(--gold); padding: 12px 14px; }
