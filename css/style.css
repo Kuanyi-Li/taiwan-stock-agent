@@ -1719,3 +1719,9 @@ body .market-switch-btn.active { background: none; color: #000; }
 
 /* 靠右邊緣的星點：名稱放在點的左側 */
 .sky-dot.flip { flex-direction: row-reverse; transform: translateX(calc(-100% + var(--s) / 2)); }
+
+/* K 線資料狀態：抓不到／沿用舊快取 */
+.chart-fail { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; color: var(--text-1); font-size: 14px; }
+.chart-fail small { color: var(--text-3); font-size: 12px; }
+.chart-fail .set-btn { margin-top: 6px; }
+.chart-stale { position: absolute; left: 12px; top: 10px; z-index: 15; font-size: 11px; color: var(--gold); border: 1px solid var(--gold); background: rgba(0,0,0,0.85); padding: 3px 8px; pointer-events: none; }

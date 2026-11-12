@@ -694,6 +694,7 @@ const DATA = {
     return candles;
   },
 
+  histStale: {}, // { 'symbol_period': 快取時間 }：這份歷史資料是抓取失敗後沿用的舊快取
   async fetchHistory(symbol, period = '3mo') {
     const { interval, range } = this._periodToParams(period);
     const key = `${symbol}_${period}`;
@@ -778,9 +779,11 @@ const DATA = {
 
       if (!candles) {
         console.warn('[DATA] fetchHistory failed:', symbol, lastErr?.message);
-        if (cached) return cached.data;
-        return this._mockCandles(symbol, period);
+        // 抓不到時絕不用亂數假資料：有舊快取就沿用並標記「過期」，沒有就回傳空陣列（failed）
+        if (cached) { this.histStale[key] = cached.ts; return cached.data; }
+        return Object.assign([], { failed: true });
       }
+      delete this.histStale[key];
 
       // K線載入後同步補報價（避免覆蓋即時資料）
       const last = candles[candles.length - 1];
@@ -889,18 +892,4 @@ const DATA = {
     })[period] ?? { interval:'1d', range:'1y' };
   },
 
-  _mockCandles(symbol, period) {
-    console.warn('[DATA] mock candles for', symbol);
-    const n = { '5m':78,'15m':40,'60m':30,'1d':22,'1wk':30,'1mo':45,'3mo':65,'6mo':130,'1y':250,'2y':500,'w5y':260 }[period] ?? 60;
-    const base = this.priceStore[symbol]?.price ?? 100;
-    let price = base * 0.92;
-    const now = Date.now();
-    const step = ['5m','15m','60m'].includes(period) ? 60000 * parseInt(period) : 86400000;
-    return Array.from({ length: n }, (_, i) => {
-      const o = price, r = o * 0.02;
-      const h = o + Math.random() * r, l = o - Math.random() * r, c = l + (h - l) * Math.random();
-      price = c;
-      return { t: now - (n-1-i)*step, o:+o.toFixed(2), h:+h.toFixed(2), l:+l.toFixed(2), c:+c.toFixed(2), v: Math.floor(1e5+Math.random()*5e5) };
-    });
-  },
 };
