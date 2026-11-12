@@ -140,12 +140,15 @@ const CHART = {
     this.currentPeriod = period;
     this._loadToken = symbol; // ★ 記錄本次載入請求的股票，防止競速覆蓋
     const loadEl = document.getElementById('chart-loading');
-    if (loadEl) loadEl.style.display = 'flex';
+    if (loadEl) { loadEl.textContent = '載入中…'; loadEl.style.display = 'flex'; }
     const data = await DATA.fetchHistory(symbol, period);
     if (loadEl) loadEl.style.display = 'none';
 
     // ★ 若載入期間使用者已切換到別支股票，這份較慢回來的資料不套用
     if (this._loadToken !== symbol || APP.activeSymbol !== symbol) return;
+
+    this._showDataStatus(symbol, period, data);
+    if (!data.length) return; // 抓不到資料：保留錯誤訊息，不畫圖、不分析
 
     this.currentData = data;
 
@@ -162,6 +165,33 @@ const CHART = {
     // 長線/短線切換由 runAnalysisForSymbol() 處理
     if (!ANALYSIS._cache[symbol]) {
       this._runAnalysis(symbol);
+    }
+  },
+
+  // K 線資料狀態：抓不到 → 蓋住圖表並提供重試；沿用舊快取 → 圖表角落標示快取時間
+  _showDataStatus(symbol, period, data) {
+    const loadEl = document.getElementById('chart-loading');
+    if (!loadEl) return;
+    let note = document.getElementById('chart-stale');
+    if (!note) {
+      note = document.createElement('div');
+      note.id = 'chart-stale'; note.className = 'chart-stale';
+      loadEl.parentElement.appendChild(note);
+    }
+    note.style.display = 'none';
+    if (!data.length) {
+      loadEl.innerHTML = `<div class="chart-fail"><div>K 線資料暫時抓不到</div><small>資料來源沒有回應，沒有用其他資料代替</small><button type="button" class="set-btn" id="chart-retry">重試</button></div>`;
+      loadEl.style.display = 'flex';
+      document.getElementById('chart-retry').onclick = () => this.load(symbol, this.currentUnit);
+      // 沒有 K 線就沒有分析：別讓訊號欄一直停在「分析中」
+      if (!ANALYSIS._cache[symbol]) { const sa = document.getElementById('sig-action'); if (sa) { sa.textContent = '無資料'; sa.style.color = 'var(--text-3)'; } }
+      return;
+    }
+    const ts = DATA.histStale[`${symbol}_${period}`];
+    if (ts) {
+      const d = new Date(ts), p = n => String(n).padStart(2, '0');
+      note.textContent = `資料來源沒有回應，顯示 ${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())} 的資料`;
+      note.style.display = '';
     }
   },
 
