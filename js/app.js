@@ -244,135 +244,111 @@ const GOALS = {
     el.textContent = `⚠️ ${top.sector}佔投資組合 ${top.pct.toFixed(0)}%，集中度偏高，建議留意產業系統性風險`;
   },
 
-  updateDashboard() {
-    const g = this.get();
-    // ★ 台股+美股合計
-    const twVal = APP._twPortfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
-    const usVal = APP._usPortfolio.reduce((sum, s) => sum + (s.price ?? s.cost) * s.shares, 0);
-    const usValTWD = CURRENCY.toTWD(usVal);
-    const stockVal = twVal + usValTWD; // 總股票市值（換算台幣）
-    const cashTWD = parseFloat(g.cashTWD) || 0;
-    const cashUSD = parseFloat(g.cashUSD) || 0;
-    const cashUSDtw = CURRENCY.toTWD(cashUSD);
-    const totalVal = stockVal + cashTWD + cashUSDtw;
-    const target = g.target;
-    const diff = target - totalVal;
-    const pct = Math.min(100, totalVal / target * 100);
-
-    const startDate = g.startDate ? new Date(g.startDate) : new Date(Date.now() - 365*86400000);
-    const monthsPassed = (Date.now() - startDate.getTime()) / (30.44*86400000);
-    const initialVal = g.initialValue || Math.max(1, totalVal * 0.8);
-    const annualReturn = monthsPassed > 0.5 ? ((totalVal / initialVal) ** (12/monthsPassed) - 1) * 100 : 0;
-    const yearsNeeded = annualReturn > 0 ? Math.log(target/totalVal) / Math.log(1 + annualReturn/100) : null;
-    const eta = yearsNeeded !== null
-      ? new Date(Date.now() + yearsNeeded*365*86400000).toLocaleDateString('zh-TW', { year:'numeric', month:'short' })
-      : '—';
-    const requiredAnnual = totalVal > 0 ? (((target/totalVal) ** (1/g.years)) - 1) * 100 : 0;
-
-    const fmtM = v => {
-      if (v >= 1e6) return (v/1e4).toFixed(0)+'萬';
-      if (v >= 1e4) return (v/1e4).toFixed(1)+'萬';
-      return v.toFixed(0)+'元';
-    };
-
-    const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
-    const setW = (id, w) => { const el = document.getElementById(id); if(el) el.style.width = w; };
-
-    set('goal-stock-val', usValTWD > 0
-      ? `${fmtM(twVal)}（台）+ ${fmtM(usValTWD)}（美）`
-      : fmtM(twVal));
-    set('goal-cash-twd-val', fmtM(cashTWD));
-    set('goal-cash-usd-val', `$${cashUSD.toLocaleString()} (≈${fmtM(cashUSDtw)})`);
-    set('goal-total-val', fmtM(totalVal));
-    set('goal-target-val', fmtM(target));
-    set('goal-diff', diff > 0 ? `距目標還差 ${fmtM(diff)}` : '🎉 已達目標！');
-    set('goal-pct', pct.toFixed(1) + '%');
-    setW('goal-progress-bar', pct.toFixed(1) + '%');
-    set('goal-annual-return', annualReturn > 0 ? '+' + annualReturn.toFixed(1) + '%/年' : '—');
-    set('goal-required-return', requiredAnnual.toFixed(1) + '%/年');
-    set('goal-eta', eta);
-    set('goal-years-left', g.years.toFixed(1) + ' 年');
-
-    const barEl = document.getElementById('goal-progress-bar');
-    if (barEl) barEl.style.background = pct >= 100 ? 'var(--green-l)' : pct >= 60 ? 'var(--amber)' : 'var(--red)';
-
-    // 資產結構比例（台股/美股/現金）
-    if (totalVal > 0) {
-      const twPct   = (twVal/totalVal*100).toFixed(0);
-      const usPct   = (usValTWD/totalVal*100).toFixed(0);
-      const cashPct = ((cashTWD+cashUSDtw)/totalVal*100).toFixed(0);
-      set('goal-stock-pct', twPct + '%');
-      set('goal-cash-pct', cashPct + '%');
-      const stockBar = document.getElementById('goal-asset-stock-bar');
-      const cashBar  = document.getElementById('goal-asset-cash-bar');
-      if (stockBar) stockBar.style.width = (+twPct + +usPct) + '%';
-      if (cashBar)  cashBar.style.width  = cashPct + '%';
-    }
-
-    this._drawValueChart();
+  // ── 目標追蹤（績效頁最上方）────────────────────────
+  // 股票市值（台股＋美股換算台幣）
+  _stockValue() {
+    const tw = APP._twPortfolio.reduce((a, s) => a + (s.price ?? s.cost) * s.shares, 0);
+    const us = APP._usPortfolio.reduce((a, s) => a + (s.price ?? s.cost) * s.shares, 0);
+    return tw + CURRENCY.toTWD(us);
   },
-
-  _drawValueChart() {
-    const canvas = document.getElementById('value-chart');
-    if (!canvas) return;
-    const history = JSON.parse(localStorage.getItem('twsa-value-history') || '[]');
-    if (history.length < 2) {
-      const ctx = canvas.getContext('2d');
-      const W = canvas.parentElement?.clientWidth || 400;
-      canvas.width = W; canvas.height = 100;
-      ctx.fillStyle = 'rgba(255,255,255,0.1)';
-      ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('資產曲線將在資料累積後顯示（需至少2天）', W/2, 55);
-      return;
-    }
-    const W = canvas.parentElement?.clientWidth || 400;
-    const H = 100;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = W * dpr; canvas.height = H * dpr;
-    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-
-    const vals = history.map(h => h.value);
-    const minV = Math.min(...vals) * 0.98;
-    const maxV = Math.max(...vals) * 1.02;
-    const n = history.length;
-    const xOf = i => (i/(n-1)) * (W - 32) + 8;
-    const yOf = v => H - 16 - ((v - minV)/(maxV - minV || 1)) * (H - 24);
-
-    // Gradient fill
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, 'rgba(29,158,117,0.3)');
-    grad.addColorStop(1, 'rgba(29,158,117,0)');
-    ctx.beginPath();
-    history.forEach((h, i) => { i===0 ? ctx.moveTo(xOf(i), yOf(h.value)) : ctx.lineTo(xOf(i), yOf(h.value)); });
-    ctx.lineTo(xOf(n-1), H); ctx.lineTo(xOf(0), H); ctx.closePath();
-    ctx.fillStyle = grad; ctx.fill();
-
-    // Line
-    ctx.beginPath(); ctx.strokeStyle = '#1D9E75'; ctx.lineWidth = 2;
-    history.forEach((h, i) => { i===0 ? ctx.moveTo(xOf(i), yOf(h.value)) : ctx.lineTo(xOf(i), yOf(h.value)); });
-    ctx.stroke();
-
-    // Target line
+  // 目標日期：新欄位 targetDate（YYYY-MM）；舊資料只有 years，換算一次
+  _targetDate(g) {
+    if (/^\d{4}-\d{2}$/.test(g.targetDate || '')) return g.targetDate;
+    const d = new Date(g.startDate || Date.now());
+    d.setMonth(d.getMonth() + Math.round((parseFloat(g.years) || 2.5) * 12));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  },
+  _state() {
     const g = this.get();
-    if (g.target > minV && g.target < maxV) {
-      const ty = yOf(g.target);
-      ctx.strokeStyle = 'rgba(226,75,74,0.5)'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
-      ctx.beginPath(); ctx.moveTo(8, ty); ctx.lineTo(W-8, ty); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(226,75,74,0.8)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
-      ctx.fillText('目標', W-4, ty-3);
-    }
+    const stock = this._stockValue();
+    const cashTWD = parseFloat(g.cashTWD) || 0, cashUSD = parseFloat(g.cashUSD) || 0;
+    const auto = stock + cashTWD + CURRENCY.toTWD(cashUSD);
+    const manual = g.assetMode === 'manual' && parseFloat(g.manualAsset) > 0;
+    const total = manual ? parseFloat(g.manualAsset) : auto;
+    const target = parseFloat(g.target) || 0;
+    const td = this._targetDate(g), [ty, tm] = td.split('-').map(Number);
+    const now = new Date();
+    const months = (ty - now.getFullYear()) * 12 + (tm - (now.getMonth() + 1));
+    const diff = target - total;
+    return { g, stock, cashTWD, cashUSD, auto, manual, total, target, td, ty, tm, months, diff,
+      pct: target > 0 ? total / target * 100 : 0,
+      perMonth: diff > 0 && months > 0 ? diff / months : null,
+      needAnnual: diff > 0 && months > 0 && total > 0 ? (Math.pow(target / total, 12 / months) - 1) * 100 : null };
+  },
+  render() {
+    const el = document.getElementById('goal-panel');
+    if (!el) return;
+    const s = this._state();
+    const n = v => Math.round(v).toLocaleString('zh-TW');
+    const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const done = s.target > 0 && s.diff <= 0;
+    const fill = Math.max(0, Math.min(100, s.pct));
+    const left = done ? '已達成' : s.months > 0 ? `還有 ${s.months} 個月` : '已過目標日';
+    let ticks = '';
+    for (let i = 0; i <= 8; i++) ticks += `<i class="${i % 2 ? 's' : ''}" style="left:${i * 12.5}%"></i>`;
+    const mkShift = fill > 88 ? '-100%' : fill < 12 ? '0%' : '-50%';
+    el.innerHTML = `
+      <div class="goal-top">
+        <h3 class="serif">${esc(s.g.purpose || '我的目標')}<small>目標日 ${s.ty} 年 ${s.tm} 月 · ${left}</small></h3>
+        <button type="button" class="set-btn" onclick="GOALS.openEdit()">編輯目標</button>
+      </div>
+      <div class="goal-main">
+        <div>
+          <div class="goal-now">目前資產${s.manual ? '<em>手動輸入</em>' : ''}</div>
+          <div class="goal-big num">${n(s.total)}<span>／ 目標 ${n(s.target)}</span></div>
+          <div class="goal-ruler${done ? ' done' : ''}">
+            <div class="line"></div><div class="fill" style="width:${fill}%"></div>${ticks}
+            <b style="left:0;transform:none">0</b><b style="left:25%">25%</b><b style="left:50%">50%</b><b style="left:75%">75%</b><b style="left:100%;transform:translateX(-100%)">目標</b>
+            <div class="mk" style="left:${fill}%;transform:translateX(${mkShift})">${done ? '已達成' : '達成'} ${s.pct.toFixed(1)}%</div>
+          </div>
+        </div>
+        <div class="goal-rows">
+          <div class="goal-row"><span>股票市值</span><strong class="num">${n(s.stock)}<small>自動</small></strong></div>
+          <div class="goal-row"><span>${done ? '超過目標' : '還差'}</span><strong class="num">${n(Math.abs(s.diff))}</strong></div>
+          <button type="button" class="goal-row edit" onclick="GOALS.openEdit('goal-cash-twd')"><span>現金（台幣）</span><strong class="num">${n(s.cashTWD)}<em>可改</em></strong></button>
+          <div class="goal-row"><span>每月需增加</span><strong class="num">${s.perMonth != null ? n(s.perMonth) : '—'}</strong></div>
+          <button type="button" class="goal-row edit" onclick="GOALS.openEdit('goal-cash-usd')"><span>現金（美元）</span><strong class="num">US$ ${s.cashUSD.toLocaleString('en-US', { maximumFractionDigits: 2 })}<em>可改</em></strong></button>
+          <div class="goal-row"><span>需要年化報酬</span><strong class="num">${s.needAnnual != null ? s.needAnnual.toFixed(1) + '%' : '—'}</strong></div>
+        </div>
+      </div>`;
+  },
+  // 舊名稱：其他地方（報價更新、匯入、同步）都還在呼叫
+  updateDashboard() { this.render(); },
 
-    // Labels
-    const isDark = true; // 淺色模式已移除，固定深色
-    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
-    ctx.font = '10px monospace'; ctx.textAlign = 'center';
-    if (history.length > 0) {
-      ctx.fillText(history[0].date.slice(5), xOf(0), H - 2);
-      ctx.fillText(history[history.length-1].date.slice(5), xOf(n-1), H - 2);
-    }
+  openEdit(focusId) {
+    const s = this._state(), g = s.g;
+    const v = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    v('goal-name', g.purpose || ''); v('goal-date', s.td); v('goal-target', s.target || '');
+    v('goal-cash-twd', s.cashTWD || ''); v('goal-cash-usd', s.cashUSD || '');
+    v('goal-manual', parseFloat(g.manualAsset) > 0 ? g.manualAsset : Math.round(s.auto) || '');
+    this._setMode(g.assetMode === 'manual' ? 'manual' : 'auto');
+    document.getElementById('goal-modal')?.classList.add('show');
+    if (focusId) setTimeout(() => { const el = document.getElementById(focusId); el?.focus(); el?.select(); }, 60);
+  },
+  _setMode(mode) {
+    const m = document.getElementById('goal-modal'); if (!m) return;
+    m._mode = mode;
+    m.querySelectorAll('.goal-mode-btn').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === mode ? 'true' : 'false'));
+    const row = document.getElementById('goal-manual-row'); if (row) row.style.display = mode === 'manual' ? '' : 'none';
+  },
+  saveEdit() {
+    const num = id => { const x = parseFloat(document.getElementById(id)?.value); return isNaN(x) ? 0 : x; };
+    const target = num('goal-target');
+    if (!(target > 0)) { showToast('請輸入目標金額'); return; }
+    const date = document.getElementById('goal-date')?.value || '';
+    if (!/^\d{4}-\d{2}$/.test(date)) { showToast('請選擇目標日期'); return; }
+    const mode = document.getElementById('goal-modal')?._mode === 'manual' ? 'manual' : 'auto';
+    const manual = num('goal-manual');
+    if (mode === 'manual' && !(manual > 0)) { showToast('請輸入目前資產金額'); return; }
+    const g = { ...this.get() };
+    g.purpose = document.getElementById('goal-name')?.value.trim() || '我的目標';
+    g.target = target; g.targetDate = date;
+    g.cashTWD = Math.max(0, num('goal-cash-twd')); g.cashUSD = Math.max(0, num('goal-cash-usd'));
+    g.assetMode = mode; if (manual > 0) g.manualAsset = manual;
+    this.save(g);
+    closeModal('goal-modal');
+    this.render();
+    showToast('目標已更新');
   },
 };
 
@@ -1838,6 +1814,7 @@ const Performance = {
   },
 
   async render() {
+    GOALS.render();
     const body = document.getElementById('perf-body');
     if (!body) return;
     body.innerHTML = `
@@ -5440,10 +5417,6 @@ const APP = {
     // 只要自訂代理存過一次壞值，就會永久蓋掉可靠的預設值，沒有任何防呆。
     // 改成把自訂代理「加進清單」當額外備援，不要取代掉可靠的預設代理。
     if (s.corsProxy && !DATA.proxies.includes(s.corsProxy)) DATA.proxies.push(s.corsProxy);
-    if (s.goalTarget) {
-      const g = GOALS.get();
-      g.target = s.goalTarget; g.years = s.goalYears; GOALS.save(g);
-    }
   },
 
   exportData() {
@@ -5933,32 +5906,12 @@ function saveSettings(keepOpen) {
   { const d = parseFloat(document.getElementById('fee-discount')?.value); s.feeDiscount = d > 0 && d <= 10 ? d : 10; }
   s.jsonbinKey  = document.getElementById('jsonbin-key')?.value.trim();
   s.jsonbinBin  = document.getElementById('jsonbin-bin')?.value.trim();
-  const gTarget = parseFloat(document.getElementById('goal-target-input')?.value) * 10000;
-  const gYears  = parseFloat(document.getElementById('goal-years-input')?.value);
-  if (gTarget && gYears) {
-    const g = GOALS.get();
-    g.target = gTarget; g.years = gYears;
-    if (!g.startDate) g.startDate = new Date().toISOString().split('T')[0];
-    if (!g.initialValue) g.initialValue = APP._calcTotalValue();
-    GOALS.save(g);
-  }
-  // 儲存現金
-  saveCashSettings();
   localStorage.setItem('twsa-settings', JSON.stringify(s));
   // ★ 同樣的修正：加進清單當備援，不要蓋掉可靠的預設代理
   if (s.corsProxy && !DATA.proxies.includes(s.corsProxy)) DATA.proxies.push(s.corsProxy);
   if (!keepOpen) { closeModal('settings-modal'); showToast('設定已儲存'); }
   GOALS.updateDashboard();
   SYNC.updateStatus();
-}
-
-function saveCashSettings() {
-  const cashTWD = parseFloat(document.getElementById('cash-twd-input')?.value) || 0;
-  const cashUSD = parseFloat(document.getElementById('cash-usd-input')?.value) || 0;
-  const g = GOALS.get();
-  g.cashTWD = cashTWD; g.cashUSD = cashUSD;
-  GOALS.save(g);
-  GOALS.updateDashboard();
 }
 
 function renderSellSignals(result) {
@@ -6037,11 +5990,5 @@ window.addEventListener('DOMContentLoaded', () => {
   APP.init();
   const today = new Date().toISOString().split('T')[0];
   ['buy-date','sell-date'].forEach(id => { const el = document.getElementById(id); if (el) el.value = today; });
-  // 載入已儲存的現金設定
-  const g = GOALS.get();
-  const cashTWD = document.getElementById('cash-twd-input');
-  const cashUSD = document.getElementById('cash-usd-input');
-  if (cashTWD && g.cashTWD) cashTWD.value = g.cashTWD;
-  if (cashUSD && g.cashUSD) cashUSD.value = g.cashUSD;
 });
 window.addEventListener('resize', () => { if (CHART.currentData.length) CHART.draw(); });

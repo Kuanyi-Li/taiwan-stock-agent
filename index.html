@@ -222,6 +222,7 @@
 
     <!-- ── 績效分析（Performance）── -->
     <div class="performance-content" id="performance-content" style="display:none">
+      <section class="goal" id="goal-panel" aria-label="目標追蹤"></section>
       <div id="perf-body"><div class="empty-state">載入中...</div></div>
     </div>
 
@@ -881,6 +882,34 @@
       </div>
     </div>
     <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('watch-modal')">取消</button><button class="btn-primary" onclick="addWatchlist()">新增</button></div>
+  </div>
+</div>
+
+<!-- 編輯目標 -->
+<div class="modal-overlay" id="goal-modal">
+  <div class="modal set-modal" role="dialog" aria-modal="true" aria-labelledby="goal-title">
+    <div class="modal-header"><h3 id="goal-title">編輯目標</h3><button class="modal-close" aria-label="關閉" onclick="closeModal('goal-modal')">✕</button></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label" for="goal-name">目標名稱</label><input type="text" id="goal-name" class="form-input" maxlength="20" placeholder="例如：買房頭期款"></div>
+        <div class="form-group"><label class="form-label" for="goal-date">目標日期</label><input type="month" id="goal-date" class="form-input"></div>
+      </div>
+      <div class="form-group"><label class="form-label" for="goal-target">目標金額（元）</label><input type="number" id="goal-target" class="form-input" min="0" step="10000" inputmode="numeric"></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label" for="goal-cash-twd">持有現金（台幣）</label><input type="number" id="goal-cash-twd" class="form-input" min="0" step="1000" inputmode="numeric" placeholder="0"></div>
+        <div class="form-group"><label class="form-label" for="goal-cash-usd">持有現金（美元）</label><input type="number" id="goal-cash-usd" class="form-input" min="0" step="0.01" inputmode="decimal" placeholder="0"></div>
+      </div>
+      <div class="form-group">
+        <span class="form-label" id="goal-mode-label">目前資產</span>
+        <div class="bt-seg" role="group" aria-labelledby="goal-mode-label">
+          <button type="button" class="goal-mode-btn" data-mode="auto" aria-pressed="true" onclick="GOALS._setMode('auto')">自動計算</button>
+          <button type="button" class="goal-mode-btn" data-mode="manual" aria-pressed="false" onclick="GOALS._setMode('manual')">手動輸入</button>
+        </div>
+        <div class="form-hint" style="margin-top:8px">自動＝股票市值（台股＋美股換算台幣）＋現金。手動＝直接填一個總額，例如想把其他帳戶也算進去。</div>
+      </div>
+      <div class="form-group" id="goal-manual-row" style="display:none"><label class="form-label" for="goal-manual">目前資產總額（元）</label><input type="number" id="goal-manual" class="form-input" min="0" step="1000" inputmode="numeric"></div>
+    </div>
+    <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('goal-modal')">取消</button><button class="btn-primary" onclick="GOALS.saveEdit()">儲存</button></div>
   </div>
 </div>
 
