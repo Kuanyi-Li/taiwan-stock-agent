@@ -5511,8 +5511,8 @@ function openAddModal() {
   // 說明
   const note = document.getElementById('add-modal-note');
   if (note) note.textContent = isUS
-    ? '💡 輸入美股代號（如 AAPL、NVDA），支援零股。已持有相同代號→自動加權合併均價。'
-    : '💡 股數填實際持有股數（零股支援）。已持有相同代號→自動加權合併均價。';
+    ? '輸入美股代號（如 AAPL、NVDA），支援零股。已持有相同代號→自動加權合併均價。'
+    : '股數填實際持有股數（零股支援）。已持有相同代號→自動加權合併均價。';
   document.getElementById('add-modal')?.classList.add('show');
 }
 
@@ -5542,8 +5542,8 @@ function openEditTrade(id) {
   const tIsUS = (t.market || 'TW') === 'US';
   const note = document.getElementById('et-note');
   if (note) note.textContent = tIsUS
-    ? '⚠️ 修改後將重新計算美股持股均價，請確認數字正確。'
-    : '⚠️ 修改後將重新計算持股均價，請確認數字正確。';
+    ? '修改後將重新計算美股持股均價，請確認數字正確。'
+    : '修改後將重新計算持股均價，請確認數字正確。';
   modal.classList.add('show');
 }
 
@@ -5683,7 +5683,7 @@ function openBuyModal(code, idx) {
   const note = document.getElementById('buy-modal-note');
   if (note) note.textContent = isUS
     ? '加碼後均價自動加權計算。美股一般無手續費，已自動記錄。'
-    : '加碼後均價自動加權計算。手續費 0.1425%（最低$20）自動計入紀錄。';
+    : '加碼後均價自動加權計算。手續費依設定的折扣自動計入紀錄（最低 $20）。';
   document.getElementById('buy-modal')?.classList.add('show');
   document.getElementById('buy-modal')._idx = idx;
 }
