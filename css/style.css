@@ -1721,6 +1721,34 @@ body .market-switch-btn.active { background: none; color: #000; }
 .chart-fail .set-btn { margin-top: 6px; }
 .chart-stale { position: absolute; left: 12px; top: 10px; z-index: 15; font-size: 11px; color: var(--gold); border: 1px solid var(--gold); background: rgba(0,0,0,0.85); padding: 3px 8px; pointer-events: none; }
 
+/* ── 個股頁：資金分配（表格） ── */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.al { padding: 20px 22px; }
+.al-hd h3 { font-size: 17px; font-weight: 600; margin: 0 0 14px; }
+.al-hd h3 small { font-family: var(--font-sans); font-weight: 400; font-size: 12px; color: var(--text-3); margin-left: 12px; }
+.al-hd2 { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
+.al-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; font-size: 12px; color: var(--text-3); }
+.al-vix { font-size: 12px; color: var(--text-3); margin-bottom: 10px; }
+.al-none { font-size: 13px; color: var(--text-2); padding: 14px 0; }
+.al-wrap { overflow-x: auto; }
+.al-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 720px; }
+.al-table th { font-size: 11px; font-weight: 400; color: var(--text-3); letter-spacing: .1em; text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--gold); white-space: nowrap; background: none; }
+.al-table td { padding: 10px; border-bottom: 1px solid var(--border); white-space: nowrap; background: none; }
+.al-table .r { text-align: right; }
+.al-table .up { color: var(--red-l); } .al-table .dn { color: var(--green-l); }
+.al-table td.al-why { white-space: normal; color: var(--text-3); font-size: 12px; line-height: 1.6; min-width: 200px; }
+.al-table.order-table { min-width: 0; }
+.al-tag { display: inline-block; font-size: 12px; padding: 1px 9px; border: 1px solid; }
+.al-tag.buy { color: var(--red-l); border-color: var(--red-l); }
+.al-tag.hold { color: #9A9AA3; border-color: #3A3A42; }
+.al-tag.sell { color: var(--green-l); border-color: var(--green-l); }
+.al-bar { display: inline-block; width: 64px; height: 3px; background: #2E2E34; vertical-align: middle; margin-right: 8px; position: relative; }
+.al-bar u { position: absolute; left: 0; top: 0; height: 3px; background: var(--gold); }
+.al-sum { display: flex; flex-wrap: wrap; gap: 8px 34px; font-size: 12px; color: var(--text-3); padding: 12px 10px 0; }
+.al-sum b { color: var(--text-1); font-weight: 500; margin-left: 8px; }
+.al-note { font-size: 11px; color: var(--text-3); line-height: 1.7; border-left: 1px solid var(--gold); padding-left: 10px; margin: 16px 0 0; }
+@media (max-width: 680px) { .al { padding: 16px 14px; } .al-hd h3 small { display: block; margin: 4px 0 0; } }
+
 /* ── 目標追蹤（績效頁最上方） ── */
 .goal { border: 1px solid var(--border); background: var(--bg-1); padding: 20px 24px; margin-bottom: 16px; }
 .goal:empty { display: none; }

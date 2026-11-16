@@ -3006,15 +3006,15 @@ const ORDER = {
         const isSell = this.score <= -0.5;
         if (isBuy || isSell) {
           const action = isBuy ? '限價買進' : '限價賣出';
-          const color = isBuy ? 'var(--green-l)' : 'var(--red)';
+          const color = isBuy ? 'var(--red-l)' : 'var(--green-l)';
           const entryDisp = `$${this.suggestEntry.toFixed(1)}`;
           const slDisp = `$${this.suggestSL.toFixed(1)}`;
           const tpDisp = `$${this.suggestTP.toFixed(1)}`;
-          orderHint = `<div style="margin-top:8px;padding:8px 10px;background:var(--bg-3);border-radius:6px;border-left:3px solid ${color};font-size:11px;line-height:1.7">
-            📋 掛單參考：<span style="color:${color};font-weight:700">${action}</span>
+          orderHint = `<div class="al-note" style="border-left-color:${color}">
+            掛單參考：<span style="color:${color};font-weight:600">${action}</span>
             <strong>${totalShares}股</strong> @ <strong>${entryDisp}</strong>
-            &nbsp;｜&nbsp;停損 <span style="color:var(--red)">${slDisp}</span>
-            &nbsp;｜&nbsp;停利 <span style="color:var(--green-l)">${tpDisp}</span>
+            &nbsp;｜&nbsp;停損 <span style="color:var(--green-l)">${slDisp}</span>
+            &nbsp;｜&nbsp;停利 <span style="color:var(--red-l)">${tpDisp}</span>
           </div>`;
         }
       }
@@ -3026,9 +3026,10 @@ const ORDER = {
     const budgetEl = document.getElementById('portfolio-budget');
     if (!budgetEl) return;
     const totalBudget = parseFloat(budgetEl.value) || 0;
-    if (!totalBudget || !APP.portfolio.length) return;
     const stocks = APP.portfolio.filter(s => s.price);
-    if (!stocks.length) return;
+    // 原本這三種情況按了按鈕沒有任何反應
+    const msg = !totalBudget ? '請先輸入可用總預算' : !APP.portfolio.length ? '還沒有持股，新增持股後才能計算分配' : !stocks.length ? '持股報價尚未載入，請稍候再試' : '';
+    if (msg) { const r = document.getElementById('portfolio-alloc-result'); if (r) r.innerHTML = `<div class="al-none">${msg}</div>`; return; }
 
     const scored = stocks.map(s => {
       let score = 0, hasAnalysis = false, reasons = [];
@@ -3104,87 +3105,43 @@ const ORDER = {
     const toReduce = scored.filter(s => s.sigTier <= 2);
     const totalScore = toBuy.reduce((a, s) => a + Math.max(0.1, s.score), 0);
 
+    const n = v => Math.round(v).toLocaleString('zh-TW');
+    const gain = s => `<span class="${s.gainPct >= 0 ? 'up' : 'dn'}">${s.gainPct >= 0 ? '+' : '−'}${Math.abs(s.gainPct).toFixed(1)}%</span>`;
+    const why = (s, extra = '') => [extra, ...s.reasons, !s.hasAnalysis ? '尚未完成技術分析' : ''].filter(Boolean).join('、');
+    const scoreTxt = s => `${s.score >= 0 ? '+' : '−'}${Math.abs(s.score).toFixed(1)}`;
+    let used = 0, fees = 0, rows = '';
+    toBuy.forEach(s => {
+      const ratio = Math.max(0.1, s.score) / totalScore;
+      const shares = Math.max(0, Math.floor(totalBudget * ratio / s.price));
+      const cost = shares * s.price, fee = shares > 0 ? calcFee(cost) : 0;
+      used += cost; fees += fee;
+      const pct = totalBudget > 0 ? cost / totalBudget * 100 : 0;
+      const big = s.score >= 3;
+      rows += `<tr>
+        <td class="num">${s.code}</td><td>${s.name}</td>
+        <td><span class="al-tag buy">${big ? '積極加碼' : '加碼'}</span></td>
+        <td class="num r">${scoreTxt(s)}</td><td class="num r">${gain(s)}</td>
+        <td class="num r">${shares > 0 ? n(shares) : '—'}</td><td class="num r">${shares > 0 ? n(cost) : '—'}</td>
+        <td class="num r"><span class="al-bar"><u style="width:${Math.min(100, pct)}%"></u></span>${pct.toFixed(0)}%</td>
+        <td class="al-why">${why(s, shares > 0 ? (big ? '分 2 批進場（今天一半，回檔再買一半）' : '單次進場') : '預算不足一股')}</td></tr>`;
+    });
+    const plain = (s, tag, cls) => `<tr>
+        <td class="num">${s.code}</td><td>${s.name}</td>
+        <td><span class="al-tag ${cls}">${tag}</span></td>
+        <td class="num r">${scoreTxt(s)}</td><td class="num r">${gain(s)}</td>
+        <td class="num r">—</td><td class="num r">—</td><td class="num r">—</td>
+        <td class="al-why">${why(s)}</td></tr>`;
+    toWatch.forEach(s => { rows += plain(s, '觀望', 'hold'); });
+    // 標籤直接用分類依據的 sigTier，和列的分類一致（原本另外呼叫 quickEstimate，可能和分類不同調）
+    toReduce.forEach(s => { rows += plain(s, s.sigTier === 0 ? '緊急出場' : s.sigTier === 1 ? '強力賣出' : '建議減碼', 'sell'); });
+
     let html = '';
-
-    // VIX 警示列
-    if (VIX.label) {
-      const vixColor = VIX.score > 0 ? 'var(--green-l)' : VIX.score < 0 ? 'var(--red)' : 'var(--amber)';
-      html += `<div class="alloc-vix-tip">
-        <span style="color:${vixColor};font-weight:600">${VIX.label} ${VIX.level}%</span>
-        <span style="color:var(--text-2)"> — ${VIX.score > 0 ? '恐慌期，逆向佈局機會' : VIX.score < 0 ? '市場過熱，謹慎追高' : '市場平穩，技術訊號較可靠'}</span>
-      </div>`;
-    }
-
-    if (toBuy.length === 0) {
-      html += `<div class="alloc-empty">目前無明確買進訊號<br><small>建議保留現金觀察，等待更好的進場時機</small></div>`;
-    } else {
-      html += `<div class="alloc-decision-header">💰 預算 ${this._fmtMoney(totalBudget)} → 分配建議</div>`;
-      toBuy.forEach(s => {
-        const ratio = Math.max(0.1, s.score) / totalScore;
-        const budget = totalBudget * ratio;
-        const shares = Math.max(0, Math.floor(budget / s.price));
-        const cost = shares * s.price;
-        const fee = calcFee(cost);
-        const sharesDisp = shares >= 1000 ? `${(shares/1000).toFixed(1)}張` : `${shares}股`;
-        const costDisp = this._fmtMoney(cost);
-        const isBig = s.score >= 3;
-        const action = isBig ? '積極買入' : '適量買入';
-        const batchNote = isBig
-          ? '建議分 <strong>2 批</strong> 進場（今 50%，低點加碼 50%）'
-          : '建議 <strong>單次</strong> 進場';
-
-        html += `<div class="alloc-decision-card buy">
-          <div class="adc-header">
-            <span class="adc-action buy">✅ ${action}</span>
-            <span class="adc-code">${s.code} ${s.name}</span>
-            <span class="adc-price">現價 $${s.price}</span>
-            <span class="adc-gain ${s.gainPct>=0?'up-color':'dn-color'}">${s.gainPct>=0?'+':''}${s.gainPct.toFixed(1)}%</span>
-          </div>
-          <div class="adc-order">
-            <div class="adc-order-main">買 <strong>${sharesDisp}</strong>，約 <strong>${costDisp}</strong>（含手續費 $${fee}）</div>
-            <div class="adc-batch">${batchNote}</div>
-          </div>
-          <div class="adc-reasons">
-            ${s.reasons.map(r => `<span class="adc-reason-tag">${r}</span>`).join('')}
-            ${!s.hasAnalysis ? '<span class="adc-reason-tag warn">需技術分析</span>' : ''}
-          </div>
-        </div>`;
-      });
-    }
-
-    if (toWatch.length > 0) {
-      html += `<div class="alloc-section-title">⚪ 持有觀望</div>`;
-      html += toWatch.map(s => `
-        <div class="alloc-decision-card watch">
-          <div class="adc-header">
-            <span class="adc-action watch">⚪ 觀望</span>
-            <span class="adc-code">${s.code} ${s.name}</span>
-            <span class="adc-gain ${s.gainPct>=0?'up-color':'dn-color'}">${s.gainPct>=0?'+':''}${s.gainPct.toFixed(1)}%</span>
-          </div>
-          <div class="adc-reasons">${s.reasons.map(r => `<span class="adc-reason-tag">${r}</span>`).join('')}</div>
-        </div>`).join('');
-    }
-
-    if (toReduce.length > 0) {
-      html += `<div class="alloc-section-title">🟠 建議減碼</div>`;
-      html += toReduce.map(s => {
-        const sig = SIGNAL.quickEstimate(s);
-        return `<div class="alloc-decision-card sell">
-          <div class="adc-header">
-            <span class="adc-action sell">${sig.short}</span>
-            <span class="adc-code">${s.code} ${s.name}</span>
-            <span class="adc-gain ${s.gainPct>=0?'up-color':'dn-color'}">${s.gainPct>=0?'+':''}${s.gainPct.toFixed(1)}%</span>
-          </div>
-          <div class="adc-reasons">${s.reasons.map(r => `<span class="adc-reason-tag warn">${r}</span>`).join('')}</div>
-        </div>`;
-      }).join('');
-    }
-
-    const usedBudget = toBuy.reduce((a, s) => {
-      const ratio = Math.max(0.1, s.score) / (totalScore || 1);
-      return a + Math.max(0, Math.floor((totalBudget * ratio) / s.price)) * s.price;
-    }, 0);
-    html += `<div class="alloc-footer">實際使用 ${this._fmtMoney(usedBudget)}，剩餘現金 <strong>${this._fmtMoney(totalBudget - usedBudget)}</strong></div>`;
+    if (VIX.label) html += `<div class="al-vix">${VIX.label} ${VIX.level}%　${VIX.score > 0 ? '恐慌期，逆向佈局機會' : VIX.score < 0 ? '市場過熱，謹慎追高' : '市場平穩，技術訊號較可靠'}</div>`;
+    if (!toBuy.length) html += `<div class="al-none">目前沒有明確的買進訊號，建議保留現金，等待更好的進場時機。</div>`;
+    html += `<div class="al-wrap"><table class="al-table">
+      <thead><tr><th>代號</th><th>名稱</th><th>建議</th><th class="r">評分</th><th class="r">損益</th><th class="r">股數</th><th class="r">金額</th><th class="r">佔預算</th><th>理由</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <div class="al-sum"><span>投入<b class="num">${n(used)}</b></span><span>保留現金<b class="num">${n(totalBudget - used)}（${totalBudget > 0 ? ((totalBudget - used) / totalBudget * 100).toFixed(0) : 0}%）</b></span><span>預估手續費<b class="num">${n(fees)}</b></span></div>`;
     el.innerHTML = html;
   },
 
