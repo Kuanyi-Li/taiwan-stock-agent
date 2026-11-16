@@ -1784,3 +1784,53 @@ body .market-switch-btn.active { background: none; color: #000; }
   .modal-footer .btn-primary, .modal-footer .btn-cancel { flex: 1; min-height: 42px; }
   .modal .form-input { font-size: 16px; } /* iOS：小於 16px 聚焦時會自動放大頁面 */
 }
+
+/* ── 個股頁：下單建議（價位尺） ── */
+.oa { padding: 20px 22px; }
+.oa-hd { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
+.oa-hd h3 { font-size: 17px; font-weight: 600; margin: 0; }
+.oa-hd h3 small { font-family: var(--font-sans); font-weight: 400; font-size: 12px; color: var(--text-3); margin-left: 12px; }
+.oa-vix { font-size: 12px; color: var(--text-3); min-height: 18px; margin-bottom: 12px; }
+.oa-lab { font-size: 11px; color: var(--text-3); letter-spacing: .14em; margin-bottom: 8px; }
+.oa-top, .oa-sec { display: grid; grid-template-columns: 280px 1fr; gap: 34px; align-items: start; }
+.oa-sec { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
+.oa-action { font-size: 36px; font-weight: 600; line-height: 1.25; margin-bottom: 8px; }
+.oa-sell { margin-top: 12px; font-size: 12px; line-height: 1.7; color: var(--text-2); border-left: 1px solid var(--green-l); padding-left: 10px; }
+.oa-empty { font-size: 12px; color: var(--text-3); padding-top: 40px; }
+.oa-ruler { position: relative; height: 112px; }
+.oa-ruler .line { position: absolute; left: 0; right: 0; top: 54px; height: 1px; background: #5A5A62; }
+.oa-ruler > i { position: absolute; top: 49px; width: 1px; height: 11px; background: #5A5A62; }
+.oa-ruler .zone { position: absolute; top: 52px; height: 5px; background: var(--gold); opacity: .6; }
+.oa-ruler .tk { position: absolute; top: 42px; width: 1px; height: 25px; background: #ECECEC; }
+.oa-ruler .tk.sl { background: var(--green-l); } .oa-ruler .tk.tp { background: var(--red-l); } .oa-ruler .tk.cost { background: #9A9AA3; }
+.oa-ruler .pt { position: absolute; text-align: center; white-space: nowrap; line-height: 1.3; }
+.oa-ruler .pt.up { top: 0; } .oa-ruler .pt.dn { top: 68px; }
+.oa-ruler .pt small { display: block; font-size: 10px; color: var(--text-3); letter-spacing: .08em; }
+.oa-ruler .pt strong { font-size: 15px; font-weight: 500; color: var(--text-1); }
+.oa-ruler .pt em { display: block; font-style: normal; font-size: 10px; color: var(--text-3); }
+.oa-ruler .pt.sl strong { color: var(--green-l); } .oa-ruler .pt.tp strong { color: var(--red-l); } .oa-ruler .pt.zone-l strong { color: var(--gold-l); }
+.oa-ruler .pt.cost strong { color: #9A9AA3; }
+.oa-ruler-note { font-size: 11px; color: var(--text-3); margin-top: 4px; line-height: 1.7; }
+.oa-str { position: relative; height: 44px; margin-top: 18px; }
+.oa-str .line { position: absolute; left: 0; right: 0; top: 12px; height: 1px; background: #5A5A62; }
+.oa-str i { position: absolute; top: 8px; width: 1px; height: 9px; background: #5A5A62; }
+.oa-str i.mid { top: 6px; height: 13px; background: #ECECEC; }
+.oa-str b { position: absolute; top: 26px; font-size: 10px; font-weight: 400; color: var(--text-3); transform: translateX(-50%); white-space: nowrap; }
+.oa-str .mk { position: absolute; top: 3px; width: 9px; height: 19px; border: 1px solid var(--gold); background: #000; transform: translateX(-50%); transition: left .5s ease; }
+.oa-str .val { position: absolute; top: -15px; font-size: 11px; color: var(--gold); white-space: nowrap; }
+.oa .pattern-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.oa .ptag, .oa .ptag.strong, .oa .ptag.match, .oa .ptag.neutral { font-size: 12px; padding: 3px 10px; border-radius: 0; background: none; border: 1px solid var(--border-md); color: var(--text-2); }
+.oa .ptag.strong { border-color: var(--gold); color: var(--gold-l); }
+.oa .ptag.neutral { color: var(--text-3); border-style: dashed; }
+.oa-why { border-left: 1px solid var(--gold); padding-left: 14px; }
+.oa-why .sig-reasons { margin: 0 0 10px; gap: 6px; }
+.oa-why .sr-tag, .oa-why .sr-tag.bull, .oa-why .sr-tag.bear { font-size: 12px; padding: 0; border-radius: 0; background: none; font-weight: 400; margin-right: 14px; }
+.oa-why .sr-tag.bull { color: var(--red-l); } .oa-why .sr-tag.bear { color: var(--green-l); }
+.oa-why .reasoning-text { font-size: 13px; line-height: 1.9; color: var(--text-2); }
+@media (max-width: 900px) { .oa-top, .oa-sec { grid-template-columns: 1fr; gap: 18px; } }
+@media (max-width: 680px) {
+  .oa { padding: 16px 14px; } .oa-hd h3 small { display: block; margin: 4px 0 0; } .oa-action { font-size: 30px; }
+  .oa-ruler .pt strong { font-size: 13px; } .oa-ruler .pt small, .oa-ruler .pt em { font-size: 9px; }
+}
+
+@media (max-width: 680px) { .oa-hd .set-btn { flex: none; padding: 7px 14px; } }

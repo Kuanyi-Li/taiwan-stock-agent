@@ -79,11 +79,11 @@ const VIX = {
     // 更新說明
     const tip = document.getElementById('vix-tip');
     const tips = {
-      'vix-extreme': '⚡ 極度恐慌，歷史上常是底部區域，逢回可逆向布局',
-      'vix-fear':    '⚠️ 市場恐慌，短期波動大，建議分批進場',
-      'vix-caution': '🔶 市場偏謹慎，控制倉位，不宜追高',
-      'vix-neutral': '✅ 市場平穩，技術面訊號較可靠',
-      'vix-greed':   '🔴 市場過熱，注意回調風險，逢高減碼',
+      'vix-extreme': '極度恐慌，歷史上常是底部區域，逢回可逆向布局',
+      'vix-fear':    '市場恐慌，短期波動大，建議分批進場',
+      'vix-caution': '市場偏謹慎，控制倉位，不宜追高',
+      'vix-neutral': '市場平穩，技術面訊號較可靠',
+      'vix-greed':   '市場過熱，注意回調風險，逢高減碼',
     };
     if (tip) tip.textContent = tips[this.cls] || '';
   },
