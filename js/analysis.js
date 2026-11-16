@@ -707,35 +707,26 @@ const ANALYSIS = {
     const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
     const setHTML = (id, val) => { const el = document.getElementById(id); if (el) el.innerHTML = val; };
 
+    // 台股慣例：買進類紅色、賣出類綠色、持有中性
     const actionColors = {
-      '買進加碼': 'var(--green-l)',
-      '買進':     'var(--green-l)',
-      '觀察買':   'var(--green-l)',
-      '賣出':     'var(--red)',
-      '觀察賣':   'var(--red-l)',
-      '考慮減碼': 'var(--amber)',
-      '持有':     'var(--amber)',
+      '買進加碼': 'var(--red-l)',
+      '買進':     'var(--red-l)',
+      '觀察買':   'var(--red-l)',
+      '賣出':     'var(--green-l)',
+      '觀察賣':   'var(--green-l)',
+      '考慮減碼': 'var(--green-l)',
+      '持有':     'var(--gold-l)',
     };
     const actionEl = document.getElementById('sig-action');
     if (actionEl) {
       actionEl.textContent = action;
-      actionEl.style.color = actionColors[action] || 'var(--amber)';
+      actionEl.style.color = actionColors[action] || 'var(--gold-l)';
     }
     setHTML('sig-action-desc', reasonHtml);
-    set('sig-entry', `$${suggestEntry}`);
-    if (isLong) {
-      set('sig-entry-desc', `長線可分批佈局，支撐 ${ind.support}`);
-      set('sig-tp', `$${tp}`);
-      set('sig-tp-desc', `長線目標+30%，壓力 ${ind.resistance}`);
-      set('sig-sl', `$${sl}`);
-      set('sig-sl-desc', '長線停損 -15%（基本面未改變則無需停損）');
-    } else {
-      set('sig-entry-desc', `支撐${ind.support}，進場區間 ${(curPrice*0.96).toFixed(1)}~${(curPrice*1.002).toFixed(1)}`);
-      set('sig-tp', `$${tp}`);
-      set('sig-tp-desc', `目標+${((tp/curPrice-1)*100).toFixed(0)}%，壓力${ind.resistance}`);
-      set('sig-sl', `$${sl}`);
-      set('sig-sl-desc', '嚴格停損 -6%');
-    }
+    const zone = isLong ? [suggestEntry, curPrice] : [+(curPrice * 0.96).toFixed(1), +(curPrice * 1.002).toFixed(1)];
+    this._renderPriceRuler({ cur: curPrice, sl, tp, zone, cost: stock?.cost, isLong, support: ind.support, resistance: ind.resistance });
+    const sub = document.getElementById('oa-sub');
+    if (sub) sub.textContent = `${APP.activeSymbol || ''} ${APP.getActiveStock()?.name || ''} · ${isLong ? '長線' : '短線'}模式`;
 
     const chip = document.getElementById('conf-chip');
     if (chip) {
@@ -743,20 +734,52 @@ const ANALYSIS = {
       chip.textContent = `${confidence} ${pct}% ｜${modeLabel}`;
       chip.className = `confidence-chip ${confClass}`;
     }
-    const bar = document.getElementById('meter-bar');
-    if (bar) {
-      const barColor = adjScore >= 3 ? '#E24B4A' : adjScore >= 1 ? '#1D9E75' : adjScore <= -3 ? '#378ADD' : adjScore <= -1 ? '#D4537E' : '#EF9F27';
-      const barPct = Math.max(5, Math.min(100, pct));
-      bar.style.cssText = `width:${barPct}%;background:${barColor};height:100%;border-radius:99px;transition:width 0.6s ease;opacity:1;min-width:8px;`;
+    const str = document.getElementById('oa-str');
+    if (str) {
+      const pos = Math.max(0, Math.min(100, pct));
+      str.innerHTML = `<div class="line"></div><i style="left:0"></i><i style="left:25%"></i><i class="mid" style="left:50%"></i><i style="left:75%"></i><i style="left:100%"></i>
+        <b style="left:0;transform:none">偏空</b><b style="left:50%">中性</b><b style="left:100%;transform:translateX(-100%)">偏多</b>
+        <div class="mk" style="left:${pos}%"></div><div class="val num" style="left:${pos}%;transform:translateX(${pos > 90 ? '-100%' : pos < 10 ? '0' : '-50%'})">${adjScore >= 0 ? '+' : '−'}${Math.abs(adjScore).toFixed(1)}</div>`;
     }
-    const mv = document.getElementById('meter-value');
-    if (mv) mv.textContent = `${pct}% / 100`;
 
     this._updateInfoGrid(ind);
     ORDER.suggestEntry = suggestEntry;
     ORDER.suggestSL = sl;
     ORDER.suggestTP = tp;
     ORDER.score = adjScore;
+  },
+
+  // 價位尺：停損、均價、進場區間、現價、停利畫在同一條線上
+  _renderPriceRuler({ cur, sl, tp, zone, cost, isLong, support, resistance }) {
+    const el = document.getElementById('oa-ruler');
+    if (!el || !(cur > 0)) return;
+    const f = v => (+v).toLocaleString('en-US', { maximumFractionDigits: v >= 1000 ? 0 : v >= 100 ? 1 : 2 });
+    const span = tp - sl, lo = sl - span * 0.08, hi = tp + span * 0.08;
+    const X = v => (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * 100;
+    const pc = v => `${v >= cur ? '+' : '−'}${Math.abs((v / cur - 1) * 100).toFixed(1)}%`;
+    let ticks = '';
+    for (let i = 0; i <= 5; i++) ticks += `<i style="left:${i * 20}%"></i>`;
+    const pt = (v, cls, pos, label, extra = '', shift = '-50%') =>
+      `<div class="tk ${cls}" style="left:${X(v)}%"></div><div class="pt ${pos} ${cls}" style="left:${X(v)}%;transform:translateX(${shift})">${pos === 'up' ? `<small>${label}</small><strong class="num">${f(v)}</strong>` : `<strong class="num">${f(v)}</strong><small>${label}</small>${extra ? `<em>${extra}</em>` : ''}`}</div>`;
+    let html = `<div class="line"></div>${ticks}<div class="zone" style="left:${X(zone[0])}%;width:${Math.max(1.2, X(zone[1]) - X(zone[0]))}%"></div>`;
+    html += pt(sl, 'sl', 'dn', '停損', pc(sl));
+    html += pt(tp, 'tp', 'dn', '停利', pc(tp));
+    html += `<div class="pt dn zone-l" style="left:${(X(zone[0]) + X(zone[1])) / 2}%;transform:translateX(-50%)"><strong class="num">${f(zone[0])} – ${f(zone[1])}</strong><small>進場區間</small></div>`;
+    // 均價和現價都標在上方；靠太近時一個靠左對齊、一個靠右對齊避免重疊
+    let curShift = '-50%', note = '';
+    if (cost > 0) {
+      const out = cost < lo || cost > hi;
+      const near = Math.abs(X(cost) - X(cur)) < 16;
+      const costLeft = cost <= cur;
+      if (near) curShift = costLeft ? '0%' : '-100%';
+      const cShift = near ? (costLeft ? '-100%' : '0%') : X(cost) < 6 ? '0%' : X(cost) > 94 ? '-100%' : '-50%';
+      if (out) note = `你的均價 ${f(cost)} 在尺的範圍外（${cost < lo ? '低於' : '高於'}顯示區間）`;
+      else html += pt(cost, 'cost', 'up', '你的均價', '', cShift);
+    }
+    html += pt(cur, 'cur', 'up', '現價', '', curShift);
+    el.innerHTML = html;
+    const n = document.getElementById('oa-ruler-note');
+    if (n) n.textContent = [note, `近 20 日支撐 ${f(support)}、壓力 ${f(resistance)}`, isLong ? '長線：基本面未變則不必機械式停損' : '短線：嚴格執行停損'].filter(Boolean).join('　·　');
   },
 
   _updateSellEngine(ind) {
@@ -772,8 +795,8 @@ const ANALYSIS = {
         if (result.urgency === 'none') {
           mergedEl.style.display = 'none';
         } else {
-          const urgLabels = { watch:'◎ 觀察減碼', sell:'▼ 建議出場', urgent:'⚠ 緊急減碼', emergency:'🔴 緊急離場' };
-          const urgColors = { watch:'var(--blue)', sell:'var(--amber)', urgent:'var(--red)', emergency:'var(--red)' };
+          const urgLabels = { watch:'觀察減碼', sell:'建議出場', urgent:'緊急減碼', emergency:'緊急離場' };
+          const urgColors = { watch:'var(--gold)', sell:'var(--green-l)', urgent:'var(--green-l)', emergency:'var(--green-l)' };
           const topSignal = result.signals[0];
           mergedEl.style.display = 'block';
           mergedEl.innerHTML = `<span style="color:${urgColors[result.urgency]};font-weight:600">${urgLabels[result.urgency]}</span>${topSignal ? `：${topSignal.label} — ${topSignal.desc}` : ''}`;

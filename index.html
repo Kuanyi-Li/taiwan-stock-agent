@@ -480,62 +480,39 @@
 
       <!-- ── AI 下單建議 ── -->
       <div class="main-tab-pane active" id="mtab-ai">
-        <div class="ai-header">
-          <div class="ai-title">
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1C4.186 1 1.5 3.686 1.5 7s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6z" stroke="#C9A55C" stroke-width="1"/><path d="M5 7.5l2 2 3.5-4" stroke="#C9A55C" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            AI 下單建議引擎
+        <div class="oa">
+          <div class="oa-hd">
+            <h3 class="serif">下單建議<small id="oa-sub"></small></h3>
+            <button type="button" class="set-btn" onclick="runAnalysis()">重新分析</button>
           </div>
-          <div class="ai-header-right">
-            <span class="confidence-chip mid" id="conf-chip">—</span>
-            <button class="analyze-btn" onclick="runAnalysis()">↺ 重新分析</button>
-          </div>
-        </div>
-        <div class="ai-body">
-          <!-- VIX 市場狀況 -->
-          <div class="vix-info-bar" id="vix-tip"></div>
-          <div class="signals-row">
-            <div class="signal-block signal-action signal-action-big">
-              <div class="sig-label">📊 建議動作</div>
-              <div class="sig-value" id="sig-action">—</div>
-              <div class="sig-desc" id="sig-action-desc">請先選擇股票並執行分析</div>
-              <!-- 整合賣出提示 -->
-              <div id="sig-sell-hint" style="display:none;margin-top:8px;font-size:12px;padding:6px 10px;background:rgba(226,75,74,0.1);border-radius:6px;border-left:3px solid var(--amber)"></div>
+          <div class="oa-vix" id="vix-tip"></div>
+          <div class="oa-top">
+            <div class="oa-act">
+              <div class="oa-lab">建議動作</div>
+              <div class="oa-action serif" id="sig-action">—</div>
+              <span class="confidence-chip mid" id="conf-chip">—</span>
+              <div class="oa-sell" id="sig-sell-hint" style="display:none"></div>
             </div>
-            <div class="signal-block signal-entry">
-              <div class="sig-label">建議進場價</div>
-              <div class="sig-value" id="sig-entry">—</div>
-              <div class="sig-desc" id="sig-entry-desc">—</div>
-            </div>
-            <div class="signal-block signal-tp">
-              <div class="sig-label">停利目標</div>
-              <div class="sig-value" id="sig-tp">—</div>
-              <div class="sig-desc" id="sig-tp-desc">—</div>
-            </div>
-            <div class="signal-block signal-sl">
-              <div class="sig-label">停損設定</div>
-              <div class="sig-value" id="sig-sl">—</div>
-              <div class="sig-desc" id="sig-sl-desc">—</div>
+            <div>
+              <div class="oa-lab">價位尺</div>
+              <div class="oa-ruler" id="oa-ruler"><div class="oa-empty">選擇股票並完成分析後顯示</div></div>
+              <div class="oa-ruler-note" id="oa-ruler-note"></div>
             </div>
           </div>
-
-          <div class="pattern-section">
-            <div class="pattern-title">型態比對</div>
-            <div class="pattern-tags" id="pattern-tags"></div>
-            <div class="pattern-meter">
-              <div class="meter-label">綜合信號強度</div>
-              <div class="meter-bar-wrap"><div class="meter-bar" id="meter-bar" style="width:50%"></div></div>
-              <div class="meter-value" id="meter-value">—</div>
+          <div class="oa-sec">
+            <div>
+              <div class="oa-lab">綜合訊號強度</div>
+              <div class="oa-str" id="oa-str"></div>
+              <div class="oa-lab" style="margin-top:18px">型態</div>
+              <div class="pattern-tags" id="pattern-tags"></div>
             </div>
-          </div>
-
-          <div class="ai-reasoning">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="flex-shrink:0;margin-top:1px"><rect x="1" y="1" width="12" height="12" rx="3" stroke="#C9A55C" stroke-width="1"/><path d="M4 5h6M4 7h6M4 9h4" stroke="#C9A55C" stroke-width="1" stroke-linecap="round"/></svg>
-            <div class="reasoning-text" id="reasoning-text">請先選擇持股或自選股，系統將自動執行技術分析與型態比對。</div>
-          </div>
-
-          <!-- Per-stock Order Plan - 移至「資金分配」tab，此處僅保留快捷進場參考 -->
-          <div class="order-section" style="background:var(--bg-3);border-color:var(--border-md)">
-            <div style="font-size:11px;color:var(--text-3)">💡 個股進場計算已整合至「資金分配」tab，可在那裡輸入總預算，一次得到所有持股的分配建議。</div>
+            <div>
+              <div class="oa-lab">判斷依據</div>
+              <div class="oa-why">
+                <div id="sig-action-desc"></div>
+                <div class="reasoning-text" id="reasoning-text">請先選擇持股或自選股，系統將自動執行技術分析與型態比對。</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
