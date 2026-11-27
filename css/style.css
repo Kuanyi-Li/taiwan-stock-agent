@@ -1834,3 +1834,5 @@ body .market-switch-btn.active { background: none; color: #000; }
 }
 
 @media (max-width: 680px) { .oa-hd .set-btn { flex: none; padding: 7px 14px; } }
+
+.dl-stale { color: var(--gold); }
