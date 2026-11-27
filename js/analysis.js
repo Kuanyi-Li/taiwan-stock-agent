@@ -727,13 +727,18 @@ const ANALYSIS = {
     this._renderPriceRuler({ cur: curPrice, sl, tp, zone, cost: stock?.cost, isLong, support: ind.support, resistance: ind.resistance });
     const sub = document.getElementById('oa-sub');
     if (sub) sub.textContent = `${APP.activeSymbol || ''} ${APP.getActiveStock()?.name || ''} · ${isLong ? '長線' : '短線'}模式`;
-    // 虧損停損關閉時提醒一下目前虧損幅度，避免忘記
+    // 停損狀態：和建議動作分開標示
     const lo = document.getElementById('oa-lossoff');
     if (lo) {
       const g = stock?.cost ? (curPrice - stock.cost) / stock.cost * 100 : 0;
-      const show = !SIGNAL.lossStopOn() && g <= (isLong ? -15 : -6);
-      lo.style.display = show ? '' : 'none';
-      if (show) lo.textContent = `已關閉虧損停損（目前 −${Math.abs(g).toFixed(1)}%），訊號目前只看技術面`;
+      const st = SIGNAL.stopLevel(g, isLong ? 'long' : 'short');
+      lo.style.display = st ? '' : 'none';
+      lo.className = `oa-lossoff ${st?.level || ''}`;
+      if (st) {
+        const m = v => `−${Math.abs(v)}%`;
+        const t = isLong ? `長線門檻 ${m(SIGNAL.STOP.long.review)} 評估、${m(SIGNAL.STOP.long.stop)} 停損` : `短線門檻 ${m(SIGNAL.STOP.short.stop)}`;
+        lo.textContent = `${st.level === 'stop' ? '已觸及停損線' : '已達停損評估線'}（−${Math.abs(g).toFixed(1)}%，${t}）`;
+      }
     }
 
     const chip = document.getElementById('conf-chip');
@@ -922,8 +927,7 @@ const SELL = {
       : true;
 
     if (stock) {
-      let gainPct = (currentPrice - stock.cost) / stock.cost * 100;
-      if (typeof SIGNAL !== 'undefined' && !SIGNAL.lossStopOn()) gainPct = Math.max(0, gainPct); // 虧損停損已關閉
+      const gainPct = Math.max(0, (currentPrice - stock.cost) / stock.cost * 100); // 虧損由停損標示另外處理，不進賣出引擎
       if (isLong) {
         // ★ 長線：基本面導向，價格停損只在極端情況
         if (gainPct >= 100) {

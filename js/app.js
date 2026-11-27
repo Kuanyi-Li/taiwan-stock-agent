@@ -540,10 +540,19 @@ const SIGNAL = {
   // vixOverride: 選填，讓呼叫端明確指定要用的VIX調整值。不傳的話預設讀取「現在」的VIX（即時系統用）。
   // 回測一定要明確傳0，因為VIX.score是全域變數、只反映「現在當下」的VIX，
   // 沒有辦法查到「歷史上某一天的VIX是多少」，拿現在的VIX套用在模擬的歷史某一天身上就是偷看未來。
-  // 設定裡的「虧損停損」開關（預設開）：關掉後虧損幅度不再強制觸發減碼／出場，只看技術面
-  lossStopOn() { return (typeof APP === 'undefined') || APP.settings?.lossStop !== false; },
+  // ★ 停損和買賣訊號分開：訊號（買入／賣出／持有）只看市場面，虧損不再強制改成減碼或緊急出場；
+  // 停損狀態另外標在損益欄和下單建議（stopLevel）。
+  // 門檻：長線 −15% 停損評估、−25% 停損；短線 −8% 停損
+  STOP: { long: { review: -15, stop: -25 }, short: { stop: -8 } },
+  stopLevel(gainPct, mode = 'long') {
+    if (!(gainPct < 0)) return null;
+    const t = mode === 'short' ? this.STOP.short : this.STOP.long;
+    if (gainPct <= t.stop) return { level: 'stop', label: '停損', threshold: t.stop };
+    if (t.review != null && gainPct <= t.review) return { level: 'review', label: '停損評估', threshold: t.review };
+    return null;
+  },
   fromScore(score, gainPct, supportBreak, mode = 'long', vixOverride = null) {
-    if (!this.lossStopOn()) gainPct = Math.max(0, gainPct); // 虧損視為 0，獲利規則照舊
+    gainPct = Math.max(0, gainPct); // 虧損由 stopLevel 另外標示，不影響訊號；獲利規則照舊
     const vixAdj = vixOverride != null ? vixOverride : (VIX.score || 0);
     const adjusted = score + vixAdj * 0.5;
     const isLong = mode === 'long';
@@ -597,8 +606,7 @@ const SIGNAL = {
     }
 
     // 無快取 → 純損益%估算
-    let gainPct = stock.cost ? (stock.price - stock.cost) / stock.cost * 100 : 0;
-    if (!this.lossStopOn()) gainPct = Math.max(0, gainPct);
+    const gainPct = Math.max(0, stock.cost ? (stock.price - stock.cost) / stock.cost * 100 : 0); // 虧損另外標示
     if (isLong) {
       // 長線：停損門檻更寬
       if (gainPct <= -15) return this.LEVELS[0];
@@ -2546,6 +2554,15 @@ const Dashboard = {
       ppEl.className = 'num lg-pnlpct ' + pc;
       ppEl.textContent = `${pnlPct >= 0 ? '+' : '−'}${Math.abs(pnlPct).toFixed(1)}%` +
         (isUS ? ` ≈${r.pnl >= 0 ? '+' : '−'}${Math.abs(Math.round(r.pnl)).toLocaleString('en-US')}元` : '');
+      // 停損標籤：和買賣訊號分開顯示
+      const st = SIGNAL.stopLevel(pnlPct, APP.getStockMode(s.code));
+      if (st) {
+        const tag = document.createElement('span');
+        tag.className = `lg-stop ${st.level}`;
+        tag.textContent = st.label;
+        tag.title = `虧損 −${Math.abs(pnlPct).toFixed(1)}%，已達${APP.getStockMode(s.code) === 'short' ? '短線' : '長線'}${st.label}線 −${Math.abs(st.threshold)}%`;
+        ppEl.appendChild(tag);
+      }
     }
     this._updateSignal(code);
   },
@@ -5492,7 +5509,6 @@ function openSettings() {
   document.getElementById('settings-btn')?.classList.add('active');
   SYNC.updateStatus();
   { const el = document.getElementById('fee-discount'); const d = APP.settings?.feeDiscount; if (el) el.value = d > 0 ? d : 10; }
-  { const el = document.getElementById('loss-stop'); if (el) el.checked = APP.settings?.lossStop !== false; }
 }
 function runAnalysis() {
   const code = APP.activeSymbol;
@@ -5915,15 +5931,8 @@ function saveSettings(keepOpen) {
   { const d = parseFloat(document.getElementById('fee-discount')?.value); s.feeDiscount = d > 0 && d <= 10 ? d : 10; }
   s.jsonbinKey  = document.getElementById('jsonbin-key')?.value.trim();
   s.jsonbinBin  = document.getElementById('jsonbin-bin')?.value.trim();
-  const lsEl = document.getElementById('loss-stop');
-  const lossChanged = lsEl && (s.lossStop !== false) !== lsEl.checked;
-  if (lsEl) s.lossStop = lsEl.checked;
+  delete s.lossStop; // 舊版開關已移除
   localStorage.setItem('twsa-settings', JSON.stringify(s));
-  if (lossChanged) { // 訊號規則變了：重畫帳冊與個股頁
-    try { Dashboard.refreshSignals(); } catch(e) {}
-    try { APP.renderStockList?.(); } catch(e) {}
-    if (APP.activeSymbol && ANALYSIS._cache[APP.activeSymbol]) { try { runAnalysis(); } catch(e) {} }
-  }
   // ★ 同樣的修正：加進清單當備援，不要蓋掉可靠的預設代理
   if (s.corsProxy && !DATA.proxies.includes(s.corsProxy)) DATA.proxies.push(s.corsProxy);
   if (!keepOpen) { closeModal('settings-modal'); showToast('設定已儲存'); }
