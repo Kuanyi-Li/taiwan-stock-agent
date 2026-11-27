@@ -267,70 +267,124 @@ const DATA = {
 
   // ── 三大法人買賣超（外資/投信/自營商，只有台股有）────
   institutionalCache: null, // { date, byCode: {code: {foreign, trust, dealer, total}} }
-  _instHistKey() { return 'stock-agent-inst-hist'; }, // 自我累積的歷史（供之後算連續買賣超天數用）
+  // ★ 歷史只存「持股＋自選」的台股，不存全市場：
+  // 舊版每天存全市場約 13,000 檔（一天約 1MB），存到第 5 天就把瀏覽器 5MB 上限塞滿，
+  // 之後每天寫入都靜默失敗，法人資料永遠停在那 5 天，也讓整個網站幾乎沒有儲存空間。
+  _instHistKey() { return 'stock-agent-inst-hist2'; },
+  _INST_OLD_KEY: 'stock-agent-inst-hist',
+  _INST_DAYS: 20,
 
-  async fetchInstitutional() {
+  // 證交所 T86 欄位（單位：股）：4 外陸資買賣超、10 投信買賣超、11 自營商買賣超、18 三大法人買賣超
+  // （舊版誤取 2＝外資「買進」股數、9＝投信「賣出」股數）
+  _parseT86(json) {
+    const n = v => parseInt(String(v ?? '0').replace(/,/g, '')) || 0;
+    const byCode = {};
+    (json?.data || []).forEach(row => {
+      const code = row[0]?.trim();
+      if (code) byCode[code] = { foreign: n(row[4]), trust: n(row[10]), dealer: n(row[11]), total: n(row[18]) };
+    });
+    return byCode;
+  },
+  async _fetchT86(dateStr) {
+    const url = `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALL&response=json`;
+    // 這個端點約 1.5MB：先直接走主要代理，失敗才用完整輪替
+    let res;
+    try {
+      res = await fetch(this.proxies[0] + encodeURIComponent(url), { signal: AbortSignal.timeout(12000) });
+      if (!res.ok) throw new Error('primary proxy not ok');
+    } catch(primaryErr) {
+      res = await this._fetch(url);
+    }
+    const json = await res.json();
+    return json?.stat === 'OK' && json.data?.length ? json : null;
+  },
+  _ymd(d) { return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`; },
+  // 要記錄歷史的代號：台股持股＋台股自選
+  _instCodes() {
+    if (typeof APP === 'undefined') return [];
+    return [...new Set([...(APP._twPortfolio || []), ...(APP._twWatchlist || [])].map(s => s.code))];
+  },
+
+  // 同時有好幾處呼叫（總覽、個股頁、選股）時共用同一個請求，不重複下載 1.5MB
+  fetchInstitutional() {
     const todayStr = this._localDateStr(new Date());
-    if (this.institutionalCache?.date === todayStr) return this.institutionalCache;
+    // 今天的還沒公布時，30 分鐘內不重抓（沿用最近一個交易日）
+    const c = this.institutionalCache;
+    if (c && (c.date === todayStr || Date.now() - (c.checkedAt || 0) < 30 * 60000)) return Promise.resolve(c);
+    if (!this._instInflight) this._instInflight = this._fetchInstitutionalOnce().finally(() => { this._instInflight = null; });
+    return this._instInflight;
+  },
+  async _fetchInstitutionalOnce() {
 
     // 找最近一個有交易的日期（今天是假日/還沒收盤時，抓最近一個交易日的資料）
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 7; i++) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const weekday = d.getDay();
-      if (weekday === 0 || weekday === 6) continue;
-      const dateStr = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+      if (d.getDay() === 0 || d.getDay() === 6) continue;
       try {
-        const url = `https://www.twse.com.tw/rwd/zh/fund/T86?date=${dateStr}&selectType=ALL&response=json`;
-        // ★ 修正：這個端點資料量特別大（全市場約15000筆），實測發現如果 _fetch() 的代理輪替
-        // 剛好從一個對這麼大檔案處理很慢/會失敗的代理開始試，光繞過去找到能用的那個
-        // 就可能花40秒以上，導致整個函式常常悄悄失敗回傳null（畫面顯示「暫無資料」）。
-        // 改成優先直接打已知可靠的主要代理，只有失敗才退回完整的輪替機制當備援。
-        let res;
-        try {
-          res = await fetch(this.proxies[0] + encodeURIComponent(url), { signal: AbortSignal.timeout(9000) });
-          if (!res.ok) throw new Error('primary proxy not ok');
-        } catch(primaryErr) {
-          res = await this._fetch(url); // 主要代理失敗才用完整輪替機制
-        }
-        const json = await res.json();
-        if (!json?.data?.length) continue; // 這天沒資料（假日/尚未公布），試前一天
-
-        const byCode = {};
-        json.data.forEach(row => {
-          const code = row[0]?.trim();
-          if (!code) return;
-          const foreign = parseInt((row[2] || '0').replace(/,/g, '')) || 0; // 外資買賣超（不含自營商）
-          const trust   = parseInt((row[9] || '0').replace(/,/g, '')) || 0; // 投信買賣超
-          const dealer  = parseInt((row[11] || '0').replace(/,/g, '')) || 0; // 自營商買賣超（合計）
-          const total   = parseInt((row[18] || '0').replace(/,/g, '')) || 0; // 三大法人合計
-          byCode[code] = { foreign, trust, dealer, total };
-        });
-
-        this.institutionalCache = { date: this._localDateStr(d), byCode };
+        const json = await this._fetchT86(this._ymd(d));
+        if (!json) continue; // 這天沒資料（假日/尚未公布），試前一天
+        const byCode = this._parseT86(json);
+        this.institutionalCache = { date: this._localDateStr(d), byCode, checkedAt: Date.now() };
         this._trackInstHistory(this._localDateStr(d), byCode);
+        this._backfillInst(); // 背景補齊最近 5 個交易日，不等它
         return this.institutionalCache;
       } catch(e) { /* 這天失敗，試前一天 */ }
     }
     return null;
   },
 
-  // 自我累積每日三大法人買賣超歷史（存最近14天，供算「連續買超天數」等用）
+  // 只保留要追蹤的代號；寫入失敗時明確記錄（不再靜默吞掉）
   _trackInstHistory(dateStr, byCode) {
     try {
+      localStorage.removeItem(this._INST_OLD_KEY); // 清掉舊版塞爆空間的全市場歷史
+      const codes = this._instCodes();
       const hist = JSON.parse(localStorage.getItem(this._instHistKey()) || '{}');
-      hist[dateStr] = byCode;
+      const day = hist[dateStr] || {};
+      codes.forEach(c => { if (byCode[c]) day[c] = byCode[c]; });
+      // _asked：這天抓過哪些代號（上櫃股不在證交所 T86 裡，沒這個紀錄會每次都重抓）
+      day._asked = [...new Set([...(day._asked || []), ...codes])];
+      hist[dateStr] = day;
       const dates = Object.keys(hist).sort();
-      if (dates.length > 14) dates.slice(0, dates.length - 14).forEach(d => delete hist[d]);
+      if (dates.length > this._INST_DAYS) dates.slice(0, dates.length - this._INST_DAYS).forEach(k => delete hist[k]);
       localStorage.setItem(this._instHistKey(), JSON.stringify(hist));
-    } catch(e) {}
+    } catch(e) { console.warn('[法人] 歷史寫入失敗', e); }
   },
 
+  // 補齊最近 5 個交易日：缺日期、或新加入的持股在那天沒有資料時才重抓（每次開網站最多跑一次）
+  async _backfillInst() {
+    if (this._instBackfilling || this._instBackfilled) return;
+    this._instBackfilling = true;
+    try {
+      const codes = this._instCodes();
+      if (!codes.length) return;
+      const hist = JSON.parse(localStorage.getItem(this._instHistKey()) || '{}');
+      let found = 0;
+      for (let i = 0; i < 12 && found < 5; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        if (d.getDay() === 0 || d.getDay() === 6) continue;
+        const key = this._localDateStr(d);
+        const have = hist[key];
+        if (have && codes.every(c => (have._asked || []).includes(c))) { found++; continue; }
+        try {
+          const json = await this._fetchT86(this._ymd(d));
+          if (!json) continue; // 假日或尚未公布
+          found++;
+          this._trackInstHistory(key, this._parseT86(json));
+        } catch(e) { /* 這天抓不到就跳過 */ }
+      }
+      this._instBackfilled = true;
+      if (typeof DETAIL !== 'undefined' && typeof APP !== 'undefined' && APP.activeSymbol && !this.isUSCode(APP.activeSymbol)) DETAIL.renderLower?.();
+    } catch(e) {} finally { this._instBackfilling = false; }
+  },
+
+  // 只回傳「有這檔資料」的日期，避免沒資料的日子被當成 0 畫出來
   getInstHistory(code) {
     try {
       const hist = JSON.parse(localStorage.getItem(this._instHistKey()) || '{}');
-      const dates = Object.keys(hist).sort();
-      return dates.map(d => ({ date: d, ...(hist[d][code] || { foreign:0, trust:0, dealer:0, total:0 }) }));
+      if (code === '_asked') return [];
+      return Object.keys(hist).sort().filter(d => hist[d][code]).map(d => ({ date: d, ...hist[d][code] }));
     } catch(e) { return []; }
   },
 

@@ -1022,7 +1022,11 @@ const DETAIL = {
         const mx = Math.max(1, ...hist.map(h => Math.abs(h.total)));
         const lot = n => (n >= 0 ? '+' : '−') + Math.round(Math.abs(n) / 1000).toLocaleString('en-US') + '張';
         const last = hist[hist.length - 1];
+        // 標出資料日；超過 7 天沒更新就明講是舊資料
+        const lastD = new Date(last.date + 'T00:00:00'), age = (Date.now() - lastD) / 864e5;
+        const dateRow = `<div class="da-row"><span>資料日</span><span class="num ${age > 7 ? 'dl-stale' : ''}">${lastD.getMonth() + 1}/${lastD.getDate()}${age > 7 ? '（舊資料）' : ''}</span></div>`;
         inst = `<div class="dl-bars">${hist.map(h => `<div class="dl-bar" title="${h.date}　合計 ${lot(h.total)}"><i class="${h.total >= 0 ? 'up' : 'dn'}" style="height:${Math.max(3, Math.abs(h.total) / mx * 30).toFixed(0)}px;${h.total >= 0 ? 'bottom:50%' : 'top:50%'}"></i><em>${h.date.slice(-5).replace('-', '/')}</em></div>`).join('')}<i class="dl-zero"></i></div>
+          ${dateRow}
           <div class="da-row"><span>外資</span><span class="num ${last.foreign >= 0 ? 'up' : 'dn'}">${lot(last.foreign)}</span></div>
           <div class="da-row"><span>投信</span><span class="num ${last.trust >= 0 ? 'up' : 'dn'}">${lot(last.trust)}</span></div>
           <div class="da-row"><span>自營商</span><span class="num ${last.dealer >= 0 ? 'up' : 'dn'}">${lot(last.dealer)}</span></div>`;
