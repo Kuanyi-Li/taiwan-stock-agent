@@ -491,6 +491,7 @@
               <div class="oa-lab">建議動作</div>
               <div class="oa-action serif" id="sig-action">—</div>
               <span class="confidence-chip mid" id="conf-chip">—</span>
+              <div class="oa-lossoff" id="oa-lossoff" style="display:none"></div>
               <div class="oa-sell" id="sig-sell-hint" style="display:none"></div>
             </div>
             <div>
@@ -920,6 +921,16 @@
           <input type="number" id="fee-discount" class="form-input" min="0.1" max="10" step="0.1" value="10">
           <div class="form-hint">牌告 0.1425% 打幾折；10 = 不打折，例如 5.2 折填 5.2。僅台股，最低 $20。</div>
         </div>
+      </section>
+
+      <section class="set-sec">
+        <div class="set-h"><span>訊號規則</span></div>
+        <label class="set-switch" for="loss-stop">
+          <input type="checkbox" id="loss-stop" checked>
+          <span class="set-switch-ui" aria-hidden="true"></span>
+          <span>虧損停損</span>
+        </label>
+        <div class="form-hint">開啟：虧損到一定幅度會強制建議減碼或出場（長線 −15% 起、短線 −6% 起），不論技術面。<br>關閉：訊號只看技術面；技術面轉弱一樣會建議賣出，虧損幅度只在下單建議顯示提醒。</div>
       </section>
 
       <section class="set-sec">

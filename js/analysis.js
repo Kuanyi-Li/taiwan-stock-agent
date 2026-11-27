@@ -727,6 +727,14 @@ const ANALYSIS = {
     this._renderPriceRuler({ cur: curPrice, sl, tp, zone, cost: stock?.cost, isLong, support: ind.support, resistance: ind.resistance });
     const sub = document.getElementById('oa-sub');
     if (sub) sub.textContent = `${APP.activeSymbol || ''} ${APP.getActiveStock()?.name || ''} · ${isLong ? '長線' : '短線'}模式`;
+    // 虧損停損關閉時提醒一下目前虧損幅度，避免忘記
+    const lo = document.getElementById('oa-lossoff');
+    if (lo) {
+      const g = stock?.cost ? (curPrice - stock.cost) / stock.cost * 100 : 0;
+      const show = !SIGNAL.lossStopOn() && g <= (isLong ? -15 : -6);
+      lo.style.display = show ? '' : 'none';
+      if (show) lo.textContent = `已關閉虧損停損（目前 −${Math.abs(g).toFixed(1)}%），訊號目前只看技術面`;
+    }
 
     const chip = document.getElementById('conf-chip');
     if (chip) {
@@ -914,7 +922,8 @@ const SELL = {
       : true;
 
     if (stock) {
-      const gainPct = (currentPrice - stock.cost) / stock.cost * 100;
+      let gainPct = (currentPrice - stock.cost) / stock.cost * 100;
+      if (typeof SIGNAL !== 'undefined' && !SIGNAL.lossStopOn()) gainPct = Math.max(0, gainPct); // 虧損停損已關閉
       if (isLong) {
         // ★ 長線：基本面導向，價格停損只在極端情況
         if (gainPct >= 100) {

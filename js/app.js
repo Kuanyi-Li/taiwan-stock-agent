@@ -540,7 +540,10 @@ const SIGNAL = {
   // vixOverride: 選填，讓呼叫端明確指定要用的VIX調整值。不傳的話預設讀取「現在」的VIX（即時系統用）。
   // 回測一定要明確傳0，因為VIX.score是全域變數、只反映「現在當下」的VIX，
   // 沒有辦法查到「歷史上某一天的VIX是多少」，拿現在的VIX套用在模擬的歷史某一天身上就是偷看未來。
+  // 設定裡的「虧損停損」開關（預設開）：關掉後虧損幅度不再強制觸發減碼／出場，只看技術面
+  lossStopOn() { return (typeof APP === 'undefined') || APP.settings?.lossStop !== false; },
   fromScore(score, gainPct, supportBreak, mode = 'long', vixOverride = null) {
+    if (!this.lossStopOn()) gainPct = Math.max(0, gainPct); // 虧損視為 0，獲利規則照舊
     const vixAdj = vixOverride != null ? vixOverride : (VIX.score || 0);
     const adjusted = score + vixAdj * 0.5;
     const isLong = mode === 'long';
@@ -594,7 +597,8 @@ const SIGNAL = {
     }
 
     // 無快取 → 純損益%估算
-    const gainPct = stock.cost ? (stock.price - stock.cost) / stock.cost * 100 : 0;
+    let gainPct = stock.cost ? (stock.price - stock.cost) / stock.cost * 100 : 0;
+    if (!this.lossStopOn()) gainPct = Math.max(0, gainPct);
     if (isLong) {
       // 長線：停損門檻更寬
       if (gainPct <= -15) return this.LEVELS[0];
@@ -5488,6 +5492,7 @@ function openSettings() {
   document.getElementById('settings-btn')?.classList.add('active');
   SYNC.updateStatus();
   { const el = document.getElementById('fee-discount'); const d = APP.settings?.feeDiscount; if (el) el.value = d > 0 ? d : 10; }
+  { const el = document.getElementById('loss-stop'); if (el) el.checked = APP.settings?.lossStop !== false; }
 }
 function runAnalysis() {
   const code = APP.activeSymbol;
@@ -5910,7 +5915,15 @@ function saveSettings(keepOpen) {
   { const d = parseFloat(document.getElementById('fee-discount')?.value); s.feeDiscount = d > 0 && d <= 10 ? d : 10; }
   s.jsonbinKey  = document.getElementById('jsonbin-key')?.value.trim();
   s.jsonbinBin  = document.getElementById('jsonbin-bin')?.value.trim();
+  const lsEl = document.getElementById('loss-stop');
+  const lossChanged = lsEl && (s.lossStop !== false) !== lsEl.checked;
+  if (lsEl) s.lossStop = lsEl.checked;
   localStorage.setItem('twsa-settings', JSON.stringify(s));
+  if (lossChanged) { // 訊號規則變了：重畫帳冊與個股頁
+    try { Dashboard.refreshSignals(); } catch(e) {}
+    try { APP.renderStockList?.(); } catch(e) {}
+    if (APP.activeSymbol && ANALYSIS._cache[APP.activeSymbol]) { try { runAnalysis(); } catch(e) {} }
+  }
   // ★ 同樣的修正：加進清單當備援，不要蓋掉可靠的預設代理
   if (s.corsProxy && !DATA.proxies.includes(s.corsProxy)) DATA.proxies.push(s.corsProxy);
   if (!keepOpen) { closeModal('settings-modal'); showToast('設定已儲存'); }
